@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Local env files (NEVER commit secrets)
+.env
+.env.*.local
+!.env.example
+
+# Netlify
+.netlify
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
