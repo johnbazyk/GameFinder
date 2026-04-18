@@ -19,6 +19,7 @@ dist-ssr
 
 # Netlify
 .netlify
+deno.lock
 
 # Editor directories and files
 .vscode/*
