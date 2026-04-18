@@ -29,11 +29,12 @@ const COST_PER_EMBEDDING_TOKEN = 0.02 / 1_000_000;
 const INVOCATION_BUDGET_USD = 1.0;
 const CONFIDENCE_THRESHOLD = 0.7;
 
-// Cap Haiku input length to keep each extraction call under Netlify's sync
-// function timeout (30s). A full 55KB BGG page otherwise takes 40-60s to
-// extract. ~25k chars is ~6k tokens — plenty of context for rules content
-// and the first section of a BGG overview, which is where rule intros live.
-const INPUT_MARKDOWN_MAX_CHARS = 25_000;
+// Cap Haiku input length so the end-to-end per-invocation wall-clock stays
+// under Netlify's 30s edge-inactivity timeout. A full 55KB BGG page produces
+// ~5k output tokens, which at Haiku's generation speed pushes past 30s even
+// with parallel sources. ~15k chars (~4k input tokens) keeps output around
+// ~3k tokens and leaves headroom for the embedding + DB write phases.
+const INPUT_MARKDOWN_MAX_CHARS = 15_000;
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const json = (statusCode: number, body: unknown) => ({
