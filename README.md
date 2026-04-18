@@ -1,69 +1,39 @@
-# React + TypeScript + Vite
+# GameFinder
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+AI board game recommendations + AI Game Coach. Phase 0 web prototype.
 
-Currently, two official plugins are available:
+Live: https://gamefinderapp.netlify.app
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Stack
 
-## Expanding the ESLint configuration
+Vite 7 + React + TypeScript + Tailwind v3, Supabase (Postgres + pgvector + Edge Functions), Netlify (Functions + hosting).
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Local setup
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Requires Node 20+, the `netlify` CLI (`npm i -g netlify-cli`), and a Netlify account linked to this site.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+git clone https://github.com/johnbazyk/GameFinder.git
+cd GameFinder
+npm install
+cp .env.example .env
+# fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+netlify dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+`netlify dev` boots Vite on `http://localhost:5173` and proxies functions at `http://localhost:8888/.netlify/functions/<name>`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+To run only Vite (no functions): `npm run dev`.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Deploy
+
+Pushes to `main` trigger an automatic Netlify build and deploy. Build settings live in `netlify.toml`. Site env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) are configured in the Netlify dashboard.
+
+## Env vars
+
+**Never commit `.env`.** It is gitignored. Use `.env.example` as the template for required keys.
+
+| Key | Where used |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Browser — Supabase client |
+| `VITE_SUPABASE_ANON_KEY` | Browser — Supabase client |
