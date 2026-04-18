@@ -6,7 +6,7 @@ const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 const MAX_OUTPUT_TOKENS = 800;
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const OPENAI_EMBED_ENDPOINT = "https://api.openai.com/v1/embeddings";
-const SIMILARITY_THRESHOLD = 0.5;
+const SIMILARITY_THRESHOLD = 0.35;
 const TOP_K = 5;
 const RATE_LIMIT_PER_HOUR = 30;
 const MESSAGE_MIN = 1;
@@ -50,6 +50,23 @@ function jsonResponse(status: number, body: unknown): Response {
 function sseChunk(event: string, data: unknown): Uint8Array {
   const encoder = new TextEncoder();
   return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+// Strip the game's name/slug from the embedding input. Retrieval is already
+// filtered by game_id, so the game name in the query adds no discriminative
+// signal and uniformly inflates cosine similarity across all candidates.
+// Only affects the embedding input; the original message is persisted and sent
+// to Haiku verbatim.
+function scrubGameName(message: string, gameName: string, gameSlug: string): string {
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [gameName, gameSlug]
+    .filter(Boolean)
+    .map((s) => new RegExp(escape(s), "gi"));
+  const scrubbed = patterns
+    .reduce((acc, re) => acc.replace(re, " "), message)
+    .replace(/\s+/g, " ")
+    .trim();
+  return scrubbed.length > 0 ? scrubbed : message;
 }
 
 async function embedQuery(
@@ -256,7 +273,8 @@ export default async (req: Request): Promise<Response> => {
   let embedding: number[];
   let embedTokens: number;
   try {
-    const result = await embedQuery(message, openaiKey);
+    const embedInput = scrubGameName(message, game.name, gameSlug);
+    const result = await embedQuery(embedInput, openaiKey);
     embedding = result.embedding;
     embedTokens = result.tokens;
   } catch {
