@@ -29,6 +29,12 @@ const COST_PER_EMBEDDING_TOKEN = 0.02 / 1_000_000;
 const INVOCATION_BUDGET_USD = 1.0;
 const CONFIDENCE_THRESHOLD = 0.7;
 
+// Cap Haiku input length to keep each extraction call under Netlify's sync
+// function timeout (30s). A 55KB BGG page otherwise takes 40-60s to extract.
+// ~40k chars is ~10k tokens — still plenty of context for rules content and
+// the first page of a BGG overview.
+const INPUT_MARKDOWN_MAX_CHARS = 40_000;
+
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const json = (statusCode: number, body: unknown) => ({
   statusCode,
@@ -210,8 +216,12 @@ export const handler: Handler = async (event) => {
     }
     try {
       let localCost = 0;
+      const truncated =
+        markdown.length > INPUT_MARKDOWN_MAX_CHARS
+          ? markdown.slice(0, INPUT_MARKDOWN_MAX_CHARS)
+          : markdown;
       const { chunks, usage: haikuUsage } = await extractChunks(
-        markdown,
+        truncated,
         game.name,
         game.description ?? "",
       );
