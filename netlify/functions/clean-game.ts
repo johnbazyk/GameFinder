@@ -30,10 +30,10 @@ const INVOCATION_BUDGET_USD = 1.0;
 const CONFIDENCE_THRESHOLD = 0.7;
 
 // Cap Haiku input length to keep each extraction call under Netlify's sync
-// function timeout (30s). A 55KB BGG page otherwise takes 40-60s to extract.
-// ~40k chars is ~10k tokens — still plenty of context for rules content and
-// the first page of a BGG overview.
-const INPUT_MARKDOWN_MAX_CHARS = 40_000;
+// function timeout (30s). A full 55KB BGG page otherwise takes 40-60s to
+// extract. ~25k chars is ~6k tokens — plenty of context for rules content
+// and the first section of a BGG overview, which is where rule intros live.
+const INPUT_MARKDOWN_MAX_CHARS = 25_000;
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const json = (statusCode: number, body: unknown) => ({
@@ -61,47 +61,28 @@ async function insertKeptChunks(
   chunks: ExtractedChunk[],
   embeddings: number[][],
 ): Promise<{ embedded: number; duplicate: number }> {
-  let embedded = 0;
-  let duplicate = 0;
+  // Single batch insert with ignoreDuplicates=true. The unique (game_id,
+  // content_hash) index handles dedup; the response only contains actually-
+  // inserted rows, so (requested - returned) = duplicates skipped.
+  const rows = chunks.map((chunk, i) => ({
+    game_id: gameId,
+    chunk_text: chunk.content,
+    embedding: embeddings[i],
+    source_ids: [rawSourceId],
+    confidence: chunk.confidence,
+    topic: chunk.topic,
+    content_hash: sha256(chunk.content),
+  }));
 
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const embedding = embeddings[i];
-    const contentHash = sha256(chunk.content);
-
-    const existing = await supabase
-      .from("game_knowledge")
-      .select("id")
-      .eq("game_id", gameId)
-      .eq("content_hash", contentHash)
-      .maybeSingle();
-    if (existing.error) {
-      throw new Error(`game_knowledge select failed: ${existing.error.message}`);
-    }
-    if (existing.data) {
-      duplicate += 1;
-      continue;
-    }
-
-    const insert = await supabase.from("game_knowledge").insert({
-      game_id: gameId,
-      chunk_text: chunk.content,
-      embedding,
-      source_ids: [rawSourceId],
-      confidence: chunk.confidence,
-      topic: chunk.topic,
-      content_hash: contentHash,
-    });
-    if (insert.error) {
-      if (insert.error.code === "23505") {
-        duplicate += 1;
-        continue;
-      }
-      throw new Error(`game_knowledge insert failed: ${insert.error.message}`);
-    }
-    embedded += 1;
+  const result = await supabase
+    .from("game_knowledge")
+    .upsert(rows, { onConflict: "game_id,content_hash", ignoreDuplicates: true })
+    .select("id");
+  if (result.error) {
+    throw new Error(`game_knowledge upsert failed: ${result.error.message}`);
   }
-
+  const embedded = result.data?.length ?? 0;
+  const duplicate = rows.length - embedded;
   return { embedded, duplicate };
 }
 
