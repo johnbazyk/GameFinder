@@ -1,0 +1,293 @@
+import crypto from "node:crypto";
+import type { Handler } from "@netlify/functions";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { extractChunks, type ExtractedChunk } from "./_lib/anthropic";
+import { embedBatch } from "./_lib/openai";
+
+interface CleanError {
+  raw_source_id: string;
+  error: string;
+}
+
+interface RawSourceRow {
+  id: string;
+  raw_content: { firecrawl_markdown?: string } & Record<string, unknown>;
+}
+
+interface GameRow {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+// Approximate April 2026 list prices (per token). Centralized here for clarity.
+// Haiku 4.5 is quoted at $0.80 / $4.00 per MTok in the P0.5 ticket; text-embedding-3-small at $0.02 / MTok.
+const COST_PER_HAIKU_INPUT_TOKEN = 0.8 / 1_000_000;
+const COST_PER_HAIKU_OUTPUT_TOKEN = 4.0 / 1_000_000;
+const COST_PER_EMBEDDING_TOKEN = 0.02 / 1_000_000;
+
+const INVOCATION_BUDGET_USD = 1.0;
+const CONFIDENCE_THRESHOLD = 0.7;
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+const json = (statusCode: number, body: unknown) => ({
+  statusCode,
+  headers: JSON_HEADERS,
+  body: JSON.stringify(body),
+});
+
+function sha256(s: string): string {
+  return crypto.createHash("sha256").update(s).digest("hex");
+}
+
+function estimateHaikuCost(input: number, output: number): number {
+  return input * COST_PER_HAIKU_INPUT_TOKEN + output * COST_PER_HAIKU_OUTPUT_TOKEN;
+}
+
+function estimateEmbeddingCost(tokens: number): number {
+  return tokens * COST_PER_EMBEDDING_TOKEN;
+}
+
+async function insertKeptChunks(
+  supabase: SupabaseClient,
+  gameId: string,
+  rawSourceId: string,
+  chunks: ExtractedChunk[],
+  embeddings: number[][],
+): Promise<{ embedded: number; duplicate: number }> {
+  let embedded = 0;
+  let duplicate = 0;
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const embedding = embeddings[i];
+    const contentHash = sha256(chunk.content);
+
+    const existing = await supabase
+      .from("game_knowledge")
+      .select("id")
+      .eq("game_id", gameId)
+      .eq("content_hash", contentHash)
+      .maybeSingle();
+    if (existing.error) {
+      throw new Error(`game_knowledge select failed: ${existing.error.message}`);
+    }
+    if (existing.data) {
+      duplicate += 1;
+      continue;
+    }
+
+    const insert = await supabase.from("game_knowledge").insert({
+      game_id: gameId,
+      chunk_text: chunk.content,
+      embedding,
+      source_ids: [rawSourceId],
+      confidence: chunk.confidence,
+      topic: chunk.topic,
+      content_hash: contentHash,
+    });
+    if (insert.error) {
+      if (insert.error.code === "23505") {
+        duplicate += 1;
+        continue;
+      }
+      throw new Error(`game_knowledge insert failed: ${insert.error.message}`);
+    }
+    embedded += 1;
+  }
+
+  return { embedded, duplicate };
+}
+
+export const handler: Handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return json(405, { error: "method not allowed" });
+  }
+
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const invokeToken = process.env.SCRAPE_INVOKE_TOKEN;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (!supabaseUrl || !serviceRoleKey || !invokeToken || !anthropicKey || !openaiKey) {
+    return json(500, { error: "server misconfigured" });
+  }
+
+  const providedToken =
+    event.headers["x-scrape-token"] ?? event.headers["X-Scrape-Token"];
+  if (providedToken !== invokeToken) {
+    return json(401, { error: "unauthorized" });
+  }
+
+  let body: { game_slug?: unknown };
+  try {
+    body = event.body ? JSON.parse(event.body) : {};
+  } catch {
+    return json(400, { error: "invalid json body" });
+  }
+  const gameSlug = typeof body.game_slug === "string" ? body.game_slug : null;
+  if (!gameSlug) return json(400, { error: "game_slug is required" });
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const gameLookup = await supabase
+    .from("game_catalog")
+    .select("id,name,description")
+    .eq("slug", gameSlug)
+    .maybeSingle();
+  if (gameLookup.error) return json(500, { error: "game lookup failed" });
+  if (!gameLookup.data) return json(404, { error: `game not found: ${gameSlug}` });
+  const game = gameLookup.data as GameRow;
+
+  const pendingLookup = await supabase
+    .from("raw_sources")
+    .select("id,raw_content")
+    .eq("game_id", game.id)
+    .is("cleaned_at", null)
+    .order("created_at", { ascending: true });
+  if (pendingLookup.error) return json(500, { error: "raw_sources lookup failed" });
+  const pending = (pendingLookup.data ?? []) as RawSourceRow[];
+
+  if (pending.length === 0) {
+    return json(200, {
+      status: "nothing_to_clean",
+      game_slug: gameSlug,
+      raw_sources_processed: 0,
+      chunks_extracted: 0,
+      chunks_kept: 0,
+      chunks_embedded: 0,
+      chunks_duplicate_skipped: 0,
+      estimated_cost_usd: 0,
+      cost_budget_exceeded: false,
+      errors: [],
+    });
+  }
+
+  const runInsert = await supabase
+    .from("clean_runs")
+    .insert({ game_id: game.id })
+    .select("id")
+    .single();
+  if (runInsert.error || !runInsert.data) {
+    return json(500, { error: "clean_runs insert failed" });
+  }
+  const runId = runInsert.data.id as string;
+
+  let processed = 0;
+  let extracted = 0;
+  let kept = 0;
+  let embeddedCount = 0;
+  let duplicateCount = 0;
+  let estimatedCost = 0;
+  let costExceeded = false;
+  const errors: CleanError[] = [];
+
+  for (const rs of pending) {
+    if (estimatedCost >= INVOCATION_BUDGET_USD) {
+      costExceeded = true;
+      break;
+    }
+
+    const markdown = rs.raw_content?.firecrawl_markdown;
+    if (typeof markdown !== "string" || markdown.length === 0) {
+      errors.push({ raw_source_id: rs.id, error: "raw_content.firecrawl_markdown missing or empty" });
+      await supabase.from("raw_sources").update({ cleaned_at: new Date().toISOString() }).eq("id", rs.id);
+      processed += 1;
+      continue;
+    }
+
+    try {
+      const { chunks, usage: haikuUsage } = await extractChunks(
+        markdown,
+        game.name,
+        game.description ?? "",
+      );
+      estimatedCost += estimateHaikuCost(haikuUsage.input_tokens, haikuUsage.output_tokens);
+      extracted += chunks.length;
+
+      const keptChunks = chunks.filter((c) => c.confidence >= CONFIDENCE_THRESHOLD);
+      kept += keptChunks.length;
+
+      if (keptChunks.length > 0) {
+        if (estimatedCost >= INVOCATION_BUDGET_USD) {
+          costExceeded = true;
+          // do not mark cleaned_at — we got chunks from Haiku but never embedded
+          errors.push({ raw_source_id: rs.id, error: "cost budget exceeded before embeddings" });
+          break;
+        }
+        const { embeddings, usage: embedUsage } = await embedBatch(
+          keptChunks.map((c) => c.content),
+        );
+        estimatedCost += estimateEmbeddingCost(embedUsage.total_tokens);
+
+        const { embedded, duplicate } = await insertKeptChunks(
+          supabase,
+          game.id,
+          rs.id,
+          keptChunks,
+          embeddings,
+        );
+        embeddedCount += embedded;
+        duplicateCount += duplicate;
+      }
+
+      await supabase
+        .from("raw_sources")
+        .update({ cleaned_at: new Date().toISOString() })
+        .eq("id", rs.id);
+      processed += 1;
+    } catch (err) {
+      errors.push({
+        raw_source_id: rs.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // leave cleaned_at null -> retry on next invocation
+    }
+  }
+
+  const update = await supabase
+    .from("clean_runs")
+    .update({
+      completed_at: new Date().toISOString(),
+      raw_sources_processed: processed,
+      chunks_extracted: extracted,
+      chunks_kept: kept,
+      chunks_embedded: embeddedCount,
+      chunks_duplicate_skipped: duplicateCount,
+      estimated_cost_usd: Number(estimatedCost.toFixed(4)),
+      aborted_reason: costExceeded ? "cost_budget" : null,
+      errors,
+    })
+    .eq("id", runId);
+  if (update.error) {
+    console.error("clean_runs update failed", { run_id: runId, code: update.error.code });
+  }
+
+  console.log("clean-game run", {
+    run_id: runId,
+    game_slug: gameSlug,
+    processed,
+    extracted,
+    kept,
+    embedded: embeddedCount,
+    duplicate: duplicateCount,
+    estimated_cost_usd: Number(estimatedCost.toFixed(4)),
+    cost_budget_exceeded: costExceeded,
+    errors: errors.length,
+  });
+
+  return json(200, {
+    run_id: runId,
+    game_slug: gameSlug,
+    raw_sources_processed: processed,
+    chunks_extracted: extracted,
+    chunks_kept: kept,
+    chunks_embedded: embeddedCount,
+    chunks_duplicate_skipped: duplicateCount,
+    estimated_cost_usd: Number(estimatedCost.toFixed(4)),
+    cost_budget_exceeded: costExceeded,
+    errors,
+  });
+};
