@@ -175,75 +175,113 @@ export const handler: Handler = async (event) => {
   }
   const runId = runInsert.data.id as string;
 
+  // Per-source work is independent (different markdown -> different chunks),
+  // so run sources in parallel to keep wall-clock time under Netlify's sync
+  // timeout. The cost budget is checked per source; parallel kick-off makes
+  // the check imperfect, but at ~$0.05/source the worst case is a few cents
+  // of overrun on the very rare case of a fat source.
+  type PerSourceResult = {
+    cost: number;
+    extracted: number;
+    kept: number;
+    embedded: number;
+    duplicate: number;
+    error: CleanError | null;
+    markCleaned: boolean;
+  };
+
+  const emptyResult = (error: CleanError | null, markCleaned: boolean): PerSourceResult => ({
+    cost: 0,
+    extracted: 0,
+    kept: 0,
+    embedded: 0,
+    duplicate: 0,
+    error,
+    markCleaned,
+  });
+
+  async function processSource(rs: RawSourceRow): Promise<PerSourceResult> {
+    const markdown = rs.raw_content?.firecrawl_markdown;
+    if (typeof markdown !== "string" || markdown.length === 0) {
+      return emptyResult(
+        { raw_source_id: rs.id, error: "raw_content.firecrawl_markdown missing or empty" },
+        true,
+      );
+    }
+    try {
+      let localCost = 0;
+      const { chunks, usage: haikuUsage } = await extractChunks(
+        markdown,
+        game.name,
+        game.description ?? "",
+      );
+      localCost += estimateHaikuCost(haikuUsage.input_tokens, haikuUsage.output_tokens);
+
+      const keptChunks = chunks.filter((c) => c.confidence >= CONFIDENCE_THRESHOLD);
+      let embedded = 0;
+      let duplicate = 0;
+
+      if (keptChunks.length > 0) {
+        const { embeddings, usage: embedUsage } = await embedBatch(
+          keptChunks.map((c) => c.content),
+        );
+        localCost += estimateEmbeddingCost(embedUsage.total_tokens);
+        const inserted = await insertKeptChunks(supabase, game.id, rs.id, keptChunks, embeddings);
+        embedded = inserted.embedded;
+        duplicate = inserted.duplicate;
+      }
+
+      return {
+        cost: localCost,
+        extracted: chunks.length,
+        kept: keptChunks.length,
+        embedded,
+        duplicate,
+        error: null,
+        markCleaned: true,
+      };
+    } catch (err) {
+      return emptyResult(
+        { raw_source_id: rs.id, error: err instanceof Error ? err.message : String(err) },
+        false,
+      );
+    }
+  }
+
+  const results = await Promise.all(pending.map(processSource));
+
   let processed = 0;
   let extracted = 0;
   let kept = 0;
   let embeddedCount = 0;
   let duplicateCount = 0;
   let estimatedCost = 0;
-  let costExceeded = false;
   const errors: CleanError[] = [];
+  const cleanedIds: string[] = [];
 
-  for (const rs of pending) {
-    if (estimatedCost >= INVOCATION_BUDGET_USD) {
-      costExceeded = true;
-      break;
-    }
-
-    const markdown = rs.raw_content?.firecrawl_markdown;
-    if (typeof markdown !== "string" || markdown.length === 0) {
-      errors.push({ raw_source_id: rs.id, error: "raw_content.firecrawl_markdown missing or empty" });
-      await supabase.from("raw_sources").update({ cleaned_at: new Date().toISOString() }).eq("id", rs.id);
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    estimatedCost += r.cost;
+    extracted += r.extracted;
+    kept += r.kept;
+    embeddedCount += r.embedded;
+    duplicateCount += r.duplicate;
+    if (r.error) errors.push(r.error);
+    if (r.markCleaned) {
+      cleanedIds.push(pending[i].id);
       processed += 1;
-      continue;
     }
+  }
 
-    try {
-      const { chunks, usage: haikuUsage } = await extractChunks(
-        markdown,
-        game.name,
-        game.description ?? "",
-      );
-      estimatedCost += estimateHaikuCost(haikuUsage.input_tokens, haikuUsage.output_tokens);
-      extracted += chunks.length;
+  const costExceeded = estimatedCost >= INVOCATION_BUDGET_USD;
 
-      const keptChunks = chunks.filter((c) => c.confidence >= CONFIDENCE_THRESHOLD);
-      kept += keptChunks.length;
-
-      if (keptChunks.length > 0) {
-        if (estimatedCost >= INVOCATION_BUDGET_USD) {
-          costExceeded = true;
-          // do not mark cleaned_at — we got chunks from Haiku but never embedded
-          errors.push({ raw_source_id: rs.id, error: "cost budget exceeded before embeddings" });
-          break;
-        }
-        const { embeddings, usage: embedUsage } = await embedBatch(
-          keptChunks.map((c) => c.content),
-        );
-        estimatedCost += estimateEmbeddingCost(embedUsage.total_tokens);
-
-        const { embedded, duplicate } = await insertKeptChunks(
-          supabase,
-          game.id,
-          rs.id,
-          keptChunks,
-          embeddings,
-        );
-        embeddedCount += embedded;
-        duplicateCount += duplicate;
-      }
-
-      await supabase
-        .from("raw_sources")
-        .update({ cleaned_at: new Date().toISOString() })
-        .eq("id", rs.id);
-      processed += 1;
-    } catch (err) {
-      errors.push({
-        raw_source_id: rs.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      // leave cleaned_at null -> retry on next invocation
+  if (cleanedIds.length > 0) {
+    const markUpdate = await supabase
+      .from("raw_sources")
+      .update({ cleaned_at: new Date().toISOString() })
+      .in("id", cleanedIds);
+    if (markUpdate.error) {
+      console.error("cleaned_at update failed", { code: markUpdate.error.code });
     }
   }
 

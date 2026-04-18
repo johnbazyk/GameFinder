@@ -7,3 +7,8 @@
   command = "npm run dev"
   targetPort = 5173
   framework = "vite"
+
+# Allow longer-running Haiku+embedding work. Default sync timeout is 10s (free)
+# or 26s (paid). clean-game may process multiple raw sources serially.
+[functions."clean-game"]
+  timeout = 300
