@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- ====================================================================
+  COMMAND CORPORATION — CUSTOMER PROOF PAGE
+  One file. No builder, no plugins, no monthly fee.
+  HOW TO EDIT: see README.md in this folder. Every editable area is
+  marked with the word REPLACE in square brackets. Run "node check.mjs"
+  before uploading — it refuses to pass while placeholders remain.
+==================================================================== -->
+
+<title>Command Corporation Reviews — Real Customers, Real Words | East Granby, CT</title>
+<meta name="description" content="Every public review of Command Corporation in one place: video testimonials with full transcripts, written reviews linked to their original source, and straight answers on how to verify any Connecticut security company before you sign.">
+
+<!-- REPLACE the canonical URL with the final address before upload.
+     Recommended: https://reviews.cmdsecure.ai/ (see README, Risk #1) -->
+<link rel="canonical" href="https://reviews.cmdsecure.ai/">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Command Corporation Reviews — Real Customers, Real Words">
+<meta property="og:description" content="Video testimonials with full transcripts, written reviews linked to source, and how to verify any Connecticut security company before you sign.">
+<meta property="og:url" content="https://reviews.cmdsecure.ai/">
+<meta name="robots" content="index, follow">
+
+<style>
+  :root {
+    /* Brand palette — swap these three for Command's exact brand hex codes */
+    --brand: #0B2545;          /* deep command navy */
+    --brand-mid: #13375F;
+    --brand-light: #E8F0F9;
+    --accent: #C8102E;         /* alert red */
+    --ink: #1A1A1A;
+    --mid: #4A5361;
+    --faint: #8A93A0;
+    --paper: #FFFFFF;
+    --bg: #F4F6F9;
+    --line: #DDE3EA;
+    --good: #1E7B4D;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.55;
+  }
+
+  a { color: var(--brand-mid); }
+
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+
+  /* DRAFT RIBBON — delete this whole block plus the .draft-ribbon div
+     before publishing. check.mjs fails the publish check while it exists. */
+  .draft-ribbon {
+    background: #FFF4CC;
+    border-bottom: 2px solid #E8C94A;
+    color: #6B5500;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 8px 16px;
+  }
+
+  /* HEADER */
+  header.site {
+    background: var(--brand);
+    color: #fff;
+    padding: 14px 0;
+  }
+  header.site .wrap {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .logo { font-size: 20px; font-weight: 800; letter-spacing: 0.5px; color: #fff; text-decoration: none; }
+  .logo span { color: #9FC2E8; font-weight: 500; }
+  header.site nav a {
+    color: #D7E3F2; text-decoration: none; font-size: 14px; font-weight: 600; margin-left: 18px;
+  }
+  header.site nav a:hover { color: #fff; }
+  .call-btn {
+    background: var(--accent); color: #fff !important; padding: 8px 14px; border-radius: 4px;
+  }
+
+  /* HERO */
+  .hero { background: linear-gradient(180deg, var(--brand) 0%, var(--brand-mid) 100%); color: #fff; padding: 56px 0 48px; }
+  .hero h1 { font-size: clamp(28px, 4.5vw, 44px); line-height: 1.15; max-width: 720px; }
+  .hero .sub { margin-top: 14px; font-size: 17px; color: #C9D8EA; max-width: 680px; }
+  .hero .disclosure {
+    margin-top: 18px; font-size: 13px; color: #9FB4CC; max-width: 680px;
+  }
+  .hero .disclosure a { color: #D7E3F2; }
+
+  /* STAT BAND */
+  .stats { background: var(--paper); border-bottom: 1px solid var(--line); }
+  .stats .wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0; }
+  .stat { padding: 26px 18px; text-align: center; border-left: 1px solid var(--line); }
+  .stat:first-child { border-left: none; }
+  .stat .num { font-size: 34px; font-weight: 800; color: var(--brand); line-height: 1.1; }
+  .stat .lbl { font-size: 13px; color: var(--mid); margin-top: 4px; }
+  .stat .src { font-size: 11px; color: var(--faint); margin-top: 6px; }
+
+  /* SECTION SHELL */
+  section.block { padding: 52px 0; }
+  section.block.alt { background: var(--paper); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .kicker { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); }
+  h2.title { font-size: clamp(24px, 3.5vw, 32px); color: var(--brand); margin-top: 6px; }
+  .lede { color: var(--mid); margin-top: 10px; max-width: 720px; }
+
+  /* VIDEO CARDS */
+  .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 22px; margin-top: 28px; }
+  .video-card { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .video-thumb {
+    position: relative; display: block; width: 100%; aspect-ratio: 16 / 9;
+    background: #0d1b2a center / cover no-repeat; border: none; cursor: pointer; padding: 0;
+  }
+  .video-thumb.portrait { aspect-ratio: 9 / 16; max-height: 420px; }
+  .video-thumb .play {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  }
+  .video-thumb .play::after {
+    content: ""; width: 64px; height: 44px; background: var(--accent); border-radius: 10px;
+    clip-path: none; display: block; opacity: 0.95;
+  }
+  .video-thumb .play::before {
+    content: ""; position: absolute; z-index: 1; border-style: solid;
+    border-width: 10px 0 10px 17px; border-color: transparent transparent transparent #fff;
+  }
+  .video-card iframe { width: 100%; aspect-ratio: 16 / 9; border: 0; display: block; }
+  .video-meta { padding: 14px 16px 6px; }
+  .video-meta .who { font-weight: 700; color: var(--brand); }
+  .video-meta .since { font-size: 12px; color: var(--faint); margin-top: 2px; }
+  details.transcript { border-top: 1px dashed var(--line); margin-top: 10px; }
+  details.transcript summary {
+    cursor: pointer; font-size: 13px; font-weight: 700; color: var(--brand-mid);
+    padding: 12px 16px; list-style: none;
+  }
+  details.transcript summary::before { content: "▸ "; }
+  details.transcript[open] summary::before { content: "▾ "; }
+  details.transcript .words { padding: 0 16px 16px; font-size: 14px; color: var(--mid); }
+
+  /* REVIEWS */
+  .review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 22px; margin-top: 28px; }
+  .review-card { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 18px; display: flex; flex-direction: column; }
+  .review-card .stars { color: #E8A200; font-size: 15px; letter-spacing: 2px; }
+  .review-card .text { margin-top: 10px; font-size: 14.5px; color: var(--ink); flex: 1; }
+  .review-card .byline { margin-top: 14px; font-size: 13px; font-weight: 700; color: var(--brand); }
+  .review-card .srcline { font-size: 12px; color: var(--faint); margin-top: 2px; }
+  .review-card .srcline a { color: var(--faint); }
+
+  /* FAQ */
+  .faq-list { margin-top: 26px; }
+  details.faq { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; margin-bottom: 10px; }
+  details.faq summary { cursor: pointer; font-weight: 700; color: var(--brand); padding: 16px 18px; list-style: none; }
+  details.faq summary::before { content: "+ "; color: var(--accent); font-weight: 800; }
+  details.faq[open] summary::before { content: "− "; }
+  details.faq .answer { padding: 0 18px 16px; color: var(--mid); font-size: 15px; }
+  details.faq .answer ul { margin: 8px 0 0 20px; }
+
+  /* UNFILTERED SOURCES */
+  .source-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+  .source-links a {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 4px;
+    padding: 10px 16px; font-size: 14px; font-weight: 600; text-decoration: none; color: var(--brand);
+  }
+  .source-links a:hover { border-color: var(--brand-mid); }
+
+  /* CTA */
+  .cta { background: var(--brand); color: #fff; text-align: center; padding: 56px 0; }
+  .cta h2 { font-size: clamp(24px, 3.5vw, 32px); }
+  .cta p { color: #C9D8EA; margin-top: 10px; }
+  .cta .btn {
+    display: inline-block; margin-top: 22px; background: var(--accent); color: #fff;
+    font-weight: 800; text-decoration: none; padding: 14px 30px; border-radius: 5px; font-size: 16px;
+  }
+  .cta .alt-contact { margin-top: 14px; font-size: 14px; color: #9FB4CC; }
+  .cta .alt-contact a { color: #D7E3F2; }
+
+  /* FOOTER */
+  footer.site { background: #08192F; color: #8FA5BF; font-size: 13px; padding: 30px 0; }
+  footer.site .wrap { display: flex; flex-wrap: wrap; gap: 10px 30px; justify-content: space-between; }
+  footer.site a { color: #B9CBDF; }
+
+  .placeholder-flag { outline: 2px dashed #E8C94A; outline-offset: 2px; }
+
+  @media print {
+    .draft-ribbon, .cta, header.site nav { display: none; }
+  }
+</style>
+
+<!-- ==================================================================
+  STRUCTURED DATA — written by hand, validated with Google's Rich
+  Results Test (see README launch checklist, step 5).
+=================================================================== -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "LocalBusiness",
+  "@id": "https://www.cmdsecure.ai/#business",
+  "name": "Command Corporation",
+  "url": "https://www.cmdsecure.ai/",
+  "description": "Family-owned Connecticut security company, in business since 1991. Residential and commercial security systems, 24/7 alarm and fire monitoring, surveillance cameras, access control, and live video monitoring across Connecticut, Massachusetts, and New Hampshire.",
+  "telephone": "+1-860-653-1717",
+  "foundingDate": "1991",
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "4 Creamery Brook",
+    "addressLocality": "East Granby",
+    "addressRegion": "CT",
+    "postalCode": "06026",
+    "addressCountry": "US"
+  },
+  "areaServed": [
+    { "@type": "State", "name": "Connecticut" },
+    { "@type": "State", "name": "Massachusetts" },
+    { "@type": "State", "name": "New Hampshire" }
+  ],
+  "knowsAbout": [
+    "residential security systems",
+    "commercial security systems",
+    "fire alarm monitoring and inspection",
+    "surveillance cameras",
+    "access control",
+    "intrusion detection",
+    "live video monitoring"
+  ],
+  "sameAs": [
+    "https://www.facebook.com/commandco/",
+    "https://www.linkedin.com/company/command-corp-",
+    "https://www.yelp.com/biz/command-corporation-east-granby",
+    "https://www.bbb.org/us/ct/east-granby/profile/security-systems/command-corporation-0111-45001371"
+  ]
+}
+</script>
+</head>
+<body>
+
+<div class="draft-ribbon">DRAFT — this page still contains [REPLACE] placeholders. Run <strong>node check.mjs</strong> and clear every flag, then delete this ribbon, before uploading. Do not publish as-is.</div>
+
+<header class="site">
+  <div class="wrap">
+    <a class="logo" href="https://www.cmdsecure.ai/">COMMAND <span>CORPORATION</span></a>
+    <nav>
+      <a href="#videos">Video Reviews</a>
+      <a href="#written">Written Reviews</a>
+      <a href="#faq">Straight Answers</a>
+      <a class="call-btn" href="tel:+18606531717">(860) 653-1717</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="kicker" style="color:#FF8A9A;">Customer Proof — All In One Place</div>
+    <h1>What our customers actually say about Command Corporation</h1>
+    <p class="sub">Every public review we could find, gathered on one page: customers on video with everything they said typed out underneath, written reviews linked back to where they were posted, and plain answers on how to check out any security company — including us — before you sign anything.</p>
+    <p class="disclosure"><strong>Who publishes this page:</strong> Command Corporation publishes and maintains this page ourselves. It is not an independent review site. Every review links to its original source, and unfiltered profiles we don't control are linked in the <a href="#sources">Verify us yourself</a> section below.</p>
+  </div>
+</section>
+
+<div class="stats">
+  <div class="wrap">
+    <div class="stat">
+      <div class="num">1991</div>
+      <div class="lbl">Serving New England since</div>
+      <div class="src">Family owned &amp; operated</div>
+    </div>
+    <div class="stat">
+      <div class="num">3</div>
+      <div class="lbl">States served: CT, MA &amp; NH</div>
+      <div class="src">Offices in East Granby, CT and New Hampton, NH</div>
+    </div>
+    <div class="stat">
+      <div class="num">24/7</div>
+      <div class="lbl">Alarm &amp; fire monitoring</div>
+      <div class="src">Around-the-clock central station coverage</div>
+    </div>
+    <!-- Optional fourth stat: a measured service number, like the median
+         hours from alarm signal to confirmed resolution. Publish it ONLY
+         with a stated measurement window pulled from your ticket data
+         (Workiz / ServiceChannel). See README, "Adding a measured number". -->
+    <div class="stat placeholder-flag">
+      <div class="num">[REPLACE: X hrs]</div>
+      <div class="lbl">[REPLACE: e.g. median time from service request to confirmed fix]</div>
+      <div class="src">[REPLACE: measurement window, e.g. "all 2025 service tickets"]</div>
+    </div>
+  </div>
+</div>
+
+<section class="block" id="videos">
+  <div class="wrap">
+    <div class="kicker">On Camera</div>
+    <h2 class="title">Customers in their own words</h2>
+    <p class="lede">Each video shows a thumbnail with a play button — nothing loads from YouTube and no cookie is set until you choose to watch. Under every video is a full transcript of what the customer said, so you can read it instead of watching it.</p>
+
+    <div class="video-grid">
+      <!-- VIDEO CARD TEMPLATE. To add a video: copy one whole card,
+           change the video ID, the name, the customer-since year, and
+           paste the corrected transcript. Read the auto-caption transcript
+           before publishing. Never publish an auto-caption unread. -->
+      <div class="video-card placeholder-flag">
+        <button class="video-thumb" type="button" data-video-id="[REPLACE:YOUTUBE_VIDEO_ID]" aria-label="Play video testimonial">
+          <span class="play"></span>
+        </button>
+        <div class="video-meta">
+          <div class="who">[REPLACE: Customer name or business]</div>
+          <div class="since">Customer since [REPLACE: year — take it from the first invoice on the account, not the CRM date field]</div>
+          <details class="transcript">
+            <summary>Read everything they said</summary>
+            <div class="words">[REPLACE: full corrected transcript. Start from the YouTube auto-caption, then fix every error by ear — names, negatives, and the company name are the usual casualties.]</div>
+          </details>
+        </div>
+      </div>
+
+      <div class="video-card placeholder-flag">
+        <button class="video-thumb" type="button" data-video-id="[REPLACE:YOUTUBE_VIDEO_ID]" aria-label="Play video testimonial">
+          <span class="play"></span>
+        </button>
+        <div class="video-meta">
+          <div class="who">[REPLACE: Customer name or business]</div>
+          <div class="since">Customer since [REPLACE: year]</div>
+          <details class="transcript">
+            <summary>Read everything they said</summary>
+            <div class="words">[REPLACE: full corrected transcript]</div>
+          </details>
+        </div>
+      </div>
+
+      <div class="video-card placeholder-flag">
+        <button class="video-thumb" type="button" data-video-id="[REPLACE:YOUTUBE_VIDEO_ID]" aria-label="Play video testimonial">
+          <span class="play"></span>
+        </button>
+        <div class="video-meta">
+          <div class="who">[REPLACE: Customer name or business]</div>
+          <div class="since">Customer since [REPLACE: year]</div>
+          <details class="transcript">
+            <summary>Read everything they said</summary>
+            <div class="words">[REPLACE: full corrected transcript]</div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block alt" id="written">
+  <div class="wrap">
+    <div class="kicker">In Writing</div>
+    <h2 class="title">Written reviews, newest first</h2>
+    <p class="lede">Copied verbatim from public review profiles, each labeled with its source and linked back to the original so you can confirm it exists. Reviews written by our own employees are excluded. Star ratings are read from the live listing for each review individually — never assumed.</p>
+
+    <div class="review-grid">
+      <!-- REVIEW CARD TEMPLATE. To add a review: copy one whole card and
+           change five things — stars, text, name, source, source link.
+           Before pasting, check the reviewer name against the staff list,
+           and read the star count off the live listing, not a copy-paste. -->
+      <div class="review-card placeholder-flag">
+        <div class="stars" data-stars="[REPLACE:5]">★★★★★</div>
+        <div class="text">"[REPLACE: paste the review text exactly as written — typos and all]"</div>
+        <div class="byline">[REPLACE: Reviewer name as shown publicly]</div>
+        <div class="srcline">[REPLACE: Google / Facebook / BBB] · [REPLACE: Month Year] · <a data-source-url href="[REPLACE:LINK_TO_ORIGINAL_REVIEW]">view original</a></div>
+      </div>
+
+      <div class="review-card placeholder-flag">
+        <div class="stars" data-stars="[REPLACE:5]">★★★★★</div>
+        <div class="text">"[REPLACE: review text]"</div>
+        <div class="byline">[REPLACE: Reviewer name]</div>
+        <div class="srcline">[REPLACE: Source] · [REPLACE: Month Year] · <a data-source-url href="[REPLACE:LINK]">view original</a></div>
+      </div>
+
+      <div class="review-card placeholder-flag">
+        <div class="stars" data-stars="[REPLACE:5]">★★★★★</div>
+        <div class="text">"[REPLACE: review text]"</div>
+        <div class="byline">[REPLACE: Reviewer name]</div>
+        <div class="srcline">[REPLACE: Source] · [REPLACE: Month Year] · <a data-source-url href="[REPLACE:LINK]">view original</a></div>
+      </div>
+
+      <div class="review-card placeholder-flag">
+        <div class="stars" data-stars="[REPLACE:5]">★★★★★</div>
+        <div class="text">"[REPLACE: review text]"</div>
+        <div class="byline">[REPLACE: Reviewer name]</div>
+        <div class="srcline">[REPLACE: Source] · [REPLACE: Month Year] · <a data-source-url href="[REPLACE:LINK]">view original</a></div>
+      </div>
+
+      <div class="review-card placeholder-flag">
+        <div class="stars" data-stars="[REPLACE:5]">★★★★★</div>
+        <div class="text">"[REPLACE: review text]"</div>
+        <div class="byline">[REPLACE: Reviewer name]</div>
+        <div class="srcline">[REPLACE: Source] · [REPLACE: Month Year] · <a data-source-url href="[REPLACE:LINK]">view original</a></div>
+      </div>
+
+      <div class="review-card placeholder-flag">
+        <div class="stars" data-stars="[REPLACE:5]">★★★★★</div>
+        <div class="text">"[REPLACE: review text]"</div>
+        <div class="byline">[REPLACE: Reviewer name]</div>
+        <div class="srcline">[REPLACE: Source] · [REPLACE: Month Year] · <a data-source-url href="[REPLACE:LINK]">view original</a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="sources">
+  <div class="wrap">
+    <div class="kicker">Don't Take Our Word For It</div>
+    <h2 class="title">Verify us yourself</h2>
+    <p class="lede">These profiles are not filtered by us. Anyone can post there, including people who had a bad experience. If you're comparing security companies, read the unfiltered sources for every company on your list — including this one.</p>
+    <div class="source-links">
+      <a href="[REPLACE:GOOGLE_BUSINESS_PROFILE_URL]" class="placeholder-flag" rel="noopener">Google Reviews</a>
+      <a href="https://www.bbb.org/us/ct/east-granby/profile/security-systems/command-corporation-0111-45001371" rel="noopener">Better Business Bureau</a>
+      <a href="https://www.yelp.com/biz/command-corporation-east-granby" rel="noopener">Yelp</a>
+      <a href="https://www.facebook.com/commandco/" rel="noopener">Facebook</a>
+      <a href="https://service.ct.gov/dcp-license-lookup" rel="noopener">CT License Lookup (state site)</a>
+    </div>
+  </div>
+</section>
+
+<section class="block alt" id="faq">
+  <div class="wrap">
+    <div class="kicker">Straight Answers</div>
+    <h2 class="title">Checking out a security company — including us</h2>
+    <p class="lede">Thirteen questions worth asking before you let any company touch your home's or business's security. The answers below are about Command Corporation specifically, plus how to verify each claim yourself.</p>
+
+    <div class="faq-list">
+      <details class="faq">
+        <summary>Is Command Corporation a real, licensed company?</summary>
+        <div class="answer">Yes. Command Corporation is a Connecticut security company based in East Granby, CT, in business since 1991. Alarm and low-voltage contractors in Connecticut are licensed through the Department of Consumer Protection — you can verify any company's license, including ours, at the state's official license lookup site. Our license number is [REPLACE: exact CT license number(s) — copy from the license certificate, then confirm on the state lookup].</div>
+      </details>
+
+      <details class="faq">
+        <summary>How long has Command Corporation been in business?</summary>
+        <div class="answer">Since 1991. We are family owned and operated, and we've been installing and monitoring security systems in New England for over three decades.</div>
+      </details>
+
+      <details class="faq">
+        <summary>Where is Command Corporation located, and where do you work?</summary>
+        <div class="answer">Our main office is in East Granby, Connecticut, with a second office in New Hampton, New Hampshire. We serve homes and businesses across Connecticut, Massachusetts, and New Hampshire.</div>
+      </details>
+
+      <details class="faq">
+        <summary>What services do you actually provide?</summary>
+        <div class="answer">Residential and commercial security systems, 24/7 alarm monitoring, fire alarm systems with monitoring, inspection and maintenance, high-resolution surveillance cameras, access control, intrusion detection, live video monitoring with visual verification, and locksmith services in New Hampshire.</div>
+      </details>
+
+      <details class="faq">
+        <summary>Who monitors my alarm, and is it really 24/7?</summary>
+        <div class="answer">Yes — alarm and fire signals are monitored around the clock, every day of the year. Ask any company you're considering exactly who staffs their monitoring, where the central station is, and whether it is UL-listed. We'll answer that in writing: [REPLACE: name of central station and UL listing status].</div>
+      </details>
+
+      <details class="faq">
+        <summary>Are the reviews on this page real?</summary>
+        <div class="answer">Every written review on this page is copied verbatim from a public review profile and links back to the original posting so you can confirm it exists. We exclude reviews written by our own employees. The videos are real customers who agreed to be filmed, and the transcript under each video is what they actually said.</div>
+      </details>
+
+      <details class="faq">
+        <summary>Who runs this page — is it independent?</summary>
+        <div class="answer">No, and we say so up front: Command Corporation publishes and maintains this page. It exists to put our customer proof in one place. For unfiltered opinion we link directly to Google, the BBB, Yelp and Facebook above — sources we cannot edit.</div>
+      </details>
+
+      <details class="faq">
+        <summary>Do you serve both homes and businesses?</summary>
+        <div class="answer">Yes. We design, install, and monitor systems for single homes up through multi-site commercial customers, including fire systems that carry inspection and code requirements.</div>
+      </details>
+
+      <details class="faq">
+        <summary>What happens when my alarm goes off?</summary>
+        <div class="answer">The signal reaches the monitoring center immediately, an operator follows the verification and contact procedure on your account, and dispatch is requested when the event is confirmed or can't be ruled out. When we install your system we walk you through exactly what that sequence looks like for your account — and you can test it.</div>
+      </details>
+
+      <details class="faq">
+        <summary>What should I ask any security company before signing?</summary>
+        <div class="answer">
+          <ul>
+            <li>Show me your state license number, and let me verify it on the state's lookup site.</li>
+            <li>Who owns the monitoring center, and is it UL-listed?</li>
+            <li>What is the contract length, and what does cancellation cost?</li>
+            <li>Do I own the equipment when the contract ends?</li>
+            <li>What's your measured service response time, and over what period was it measured?</li>
+            <li>Can I speak to a customer who has been with you for five or more years?</li>
+          </ul>
+          Any established company can answer all six without flinching. We can.
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary>How do I verify a security company's license in Connecticut?</summary>
+        <div class="answer">Use the Connecticut Department of Consumer Protection's official license lookup (linked in the "Verify us yourself" section above). Search by the company's name and check that the license is active, matches the exact legal name on your contract, and covers the work being proposed. New Hampshire and Massachusetts have their own lookups — check the state where the work will be done.</div>
+      </details>
+
+      <details class="faq">
+        <summary>Will you pressure me with a door-to-door style sales pitch?</summary>
+        <div class="answer">No. We visit your home or business, make recommendations, and give you a quote. Then it's your decision. A legitimate security company does not need same-day-only pricing or scare tactics — treat both as a reason to keep shopping.</div>
+      </details>
+
+      <details class="faq">
+        <summary>How do I get a quote from Command Corporation?</summary>
+        <div class="answer">Call us at (860) 653-1717 or request a consultation at cmdsecure.ai. We'll look at your property, recommend a system that fits it, quote it, and — if you go ahead — install it, train you on it, and monitor it 24/7.</div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <h2>Ready when you are</h2>
+    <p>Talk to a security company that's been answering to New England customers since 1991.</p>
+    <a class="btn" href="https://www.cmdsecure.ai/consultation/">Request a Consultation</a>
+    <div class="alt-contact">or call <a href="tel:+18606531717">(860) 653-1717</a></div>
+  </div>
+</section>
+
+<footer class="site">
+  <div class="wrap">
+    <div>© Command Corporation · East Granby, CT · Since 1991 · <a href="https://www.cmdsecure.ai/">cmdsecure.ai</a></div>
+    <div>This page is published by Command Corporation. Reviews link to their original public sources.</div>
+  </div>
+</footer>
+
+<script>
+  // Lite video embeds: nothing is requested from YouTube until the
+  // visitor clicks play. Thumbnails load from YouTube's image CDN only.
+  document.querySelectorAll(".video-thumb").forEach(function (btn) {
+    var id = btn.getAttribute("data-video-id");
+    if (id && id.indexOf("[REPLACE") === -1) {
+      btn.style.backgroundImage = "url(https://i.ytimg.com/vi/" + id + "/hqdefault.jpg)";
+    }
+    btn.addEventListener("click", function () {
+      if (!id || id.indexOf("[REPLACE") !== -1) { return; }
+      var iframe = document.createElement("iframe");
+      iframe.src = "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1";
+      iframe.allow = "accelerometer; autoplay; encrypted-media; picture-in-picture";
+      iframe.allowFullscreen = true;
+      iframe.title = "Customer video testimonial";
+      btn.replaceWith(iframe);
+    });
+  });
+</script>
+
+</body>
+</html>

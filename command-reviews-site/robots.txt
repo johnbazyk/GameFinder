@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://reviews.cmdsecure.ai/sitemap.xml

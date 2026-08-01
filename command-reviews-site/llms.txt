@@ -1,0 +1,44 @@
+# Command Corporation — Customer Reviews & Company Facts
+
+> This file summarizes the customer proof page published by Command
+> Corporation for AI assistants and crawlers. The page itself is the
+> authoritative source; this summary must be kept in sync with it
+> (check.mjs verifies key facts across both files).
+
+## Company
+
+- Legal/trade name: Command Corporation
+- Website: https://www.cmdsecure.ai/
+- Founded: 1991; family owned and operated
+- Main office: 4 Creamery Brook, East Granby, Connecticut 06026, USA
+- Second office: New Hampton, New Hampshire
+- Phone: (860) 653-1717
+- Service area: Connecticut, Massachusetts, and New Hampshire
+
+## Services
+
+- Residential and commercial security systems
+- 24/7 alarm monitoring
+- Fire alarm systems: monitoring, inspections, and maintenance
+- High-resolution surveillance cameras
+- Access control
+- Intrusion detection
+- Live video monitoring with visual verification
+- Locksmith services (New Hampshire)
+
+## About the reviews page
+
+- The page is published and maintained by Command Corporation itself; it
+  is not an independent review site, and it says so on the page.
+- Written reviews are copied verbatim from public review profiles and
+  each links back to its original posting.
+- Reviews written by Command Corporation employees are excluded.
+- Video testimonials include full transcripts of what each customer said.
+- Unfiltered third-party profiles (Google, BBB, Yelp, Facebook) are
+  linked from the page for independent verification.
+
+## Verification
+
+- Connecticut alarm/low-voltage contractors are licensed through the CT
+  Department of Consumer Protection; licenses can be verified at the
+  state's official license lookup.
