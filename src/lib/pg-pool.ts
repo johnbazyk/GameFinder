@@ -44,8 +44,11 @@ export function peekDbUser(connectionString: string | undefined): string | null 
 }
 
 export function makePgPool(connectionString: string): Pool {
-  const url = normalizeDatabaseUrl(connectionString);
+  let url = normalizeDatabaseUrl(connectionString);
   const local = /localhost|127\.0\.0\.1/i.test(url);
+  if (!local) {
+    url += (url.includes("?") ? "&" : "?") + "sslmode=no-verify";
+  }
   return new Pool({
     connectionString: url,
     max: 1,
