@@ -11,7 +11,7 @@ import type { MiniAction } from "@/lib/minigames/types";
 import { cn } from "@/lib/utils";
 
 const BANK_WINDOW_MS = 2800;
-const THROW_MS = 1030;
+const THROW_MS = 1120;
 
 function clackDice() {
   const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -180,13 +180,11 @@ export function BankTable({
       ) : (
         <>
           <div className="bank-center">
-            <div className={cn("bank-vault", busted && "is-bust")}>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-fox">
-                {busted ? "Bust" : "Bank"}
-              </p>
-              <p className="font-display text-5xl tabular-nums leading-none">{pot}</p>
-            </div>
             <div className="bank-table-bed">
+              <div className={cn("bank-pot", busted && "is-bust")}>
+                <p className="bank-pot-kicker">{busted ? "Bust" : "In the pot"}</p>
+                <p className="bank-pot-value">{pot}</p>
+              </div>
               <DicePair values={held} throwing={spinning} ink={current?.color} />
             </div>
             <p className="bank-line">{state.lastLine}</p>
