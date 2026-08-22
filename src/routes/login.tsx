@@ -1,19 +1,33 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
 import { PieceSwatch } from "@/components/piece-swatch";
 import { GROK_PROVIDERS, authClient, authEnabled, signIn } from "@/lib/auth/client";
+import {
+  inviteTokenFromPath,
+  peekInvite,
+  rememberInvite,
+  safeNext,
+} from "@/lib/pending-invite";
 import { DEFAULT_PIECE_COLOR } from "@/lib/piece-color";
 import { updateMyProfile } from "@/lib/social";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/login")({ component: Login });
+export const Route = createFileRoute("/login")({
+  validateSearch: (raw: Record<string, unknown>) => ({ next: safeNext(raw.next) }),
+  component: Login,
+});
 
 function Login() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"in" | "up">("in");
+  const { next } = Route.useSearch();
+  const fromUrl = inviteTokenFromPath(next);
+  const [storedToken, setStoredToken] = useState<string | null>(null);
+  const inviteToken = fromUrl ?? storedToken;
+  const afterAuth = next ?? (inviteToken ? `/invite/${inviteToken}` : "/");
+  const [mode, setMode] = useState<"in" | "up">(fromUrl ? "up" : "in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,6 +35,28 @@ function Login() {
   const setPieceColor = useAppStore((s) => s.setPieceColor);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (fromUrl) rememberInvite(fromUrl);
+    setStoredToken(peekInvite());
+  }, [fromUrl]);
+
+  function goAfterAuth() {
+    const token = inviteTokenFromPath(afterAuth) ?? peekInvite();
+    if (token) {
+      void navigate({ to: "/invite/$token", params: { token } });
+      return;
+    }
+    if (afterAuth.startsWith("/invite/")) {
+      window.location.assign(afterAuth);
+      return;
+    }
+    if (afterAuth === "/") {
+      void navigate({ to: "/" });
+      return;
+    }
+    window.location.assign(afterAuth);
+  }
 
   async function onEmail(e: FormEvent) {
     e.preventDefault();
@@ -42,7 +78,7 @@ function Login() {
         const res = await authClient.signIn.email({ email: email.trim(), password });
         if (res.error) throw new Error(res.error.message || "Email or password didn't match");
       }
-      navigate({ to: "/" });
+      goAfterAuth();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
     } finally {
@@ -56,7 +92,9 @@ function Login() {
         <FoxAvatar mood="hopeful" size="lg" />
         <h1 className="mt-3 font-display text-3xl">Pull up a chair</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Sign in to share a table with family and friends. Tonight's recs still work as a guest.
+          {inviteToken
+            ? "Create an account and you'll land at the table this link is for."
+            : "Sign in to share a table with family and friends. Tonight's recs still work as a guest."}
         </p>
       </div>
 
@@ -68,7 +106,7 @@ function Login() {
               type="button"
               variant="secondary"
               className="w-full"
-              onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+              onClick={() => signIn(p.providerId, { callbackURL: afterAuth, errorCallbackURL: "/login" })}
             >
               Continue with {p.label}
             </Button>

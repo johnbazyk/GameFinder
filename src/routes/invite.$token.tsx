@@ -1,9 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FoxAvatar } from "@/components/fox-avatar";
-import { Button } from "@/components/ui/button";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { rememberInvite } from "@/lib/pending-invite";
 import { acceptInvite, previewInvite, type InvitePreview } from "@/lib/social";
 
 export const Route = createFileRoute("/invite/$token")({ component: InvitePage });
@@ -15,6 +15,11 @@ function InvitePage() {
   const [preview, setPreview] = useState<InvitePreview | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const joining = useRef(false);
+
+  useEffect(() => {
+    rememberInvite(token);
+  }, [token]);
 
   useEffect(() => {
     void previewInvite({ data: { token } })
@@ -23,6 +28,8 @@ function InvitePage() {
   }, [token]);
 
   async function accept() {
+    if (joining.current) return;
+    joining.current = true;
     setBusy(true);
     try {
       const r = await acceptInvite({ data: { token } });
@@ -33,11 +40,21 @@ function InvitePage() {
         navigate({ to: "/circle" });
       }
     } catch (e) {
+      joining.current = false;
       toast(e instanceof Error ? e.message : "Couldn't accept");
+      setErr(e instanceof Error ? e.message : "Couldn't accept");
     } finally {
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (!user || !preview || preview.expired || err) return;
+    void accept();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot join after auth
+  }, [user, preview, err, token]);
+
+  const next = `/invite/${token}`;
 
   return (
     <div className="mx-auto max-w-sm pb-16 pt-6 text-center">
@@ -63,18 +80,17 @@ function InvitePage() {
             {preview.fromName}
             {preview.groupName ? ` invited you to ${preview.groupName}.` : " wants to play."}
           </p>
-          {isPending ? (
-            <div className="mx-auto mt-6 h-11 w-40 animate-pulse rounded-full bg-muted" />
-          ) : user ? (
-            <Button className="mt-6 w-full" disabled={busy} onClick={() => void accept()}>
-              {busy ? "Joining…" : "Accept"}
-            </Button>
+          {isPending || user || busy ? (
+            <p className="mt-6 text-sm text-muted-foreground">
+              {user || busy ? "Seating you at the table…" : "One second…"}
+            </p>
           ) : (
             <Link
               to="/login"
+              search={{ next }}
               className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-full bg-fox text-sm font-bold text-cream"
             >
-              Sign in to accept
+              Create an account to join
             </Link>
           )}
         </>
