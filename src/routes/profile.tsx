@@ -12,6 +12,7 @@ import { useFlag } from "@/lib/flags";
 import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getMyProfile, updateMyProfile } from "@/lib/social";
+import { PieceSwatch } from "@/components/piece-swatch";
 
 export const Route = createFileRoute("/profile")({ component: ProfilePage });
 
@@ -24,6 +25,8 @@ function ProfilePage() {
   const setHaptics = useAppStore((s) => s.setHaptics);
   const isPremium = useAppStore((s) => s.isPremium);
   const setUpgradePrompt = useAppStore((s) => s.setUpgradePrompt);
+  const pieceColor = useAppStore((s) => s.pieceColor);
+  const setPieceColor = useAppStore((s) => s.setPieceColor);
   const enjoyed = plays.filter((p) => p.enjoyed).length;
   const { user, isPending } = useCurrentUserState();
   const [scan, setScan] = useState(false);
@@ -34,7 +37,10 @@ function ProfilePage() {
   useEffect(() => {
     if (!user) return;
     void getMyProfile()
-      .then((p) => setDisplayName(p.displayName))
+      .then((p) => {
+        setDisplayName(p.displayName);
+        if (p.pieceColor) setPieceColor(p.pieceColor);
+      })
       .catch(() => setDisplayName(user.displayName ?? ""));
   }, [user]);
 
@@ -111,6 +117,19 @@ function ProfilePage() {
           </Button>
         </form>
       ) : null}
+
+      <section className="mt-6 rounded-card bg-card p-4 shadow-card">
+        <PieceSwatch
+          value={pieceColor}
+          onChange={(hex) => {
+            setPieceColor(hex);
+            if (user) void updateMyProfile({ data: { pieceColor: hex } }).catch(() => undefined);
+          }}
+        />
+        <p className="mt-2 text-sm text-muted-foreground">
+          Dice and pieces take this color in every game you sit down for.
+        </p>
+      </section>
 
       <Link
         to="/scoreboard"

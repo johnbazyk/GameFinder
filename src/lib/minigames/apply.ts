@@ -1,19 +1,27 @@
 import { applyRoll, bankPoints, createBank, nextRound, passDice, ranked, type BankState } from "@/lib/bank";
 import type { EngineResult, MiniAction, MiniGameType } from "./types";
 import { PLAYER_COLORS } from "@/lib/types";
-import { botLabel, isBot } from "./bots";
+import { botColor, botLabel, isBot } from "./bots";
 import { applyC4, initC4, type C4State } from "./connect4";
 import { applyCheckers, initCheckers, type CheckersState } from "./checkers";
 import { applyChess, initChess, type ChessState } from "./chess";
 import { applyTtt, initTtt, type TttState } from "./tictactoe";
 
-export function initState(type: MiniGameType, playerIds: string[], names: string[], settings: { rounds?: number }) {
+export function initState(
+  type: MiniGameType,
+  playerIds: string[],
+  names: string[],
+  settings: { rounds?: number },
+  colors?: string[],
+) {
   if (type === "bank") {
     return createBank(
       playerIds.map((id, i) => ({
         id,
         name: isBot(id) ? botLabel(id) : (names[i] ?? "Player"),
-        color: PLAYER_COLORS[i % PLAYER_COLORS.length],
+        color: isBot(id)
+          ? botColor(id)
+          : colors?.[i] || PLAYER_COLORS[i % PLAYER_COLORS.length],
         score: 0,
       })),
       (settings.rounds === 10 || settings.rounds === 20 ? settings.rounds : 15) as 10 | 15 | 20,

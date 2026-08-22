@@ -1,14 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
-import {
-  GROK_PROVIDERS,
-  authClient,
-  authEnabled,
-  federatedSignInAvailable,
-  signIn,
-} from "@/lib/auth/client";
+import { PieceSwatch } from "@/components/piece-swatch";
+import { GROK_PROVIDERS, authClient, authEnabled, signIn } from "@/lib/auth/client";
+import { DEFAULT_PIECE_COLOR } from "@/lib/piece-color";
+import { updateMyProfile } from "@/lib/social";
+import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/login")({ component: Login });
@@ -19,11 +17,10 @@ function Login() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [color, setColor] = useState(useAppStore.getState().pieceColor || DEFAULT_PIECE_COLOR);
+  const setPieceColor = useAppStore((s) => s.setPieceColor);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [federated, setFederated] = useState(false);
-
-  useEffect(() => setFederated(federatedSignInAvailable()), []);
 
   async function onEmail(e: FormEvent) {
     e.preventDefault();
@@ -31,12 +28,16 @@ function Login() {
     setBusy(true);
     try {
       if (mode === "up") {
+        setPieceColor(color);
         const res = await authClient.signUp.email({
           email: email.trim(),
           password,
           name: name.trim() || email.split("@")[0],
         });
         if (res.error) throw new Error(res.error.message || "Could not create the account");
+        await updateMyProfile({
+          data: { displayName: name.trim() || email.split("@")[0], pieceColor: color },
+        }).catch(() => undefined);
       } else {
         const res = await authClient.signIn.email({ email: email.trim(), password });
         if (res.error) throw new Error(res.error.message || "Email or password didn't match");
@@ -61,34 +62,34 @@ function Login() {
 
       {authEnabled ? (
         <div className="mt-6 space-y-3">
-          {federated ? (
-            <>
-              {GROK_PROVIDERS.map((p) => (
-                <Button
-                  key={p.providerId}
-                  type="button"
-                  variant="secondary"
-                  className="w-full"
-                  onClick={() => signIn(p.providerId, { callbackURL: "/" })}
-                >
-                  Continue with {p.label}
-                </Button>
-              ))}
-              <p className="pt-2 text-center text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                or email
-              </p>
-            </>
-          ) : null}
+          {GROK_PROVIDERS.map((p) => (
+            <Button
+              key={p.providerId}
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+            >
+              Continue with {p.label}
+            </Button>
+          ))}
 
-          <form onSubmit={(e) => void onEmail(e)} className="space-y-2">
+          <p className="pt-2 text-center text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            or email
+          </p>
+
+          <form onSubmit={(e) => void onEmail(e)} className="space-y-3">
             {mode === "up" ? (
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Display name"
-                autoComplete="name"
-                className="w-full rounded-card bg-card px-3 py-3 text-sm shadow-card outline-none ring-fox/40 focus:ring-2"
-              />
+              <>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Display name"
+                  autoComplete="name"
+                  className="w-full rounded-card bg-card px-3 py-3 text-sm shadow-card outline-none ring-fox/40 focus:ring-2"
+                />
+                <PieceSwatch value={color} onChange={setColor} />
+              </>
             ) : null}
             <input
               type="email"
@@ -132,7 +133,7 @@ function Login() {
 
       <p className="mt-8 text-center text-sm">
         <Link to="/" className="font-semibold text-muted-foreground">
-          Keep playing as a guest
+          Keep browsing as a guest
         </Link>
       </p>
     </div>

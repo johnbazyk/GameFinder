@@ -8,12 +8,13 @@ export type BotDef = {
   id: BotId;
   name: string;
   style: string;
+  color: string;
 };
 
 export const HOUSE_BOTS: BotDef[] = [
-  { id: "bot:finn", name: "Finn", style: "Banks early. Hates a 7." },
-  { id: "bot:sly", name: "Sly", style: "Rides the pot. Greedy." },
-  { id: "bot:rook", name: "Rook", style: "Counts. Banks a lead." },
+  { id: "bot:finn", name: "Finn", style: "Banks early. Hates a 7.", color: "#4a6b4d" },
+  { id: "bot:sly", name: "Sly", style: "Rides the pot. Greedy.", color: "#7fa8c9" },
+  { id: "bot:rook", name: "Rook", style: "Counts. Banks a lead.", color: "#8b5a2b" },
 ];
 
 export function isBot(id: string) {
@@ -26,6 +27,10 @@ export function botById(id: string): BotDef | undefined {
 
 export function botLabel(id: string) {
   return botById(id)?.name ?? "House";
+}
+
+export function botColor(id: string) {
+  return botById(id)?.color ?? "#4a6b4d";
 }
 
 /** One legal house action, or null if a human has to go. */

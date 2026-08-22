@@ -2,12 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { applyAction, initState } from "./apply";
-import { botLabel, isBot, nextBankBotAction } from "./bots";
+import { botColor, botLabel, isBot, nextBankBotAction } from "./bots";
+import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "@/lib/piece-color";
+import { PLAYER_COLORS } from "@/lib/types";
 import { roll2d6 } from "@/lib/dice";
 import { MINI_GAMES, type MiniAction, type MiniGameType } from "./types";
 import type { BankState } from "@/lib/bank";
 
-export type SessionPlayer = { userId: string; name: string; seat: number };
+export type SessionPlayer = { userId: string; name: string; seat: number; color: string };
 
 export type SessionView = {
   id: string;
@@ -74,19 +76,39 @@ async function namesFor(ids: string[]) {
   return ids.map((id) => map.get(id) ?? "Player");
 }
 
+async function colorsFor(ids: string[]) {
+  const sql = await getSql();
+  const map = new Map<string, string>();
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    if (isBot(id)) {
+      map.set(id, botColor(id));
+      continue;
+    }
+    const rows = await sql<{ piece_color: string | null }>`
+      select piece_color from profiles where user_id = ${id} limit 1
+    `;
+    map.set(id, normalizePieceColor(rows[0]?.piece_color, PLAYER_COLORS[i % PLAYER_COLORS.length] as typeof DEFAULT_PIECE_COLOR));
+  }
+  return ids.map((id, i) => map.get(id) ?? PLAYER_COLORS[i % PLAYER_COLORS.length]);
+}
+
 async function loadPlayers(sessionId: string): Promise<SessionPlayer[]> {
   const sql = await getSql();
-  const rows = await sql<{ user_id: string; seat: number; display_name: string }>`
-    select p.user_id, p.seat, coalesce(pr.display_name, 'Player') as display_name
+  const rows = await sql<{ user_id: string; seat: number; display_name: string; piece_color: string | null }>`
+    select p.user_id, p.seat, coalesce(pr.display_name, 'Player') as display_name, pr.piece_color
     from game_session_players p
     left join profiles pr on pr.user_id = p.user_id
     where p.session_id = ${sessionId}
     order by p.seat
   `;
-  return rows.map((r) => ({
+  return rows.map((r, i) => ({
     userId: r.user_id,
     name: isBot(r.user_id) ? botLabel(r.user_id) : r.display_name,
     seat: Number(r.seat),
+    color: isBot(r.user_id)
+      ? botColor(r.user_id)
+      : normalizePieceColor(r.piece_color, PLAYER_COLORS[i % PLAYER_COLORS.length] as typeof DEFAULT_PIECE_COLOR),
   }));
 }
 
@@ -175,8 +197,9 @@ export const createMiniSession = createServerFn({ method: "POST" })
       if (!isBot(uid)) await requireMember(data.groupId, uid);
     }
     const names = await namesFor(data.playerIds);
+    const colors = await colorsFor(data.playerIds);
     const settings = { passPhone: meta.passPhone, rounds: data.rounds ?? 15 };
-    const state = initState(data.gameType, data.playerIds, names, settings);
+    const state = initState(data.gameType, data.playerIds, names, settings, colors);
     const id = nid();
     const turn = data.playerIds[0];
     await sql`

@@ -14,6 +14,7 @@ import { DEFAULT_USER_WEIGHTS } from "./vibes";
 import { applyFeedbackDelta, getGame, runWizard } from "./scoring";
 import { STARTER_SHELF_IDS } from "./catalog";
 import { flagOn } from "./flags";
+import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "./piece-color";
 
 export const DEFAULT_WIZARD: WizardContext = {
   players: 4,
@@ -77,6 +78,9 @@ type AppState = {
 
   recPool: { groupId: string; groupName: string; ids: string[] } | null;
   setRecPool: (v: { groupId: string; groupName: string; ids: string[] } | null) => void;
+
+  pieceColor: string;
+  setPieceColor: (hex: string) => void;
 };
 
 function haptic(enabled: boolean) {
@@ -289,6 +293,9 @@ export const useAppStore = create<AppState>()(
 
       recPool: null,
       setRecPool: (v) => set({ recPool: v }),
+
+      pieceColor: DEFAULT_PIECE_COLOR,
+      setPieceColor: (hex) => set({ pieceColor: normalizePieceColor(hex) }),
     }),
     {
       name: "gamefinder-v2",
@@ -309,6 +316,7 @@ export const useAppStore = create<AppState>()(
         tablePlayers: s.tablePlayers,
         scoreSessions: s.scoreSessions,
         lastPlayerIds: s.lastPlayerIds,
+        pieceColor: s.pieceColor,
       }),
       onRehydrateStorage: () => (state) => {
         if (state?.theme === "dark" && typeof document !== "undefined") {

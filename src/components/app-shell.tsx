@@ -51,6 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="paper-grain min-h-dvh text-foreground">
       <AccountSync />
+      {hideNav ? null : (
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
           <Link to="/" className="flex items-center gap-2" onClick={onLogo}>
@@ -89,6 +90,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <AuthChip />
         </div>
       </header>
+      )}
       <main className={cn("mx-auto w-full max-w-3xl px-4 pt-5", !hideNav && "safe-bottom")}>
         {children}
       </main>

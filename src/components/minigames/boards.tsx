@@ -25,6 +25,10 @@ function twoTone(view: SessionView) {
   };
 }
 
+function playerColor(view: SessionView, seat: number) {
+  return view.players.find((p) => p.seat === seat)?.color ?? PLAYER_COLORS[seat % PLAYER_COLORS.length];
+}
+
 export function TttBoard({
   view,
   act,
@@ -47,7 +51,7 @@ export function TttBoard({
           className="grid aspect-square min-h-11 place-items-center rounded-card bg-card font-display text-4xl shadow-card disabled:opacity-70"
         >
           {cell == null ? "" : (
-            <span className={cell === 0 ? "text-fox" : "text-moss"}>{cell === 0 ? "X" : "O"}</span>
+            <span style={{ color: playerColor(view, cell) }}>{cell === 0 ? "X" : "O"}</span>
           )}
         </button>
       ))}
@@ -90,12 +94,8 @@ export function Connect4Board({
             return (
               <div
                 key={`${r}-${c}`}
-                className={cn(
-                  "aspect-square rounded-full",
-                  v === 0 && "bg-cream",
-                  v === 1 && "bg-fox",
-                  v === 2 && "bg-moss",
-                )}
+                className={cn("aspect-square rounded-full", v === 0 && "bg-cream")}
+                style={v ? { background: playerColor(view, v - 1) } : undefined}
               />
             );
           }),
@@ -162,10 +162,9 @@ export function CheckersBoard({
                 <span
                   className={cn(
                     "size-[70%] rounded-full",
-                    (p === 1 || p === 2) && "bg-fox",
-                    (p === 3 || p === 4) && "bg-moss",
                     (p === 2 || p === 4) && "ring-2 ring-cream",
                   )}
+                  style={{ background: playerColor(view, p === 1 || p === 2 ? 0 : 1) }}
                 />
               ) : null}
             </button>
@@ -252,7 +251,7 @@ export function ChessBoard({
               )}
             >
               {glyph ? (
-                <span className={white ? "text-fox" : "text-night"}>{glyph}</span>
+                <span style={{ color: white ? playerColor(view, 0) : playerColor(view, 1) }}>{glyph}</span>
               ) : null}
             </button>
           );
@@ -282,7 +281,7 @@ export function ChessBoard({
 export function SeatDots({
   players,
 }: {
-  players: { userId: string; name: string; seat: number }[];
+  players: { userId: string; name: string; seat: number; color?: string }[];
 }) {
   return (
     <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
@@ -292,7 +291,7 @@ export function SeatDots({
           <span key={p.userId} className="inline-flex items-center gap-1.5">
             <span
               className="size-2.5 shrink-0 rounded-full"
-              style={{ background: PLAYER_COLORS[p.seat % PLAYER_COLORS.length] }}
+              style={{ background: p.color || PLAYER_COLORS[p.seat % PLAYER_COLORS.length] }}
             />
             {p.name}
           </span>

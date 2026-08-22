@@ -1,12 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "@/lib/piece-color";
 
 export type Profile = {
   userId: string;
   displayName: string;
   avatarSeed: number;
   plan: string;
+  pieceColor: string;
 };
 
 export type FriendRow = {
@@ -78,8 +80,8 @@ async function ensureProfile(userId: string) {
   const raw = users[0]?.name?.trim() || users[0]?.email?.split("@")[0] || "Player";
   const seed = Array.from(userId).reduce((n, c) => n + c.charCodeAt(0), 0) % 360;
   await sql`
-    insert into profiles (user_id, display_name, avatar_seed)
-    values (${userId}, ${raw.slice(0, 32)}, ${seed})
+    insert into profiles (user_id, display_name, avatar_seed, piece_color)
+    values (${userId}, ${raw.slice(0, 32)}, ${seed}, ${DEFAULT_PIECE_COLOR})
     on conflict (user_id) do nothing
   `;
 }
@@ -112,8 +114,9 @@ export const getMyProfile = createServerFn({ method: "GET" })
       display_name: string;
       avatar_seed: number;
       plan: string;
+      piece_color: string;
     }>`
-      select user_id, display_name, avatar_seed, plan
+      select user_id, display_name, avatar_seed, plan, piece_color
       from profiles where user_id = ${context.userId} limit 1
     `;
     const r = rows[0];
@@ -122,23 +125,33 @@ export const getMyProfile = createServerFn({ method: "GET" })
       displayName: r.display_name,
       avatarSeed: r.avatar_seed,
       plan: r.plan,
+      pieceColor: normalizePieceColor(r.piece_color),
     } satisfies Profile;
   });
 
 export const updateMyProfile = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { displayName: string }) => ({
+  .validator((input: { displayName?: string; pieceColor?: string }) => ({
     displayName: String(input?.displayName ?? "").trim().slice(0, 32),
+    pieceColor: input?.pieceColor ? normalizePieceColor(input.pieceColor) : undefined,
   }))
   .handler(async ({ context, data }) => {
-    if (!data.displayName) throw new Error("Need a name");
     await ensureProfile(context.userId);
     const sql = await getSql();
-    await sql`
-      update profiles
-      set display_name = ${data.displayName}, updated_at = now()
-      where user_id = ${context.userId}
-    `;
+    if (data.displayName) {
+      await sql`
+        update profiles
+        set display_name = ${data.displayName}, updated_at = now()
+        where user_id = ${context.userId}
+      `;
+    }
+    if (data.pieceColor) {
+      await sql`
+        update profiles
+        set piece_color = ${data.pieceColor}, updated_at = now()
+        where user_id = ${context.userId}
+      `;
+    }
     return { ok: true as const };
   });
 

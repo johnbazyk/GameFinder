@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { getCloudVault, replaceCloudVault } from "@/lib/social";
+import { getCloudVault, getMyProfile, replaceCloudVault } from "@/lib/social";
 import { useAppStore } from "@/lib/store";
 
 /** Merge the device vault with the signed-in cloud shelf. Guests are untouched. */
@@ -23,7 +23,12 @@ export function AccountSync() {
           (id) => !owned.includes(id),
         );
         useAppStore.setState({ owned, wishlist });
-        return replaceCloudVault({ data: { owned, wishlist } });
+        return getMyProfile()
+          .then((prof) => {
+            if (prof.pieceColor) useAppStore.getState().setPieceColor(prof.pieceColor);
+          })
+          .catch(() => undefined)
+          .then(() => replaceCloudVault({ data: { owned, wishlist } }));
       })
       .catch(() => {
         mergedFor.current = null;

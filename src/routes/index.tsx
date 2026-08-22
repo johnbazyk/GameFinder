@@ -71,9 +71,9 @@ function Home() {
         <Button
           size="xl"
           className="mt-6 w-full max-w-xs"
-          onClick={() => navigate({ to: "/wizard" })}
+          onClick={() => navigate({ to: "/play/bank" })}
         >
-          Find tonight's game
+          Play Bank vs Finn, Sly & Rook
           <ArrowRight className="size-5" />
         </Button>
         {surpriseOn ? (
@@ -106,7 +106,7 @@ function Home() {
           </span>
           <span className="mt-1 block font-display text-xl">Bank</span>
           <span className="mt-1 block text-sm text-muted-foreground">
-            Digital dice for everyone. Don't be the 7.
+            You vs Finn, Sly & Rook. First three rolls are safe.
           </span>
         </span>
         <span className="text-sm font-semibold text-sky">Play</span>
