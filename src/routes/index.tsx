@@ -111,6 +111,21 @@ function Home() {
         </span>
         <span className="text-sm font-semibold text-sky">Play</span>
       </Link>
+      <Link
+        to="/play/stockpile"
+        className="anim-rise mt-3 flex items-center justify-between rounded-card bg-card px-4 py-4 shadow-card"
+      >
+        <span>
+          <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-fox">
+            Play here
+          </span>
+          <span className="mt-1 block font-display text-xl">Stockpile</span>
+          <span className="mt-1 block text-sm text-muted-foreground">
+            Empty your stock. Build 1 to 12. Wilds are W. You vs three foxes.
+          </span>
+        </span>
+        <span className="text-sm font-semibold text-sky">Play</span>
+      </Link>
 
       {pending ? (
         <section className="anim-rise mt-8 rounded-card bg-card p-4 shadow-card" style={{ animationDelay: "80ms" }}>

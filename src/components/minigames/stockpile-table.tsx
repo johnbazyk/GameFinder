@@ -19,28 +19,48 @@ type Pick =
   | { src: "hand"; i: number }
   | { src: "discard"; i: number };
 
+function band(n?: number) {
+  if (n == null) return "is-empty";
+  if (n === 0) return "is-wild";
+  if (n <= 4) return "is-low";
+  if (n <= 8) return "is-mid";
+  return "is-high";
+}
+
 function Face({
   card,
   ghost,
   selected,
+  hot,
   onClick,
   tall,
+  count,
 }: {
   card?: StockCard;
   ghost?: string;
   selected?: boolean;
+  hot?: boolean;
   onClick?: () => void;
   tall?: boolean;
+  count?: number;
 }) {
-  const wild = card?.n === 0;
   return (
     <button
       type="button"
       disabled={!onClick}
       onClick={onClick}
-      className={cn("stock-card", tall && "is-tall", wild && "is-wild", selected && "is-sel", !card && "is-empty")}
+      aria-label={card ? `Card ${labelStock(card)}` : ghost || "empty"}
+      className={cn(
+        "stock-card",
+        band(card?.n),
+        tall && "is-tall",
+        selected && "is-sel",
+        hot && "is-hot",
+        !card && "is-empty",
+      )}
     >
-      {card ? labelStock(card) : ghost}
+      <span>{card ? labelStock(card) : ghost}</span>
+      {count && count > 1 ? <em>{count}</em> : null}
     </button>
   );
 }
@@ -66,7 +86,7 @@ export function StockpileTable({
     const id = view.players[state.turn]?.userId;
     if (!id || !isBot(id)) return;
     if (!nextStockpileBotAction(state)) return;
-    const t = window.setTimeout(() => act({ type: "bot-step" }), 650);
+    const t = window.setTimeout(() => act({ type: "bot-step" }), 520);
     return () => window.clearTimeout(t);
   }, [view.version, view.status, busy, state.turn, state.drawn, state.lastLine]);
 
@@ -116,7 +136,7 @@ export function StockpileTable({
           ? state.winner != null
             ? `${state.names[state.winner] ?? view.players[state.winner]?.name} emptied their stock.`
             : "Game over."
-          : `${current?.name ?? "Someone"}'s turn. ${state.lastLine}`}
+          : `${current?.name ?? "Someone"}'s turn — ${state.lastLine}`}
       </p>
 
       <div className="stock-rivals">
@@ -126,22 +146,33 @@ export function StockpileTable({
               <span className="stock-rival-name" style={{ color: p.color }}>
                 {p.name}
               </span>
-              <span className="text-xs text-muted-foreground">{state.stocks[i]?.length ?? 0} in stock</span>
+              <div className="stock-rival-row">
+                <Face card={top(state.stocks[i] ?? [])} ghost="—" count={state.stocks[i]?.length} />
+                {(state.discards[i] ?? []).map((pile, d) => (
+                  <Face key={d} card={top(pile)} ghost="·" />
+                ))}
+              </div>
             </div>
           ),
         )}
       </div>
 
-      <p className="text-center text-[11px] font-bold uppercase tracking-[0.16em] text-fox">Build 1–12</p>
-      <div className="stock-builds">
-        {state.build.map((pile, i) => (
-          <Face
-            key={i}
-            card={top(pile)}
-            ghost={String(state.need[i])}
-            onClick={yourTurn && pickedCard && canPlace(pickedCard, state.need[i]) ? () => playTo(i) : undefined}
-          />
-        ))}
+      <div className="stock-builds-wrap">
+        <p className="stock-kicker">Build — 1 up to 12, then clear</p>
+        <div className="stock-builds">
+          {state.build.map((pile, i) => (
+            <Face
+              key={i}
+              card={top(pile)}
+              ghost={String(state.need[i])}
+              count={pile.length}
+              hot={Boolean(yourTurn && pickedCard && canPlace(pickedCard, state.need[i]))}
+              onClick={
+                yourTurn && pickedCard && canPlace(pickedCard, state.need[i]) ? () => playTo(i) : undefined
+              }
+            />
+          ))}
+        </div>
       </div>
 
       <div className="stock-you">
@@ -151,6 +182,7 @@ export function StockpileTable({
             card={top(state.stocks[seat] ?? [])}
             ghost="—"
             tall
+            count={state.stocks[seat]?.length}
             selected={pick?.src === "stock"}
             onClick={
               yourTurn && top(state.stocks[seat] ?? [])
@@ -160,14 +192,16 @@ export function StockpileTable({
           />
         </div>
         <div className="stock-col grow">
-          <p className="stock-kicker">Park here to end turn</p>
+          <p className="stock-kicker">Park a hand card to end the turn</p>
           <div className="stock-discards">
             {state.discards[seat]?.map((pile, i) => (
               <Face
                 key={i}
                 card={top(pile)}
                 ghost="+"
+                count={pile.length}
                 selected={pick?.src === "discard" && pick.i === i}
+                hot={pick?.src === "hand"}
                 onClick={() => {
                   if (!yourTurn) return;
                   if (pick?.src === "hand") {
@@ -193,12 +227,12 @@ export function StockpileTable({
           />
         ))}
       </div>
-      <p className="text-center text-xs text-muted-foreground">
-        Tap a card, then a build pile. Tap a park slot with a hand card to end your turn.
+      <p className="stock-hint">
+        Tap a card, then a glowing build. 1–4 moss, 5–8 fox, 9–12 sky, W is wild. Empty your stock to win.
       </p>
 
       {over && view.id === "lab-stockpile" ? (
-        <Button className="mt-2 w-full" onClick={() => act({ type: "next-round" })}>
+        <Button className="mt-1 w-full" onClick={() => act({ type: "next-round" })}>
           Play again
         </Button>
       ) : null}

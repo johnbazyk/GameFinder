@@ -59,6 +59,8 @@ export function StartGame({
             type="button"
             onClick={() => {
               setKind(k);
+              if (k === "stockpile") setRounds(20);
+              if (k === "bank") setRounds(15);
               setPicked((cur) => {
                 const keep = k === "bank" || k === "stockpile" ? cur : cur.filter((id) => !id.startsWith("bot:"));
                 return keep.slice(0, MINI_GAMES[k].max);
