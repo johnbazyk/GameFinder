@@ -42,15 +42,31 @@ async function main() {
     return;
   }
 
+  const local = /localhost|127\.0\.0\.1/i.test(databaseUrl);
   const pool = new pg.Pool({
     connectionString: databaseUrl,
     max: 1,
-    ssl: /localhost|127\.0\.0\.1/i.test(databaseUrl)
-      ? undefined
-      : { rejectUnauthorized: false },
+    ssl: local ? undefined : { rejectUnauthorized: false },
     connectionTimeoutMillis: 15_000,
   });
-  const client = await pool.connect();
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (first) {
+    console.warn(
+      "[migrate] TLS connect failed, retrying without ssl:",
+      first instanceof Error ? first.message : first,
+    );
+    await pool.end().catch(() => undefined);
+    const retry = new pg.Pool({
+      connectionString: databaseUrl,
+      max: 1,
+      connectionTimeoutMillis: 15_000,
+    });
+    client = await retry.connect();
+    // swap so the finally block still ends the live pool
+    Object.assign(pool, { end: () => retry.end() });
+  }
   try {
     await client.query(
       "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())",

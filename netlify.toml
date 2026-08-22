@@ -2,6 +2,10 @@
 # The nitro "netlify" preset (vite.config.ts, active when NETLIFY is set)
 # emits the SSR handler into .netlify/functions-internal and static assets
 # into dist; publish must stay "dist".
+#
+# Migrations already live on Supabase. `npm run build` used to chain
+# db:migrate; a pooler TLS blip then failed the whole site build. Apply
+# new files with `npm run db:migrate` (or a one-off Netlify command).
 
 [build]
   command = "npm run build"
