@@ -18,7 +18,23 @@ import { dirname, join } from "node:path";
 import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
 
-const databaseUrl = process.env.DATABASE_URL;
+function normalizeDatabaseUrl(url) {
+  try {
+    const u = new URL(url.replace(/^postgres(ql)?:/i, "https:"));
+    if (u.hostname.includes("pooler.supabase.com") && u.username === "postgres") {
+      u.username = "postgres.gposxgncsktonuhlgbpg";
+    }
+    return u
+      .toString()
+      .replace(/^https:/i, url.startsWith("postgres://") ? "postgres:" : "postgresql:");
+  } catch {
+    return url;
+  }
+}
+
+const databaseUrl = process.env.DATABASE_URL
+  ? normalizeDatabaseUrl(process.env.DATABASE_URL)
+  : undefined;
 if (!databaseUrl) {
   console.log(
     "[migrate] DATABASE_URL not set — skipping (the PGLite fallback migrates itself).",
