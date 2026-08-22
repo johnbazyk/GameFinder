@@ -57,6 +57,16 @@ family owns, and restarting Netlify does not wipe the ledger.
 Note on numbering: RLS took `0004`, so notifications become
 `migrations/0005_notifications.sql` and presence `0006` (or one file).
 
+## Environment (final)
+
+The Netlify site carries exactly four variables: `DATABASE_URL` (secret,
+uppercase — a lowercase `database_url` silently no-ops, the app reads
+`process.env.DATABASE_URL`), `BETTER_AUTH_SECRET` (secret), `BETTER_AUTH_URL`,
+`VITE_AUTH_ENABLED`. All old chat-app variables are deleted. Proof the app
+really reached Postgres: the `_migrations` table exists in Supabase — a green
+build alone does not prove it, because the migrate step skips cleanly when
+`DATABASE_URL` is absent.
+
 ## Exit criterion
 
 Sign in with email/password on production, create a group, play Bank vs Finn to
