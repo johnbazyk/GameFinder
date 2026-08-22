@@ -508,3 +508,113 @@
     animation: none !important;
   }
 }
+
+
+/* --- Family boards --- */
+.felt-rack {
+  border-radius: 1.35rem;
+  padding: 0.7rem 0.65rem 0.85rem;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--color-sky) 55%, #1a2740), #1a2744);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 color-mix(in oklab, white 22%, transparent);
+}
+.felt-rack-grid { display: grid; gap: 0.28rem; }
+.felt-hole {
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-night) 55%, #0b1220);
+  box-shadow: inset 0 2px 4px color-mix(in oklab, black 45%, transparent);
+  display: grid;
+  place-items: center;
+}
+.felt-disc {
+  width: 86%;
+  height: 86%;
+  border-radius: 999px;
+  box-shadow:
+    inset 0 -6px 10px color-mix(in oklab, black 28%, transparent),
+    inset 0 4px 6px color-mix(in oklab, white 35%, transparent),
+    0 2px 0 color-mix(in oklab, black 25%, transparent);
+}
+.felt-drop {
+  height: 2.4rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, white 12%, transparent);
+  color: var(--color-cream);
+}
+.wood-board {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  overflow: hidden;
+  border: 8px solid color-mix(in oklab, #5c3a22 80%, var(--color-night));
+  box-shadow: var(--shadow-card);
+  background: #5c3a22;
+}
+.wood-light { background: #e6d3b1; }
+.wood-dark { background: #7a4e2d; }
+.wood-sel { box-shadow: inset 0 0 0 3px var(--color-fox); }
+.wood-legal { box-shadow: inset 0 0 0 3px var(--color-sky); }
+.wood-dot {
+  width: 28%;
+  height: 28%;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-fox) 70%, white);
+  opacity: 0.85;
+}
+.man {
+  width: 72%;
+  height: 72%;
+  border-radius: 999px;
+  box-shadow:
+    inset 0 -5px 8px color-mix(in oklab, black 30%, transparent),
+    inset 0 3px 5px color-mix(in oklab, white 28%, transparent),
+    0 2px 2px color-mix(in oklab, black 20%, transparent);
+}
+.man-king {
+  box-shadow:
+    inset 0 -5px 8px color-mix(in oklab, black 30%, transparent),
+    inset 0 3px 5px color-mix(in oklab, white 28%, transparent),
+    0 0 0 2px var(--color-cream);
+}
+.chess-glyph {
+  font-size: clamp(1.15rem, 6vw, 1.85rem);
+  line-height: 1;
+  filter: drop-shadow(0 1px 0 color-mix(in oklab, black 35%, transparent));
+}
+.ttt-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  padding: 0.55rem;
+  border-radius: 1.2rem;
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
+}
+.ttt-cell {
+  aspect-ratio: 1;
+  border-radius: 0.9rem;
+  background: var(--color-background);
+  font-family: var(--font-display);
+  font-size: 2.6rem;
+  line-height: 1;
+}
+.shed-table { display: flex; flex-direction: column; gap: 0.75rem; }
+.shed-discard { min-height: 7.5rem; display: grid; place-items: center; }
+.play-card {
+  width: 4.4rem;
+  height: 6.2rem;
+  border-radius: 0.7rem;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: var(--color-cream);
+  box-shadow: var(--shadow-card);
+  border: 2px solid color-mix(in oklab, white 22%, transparent);
+}
+.play-card.is-wild {
+  background: linear-gradient(135deg, var(--color-fox), var(--color-moss), var(--color-sky), var(--color-berry));
+}
+.play-hand { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; }

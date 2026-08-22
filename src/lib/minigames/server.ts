@@ -382,6 +382,8 @@ export const playMiniAction = createServerFn({ method: "POST" })
           action.type === "pass" ||
           action.type === "drop" ||
           action.type === "move" ||
+          action.type === "play-card" ||
+          action.type === "draw" ||
           action.type === "next-round";
         if (turnLocked && row.current_turn_user_id && row.current_turn_user_id !== context.userId) {
           throw new Error("Wait your turn");

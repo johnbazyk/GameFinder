@@ -41,14 +41,15 @@ export function TttBoard({
   const state = view.state as TttState;
   const { yourTurn } = twoTone(view);
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="ttt-grid">
       {state.cells.map((cell, i) => (
         <button
           key={i}
           type="button"
           disabled={busy || !yourTurn || cell != null || view.status !== "active"}
           onClick={() => act({ type: "move", from: i, to: i })}
-          className="grid aspect-square min-h-11 place-items-center rounded-card bg-card font-display text-4xl shadow-card disabled:opacity-70"
+          aria-label={`Square ${i + 1}${cell == null ? "" : cell === 0 ? ", X" : ", O"}`}
+          className="ttt-cell grid place-items-center disabled:opacity-70"
         >
           {cell == null ? "" : (
             <span style={{ color: playerColor(view, cell) }}>{cell === 0 ? "X" : "O"}</span>
@@ -71,16 +72,16 @@ export function Connect4Board({
   const state = view.state as C4State;
   const { yourTurn } = twoTone(view);
   return (
-    <div className="rounded-card bg-sky/30 p-2">
+    <div className="felt-rack">
       <div
-        className="grid gap-1.5"
+        className="felt-rack-grid"
         style={{ gridTemplateColumns: `repeat(${C4_COLS}, minmax(0, 1fr))` }}
       >
         {Array.from({ length: C4_COLS }, (_, c) => (
           <button
             key={`t-${c}`}
             type="button"
-            className="grid h-11 place-items-center rounded-full bg-card text-sky"
+            className="felt-drop grid place-items-center"
             disabled={busy || !yourTurn || view.status !== "active"}
             onClick={() => act({ type: "drop", col: c })}
             aria-label={`Drop in column ${c + 1}`}
@@ -92,11 +93,11 @@ export function Connect4Board({
           Array.from({ length: C4_COLS }, (_, c) => {
             const v = state.grid[r][c];
             return (
-              <div
-                key={`${r}-${c}`}
-                className={cn("aspect-square rounded-full", v === 0 && "bg-cream")}
-                style={v ? { background: playerColor(view, v - 1) } : undefined}
-              />
+              <div key={`${r}-${c}`} className="felt-hole">
+                {v ? (
+                  <span className="felt-disc" style={{ background: playerColor(view, v - 1) }} />
+                ) : null}
+              </div>
             );
           }),
         )}
@@ -142,28 +143,27 @@ export function CheckersBoard({
   }
 
   return (
-    <div className={cn("grid grid-cols-8", BOARD_BLEED)}>
+    <div className={cn("wood-board", BOARD_BLEED)}>
       {state.board.flatMap((row, r) =>
         row.map((p, c) => {
           const i = r * 8 + c;
           const dark = (r + c) % 2 === 1;
+          const king = p === 2 || p === 4;
           return (
             <button
               key={i}
               type="button"
               onClick={() => click(i)}
+              aria-label={`Square ${r + 1},${c + 1}${p ? (king ? ", king" : ", man") : ""}`}
               className={cn(
                 "grid aspect-square min-h-11 place-items-center",
-                dark ? "bg-moss/70" : "bg-cream-deep",
-                sel === i && "ring-2 ring-inset ring-fox",
+                dark ? "wood-dark" : "wood-light",
+                sel === i && "wood-sel",
               )}
             >
               {p ? (
                 <span
-                  className={cn(
-                    "size-[70%] rounded-full",
-                    (p === 2 || p === 4) && "ring-2 ring-cream",
-                  )}
+                  className={cn("man", king && "man-king")}
                   style={{ background: playerColor(view, p === 1 || p === 2 ? 0 : 1) }}
                 />
               ) : null}
@@ -230,7 +230,7 @@ export function ChessBoard({
 
   return (
     <div>
-      <div className={cn("grid grid-cols-8", BOARD_BLEED)}>
+      <div className={cn("wood-board", BOARD_BLEED)}>
         {cells.map((i) => {
           const r = Math.floor(i / 8);
           const c = i % 8;
@@ -238,20 +238,30 @@ export function ChessBoard({
           const glyph = piece ? GLYPH[piece.color === "w" ? piece.type.toUpperCase() : piece.type] : "";
           const light = (r + c) % 2 === 0;
           const white = piece?.color === "w";
+          const file = "abcdefgh"[c];
+          const rank = 8 - r;
           return (
             <button
               key={i}
               type="button"
               onClick={() => click(i)}
+              aria-label={`${file}${rank}${piece ? `, ${piece.color === "w" ? "white" : "black"} ${piece.type}` : ""}`}
               className={cn(
-                "grid aspect-square min-h-11 place-items-center text-2xl leading-none",
-                light ? "bg-cream" : "bg-moss/50",
-                sel === i && "ring-2 ring-inset ring-fox",
-                legal.includes(i) && "ring-2 ring-inset ring-sky",
+                "grid aspect-square min-h-11 place-items-center",
+                light ? "wood-light" : "wood-dark",
+                sel === i && "wood-sel",
+                legal.includes(i) && "wood-legal",
               )}
             >
               {glyph ? (
-                <span style={{ color: white ? playerColor(view, 0) : playerColor(view, 1) }}>{glyph}</span>
+                <span
+                  className="chess-glyph"
+                  style={{ color: white ? playerColor(view, 0) : playerColor(view, 1) }}
+                >
+                  {glyph}
+                </span>
+              ) : legal.includes(i) ? (
+                <span className="wood-dot" />
               ) : null}
             </button>
           );

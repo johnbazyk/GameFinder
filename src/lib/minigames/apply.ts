@@ -6,6 +6,7 @@ import { applyC4, initC4, type C4State } from "./connect4";
 import { applyCheckers, initCheckers, type CheckersState } from "./checkers";
 import { applyChess, initChess, type ChessState } from "./chess";
 import { applyTtt, initTtt, type TttState } from "./tictactoe";
+import { applyShed, initShed, type ShedState } from "./shed";
 
 export function initState(
   type: MiniGameType,
@@ -30,6 +31,7 @@ export function initState(
   if (type === "connect4") return initC4();
   if (type === "checkers") return initCheckers();
   if (type === "chess") return initChess();
+  if (type === "shed") return initShed(playerIds.length);
   return initTtt();
 }
 
@@ -85,5 +87,6 @@ export function applyAction(
   if (type === "connect4") return applyC4(state as C4State, action, seat, playerIds);
   if (type === "checkers") return applyCheckers(state as CheckersState, action, seat, playerIds);
   if (type === "chess") return applyChess(state as ChessState, action, actorId, playerIds);
+  if (type === "shed") return applyShed(state as ShedState, action, seat, playerIds);
   return applyTtt(state as TttState, action, seat, playerIds);
 }

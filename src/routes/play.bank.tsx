@@ -98,7 +98,9 @@ function BankLab() {
           status: result.finished ? "finished" : "active",
           winnerId: result.winnerId,
           lastLine: result.lastLine,
-          dice: result.dice ?? nextState.dice,
+          dice: (Array.isArray(result.dice) && result.dice.length === 2
+            ? (result.dice as [number, number])
+            : nextState.dice),
           version: prev.version + 1,
           players: nextState.players.map((p, i) => ({ userId: p.id, name: p.name, seat: i, color: p.color })),
         };

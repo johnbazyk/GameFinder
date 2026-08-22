@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { BankTable } from "@/components/minigames/bank-table";
 import { CheckersBoard, ChessBoard, Connect4Board, SeatDots, TttBoard } from "@/components/minigames/boards";
+import { ShedTable } from "@/components/minigames/shed-table";
 import { useMiniSession } from "@/components/minigames/play-table";
 import { Button } from "@/components/ui/button";
 import { MINI_GAMES } from "@/lib/minigames/types";
@@ -70,6 +71,7 @@ function PlaySession() {
         {view.gameType === "connect4" ? <Connect4Board view={view} busy={busy} act={act} /> : null}
         {view.gameType === "checkers" ? <CheckersBoard view={view} busy={busy} act={act} /> : null}
         {view.gameType === "chess" ? <ChessBoard view={view} busy={busy} act={act} /> : null}
+        {view.gameType === "shed" ? <ShedTable view={view} busy={busy} act={act} /> : null}
       </div>
 
       {view.status === "active" && view.gameType !== "chess" ? (

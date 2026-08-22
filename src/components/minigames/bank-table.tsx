@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { DicePair } from "@/components/dice-pair";
+import { DicePair, THROW_MS } from "@/components/dice-pair";
 import { Button } from "@/components/ui/button";
 import type { BankState } from "@/lib/bank";
 import { ranked, stillIn } from "@/lib/bank";
@@ -11,7 +11,6 @@ import type { MiniAction } from "@/lib/minigames/types";
 import { cn } from "@/lib/utils";
 
 const BANK_WINDOW_MS = 8000;
-const THROW_MS = 1120;
 
 function clackDice() {
   const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;

@@ -54,9 +54,8 @@ const FACE_CLASS = [
   "die-face-6",
 ] as const;
 
-const THROW_MS = 1000;
-const EASE_SLIDE = "cubic-bezier(0.4, 0.02, 0.18, 1)";
-const EASE_SPIN = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+/** dice-box-ish: impulse, bounce, settle. Keep in sync with bank-table THROW_MS. */
+export const THROW_MS = 1280;
 
 function pipTone(hex?: string) {
   if (!hex || !hex.startsWith("#") || hex.length < 7) return "#fbf6ef";
@@ -94,6 +93,7 @@ export function CubeDie({
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const cubeRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<HTMLSpanElement>(null);
   const n = value >= 1 && value <= 6 ? value : 1;
   const face = FACE[n];
   const style = ink
@@ -103,6 +103,7 @@ export function CubeDie({
   useEffect(() => {
     const wrap = wrapRef.current;
     const cube = cubeRef.current;
+    const shadow = shadowRef.current;
     if (!wrap || !cube) return;
 
     const rest = pose(face.x, face.y, face.z);
@@ -110,47 +111,73 @@ export function CubeDie({
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    for (const a of [...wrap.getAnimations(), ...cube.getAnimations()]) a.cancel();
+    for (const a of [
+      ...wrap.getAnimations(),
+      ...cube.getAnimations(),
+      ...(shadow?.getAnimations() ?? []),
+    ]) {
+      a.cancel();
+    }
 
     if (!throwing || reduce) {
-      wrap.style.transform = "";
+      wrap.style.transform = "translate3d(0,0,0) scale(1)";
       cube.style.transform = rest;
+      if (shadow) shadow.style.transform = "scale(1)";
       return;
     }
 
-    const extraX = lane === "a" ? 720 : -640;
-    const extraY = lane === "a" ? 360 : -400;
-    const delay = lane === "b" ? 110 : 0;
-    const fromX = lane === "a" ? "-48vw" : "-40vw";
-    const fromY = lane === "a" ? "12px" : "52px";
-    const midX = lane === "a" ? "-18vw" : "-14vw";
-    const midY = lane === "a" ? "-48px" : "-22px";
+    const aLane = lane === "a";
+    const delay = aLane ? 0 : 90;
+    const fromX = aLane ? "-52vw" : "-38vw";
+    const spinX = aLane ? 1080 : -900;
+    const spinY = aLane ? 540 : -720;
+    const spinZ = aLane ? 180 : -270;
 
-    wrap.style.transform = `translate3d(${fromX}, ${fromY}, 0)`;
-    cube.style.transform = pose(face.x + extraX, face.y + extraY, face.z);
+    wrap.style.transform = `translate3d(${fromX}, 36px, 0) scale(0.92)`;
+    cube.style.transform = pose(face.x + spinX, face.y + spinY, face.z + spinZ);
 
     const slide = wrap.animate(
       [
-        { transform: `translate3d(${fromX}, ${fromY}, 0)` },
-        { transform: `translate3d(${midX}, ${midY}, 0)`, offset: 0.5 },
-        { transform: "translate3d(0, 0, 0)" },
+        { transform: `translate3d(${fromX}, 40px, 0) scale(0.92)`, offset: 0 },
+        { transform: `translate3d(${aLane ? "-18vw" : "-12vw"}, -72px, 0) scale(1)`, offset: 0.3 },
+        { transform: `translate3d(${aLane ? "6vw" : "8vw"}, 10px, 0) scale(1.08, 0.78)`, offset: 0.5 },
+        { transform: `translate3d(${aLane ? "3vw" : "4vw"}, -26px, 0) scale(1)`, offset: 0.66 },
+        { transform: "translate3d(1px, 6px, 0) scale(1.05, 0.88)", offset: 0.84 },
+        { transform: "translate3d(0, 0, 0) scale(1)", offset: 1 },
       ],
-      { duration: THROW_MS, delay, easing: EASE_SLIDE, fill: "forwards" },
+      { duration: THROW_MS, delay, easing: "linear", fill: "forwards" },
     );
     const spin = cube.animate(
-      [{ transform: pose(face.x + extraX, face.y + extraY, face.z) }, { transform: rest }],
-      { duration: THROW_MS, delay, easing: EASE_SPIN, fill: "forwards" },
+      [
+        { transform: pose(face.x + spinX, face.y + spinY, face.z + spinZ), offset: 0 },
+        { transform: pose(face.x + spinX * 0.45, face.y + spinY * 0.4, face.z + spinZ * 0.5), offset: 0.5 },
+        { transform: pose(face.x + 40, face.y + 20, face.z + 12), offset: 0.82 },
+        { transform: rest, offset: 1 },
+      ],
+      { duration: THROW_MS, delay, easing: "cubic-bezier(0.12, 0.7, 0.18, 1)", fill: "forwards" },
+    );
+    const shade = shadow?.animate(
+      [
+        { transform: "scale(0.35)", opacity: 0.25, offset: 0 },
+        { transform: "scale(0.2)", opacity: 0.15, offset: 0.3 },
+        { transform: "scale(1.15)", opacity: 0.55, offset: 0.5 },
+        { transform: "scale(0.45)", opacity: 0.25, offset: 0.66 },
+        { transform: "scale(1.05)", opacity: 0.5, offset: 0.84 },
+        { transform: "scale(1)", opacity: 0.4, offset: 1 },
+      ],
+      { duration: THROW_MS, delay, easing: "linear", fill: "forwards" },
     );
 
     return () => {
       slide.cancel();
       spin.cancel();
+      shade?.cancel();
     };
   }, [throwing, face.x, face.y, face.z, lane]);
 
   return (
     <div ref={wrapRef} className="die-throw" style={style}>
-      <span className="die-shadow" />
+      <span ref={shadowRef} className="die-shadow" />
       <div className="die-stage">
         <div ref={cubeRef} className="die-cube" style={{ transform: pose(face.x, face.y, face.z) }}>
           <Face n={1} />
