@@ -8,9 +8,10 @@ export const Route = createFileRoute("/api/health")({
       GET: async () => {
         const out: Record<string, unknown> = {
           ok: false,
-          version: "pooler-2",
+          version: "voice-1",
           hasDatabaseUrl: Boolean(process.env.DATABASE_URL?.trim()),
           hasAuthSecret: Boolean(process.env.BETTER_AUTH_SECRET?.trim()),
+          hasXaiKey: Boolean(process.env.XAI_API_KEY?.trim()),
           authUrl: process.env.BETTER_AUTH_URL ?? null,
           dbUser: peekDbUser(process.env.DATABASE_URL),
         };

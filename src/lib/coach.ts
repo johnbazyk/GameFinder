@@ -143,10 +143,13 @@ export const speakFinn = createServerFn({ method: "POST" })
         text: data.text,
         voice_id: FINN_VOICE,
         language: "en",
+        output_format: { codec: "mp3", sample_rate: 24000 },
       }),
     });
 
     if (!res.ok) {
+      const detail = (await res.text()).slice(0, 180);
+      console.error("[finn] TTS", res.status, detail);
       return { ok: false as const, error: `xAI TTS error ${res.status}` };
     }
 
