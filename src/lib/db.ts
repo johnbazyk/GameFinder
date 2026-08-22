@@ -95,6 +95,16 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
     const pool = makePgPool(databaseUrl as string);
+    // Additive patches Netlify does not run at build time (see netlify.toml).
+    await pool.query(
+      "alter table profiles add column if not exists piece_color text not null default '#e8642b'",
+    );
+    await pool.query(
+      "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
+    );
+    await pool.query(
+      "insert into _migrations (name) values ('0005_piece_color.sql') on conflict (name) do nothing",
+    );
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
