@@ -8,16 +8,32 @@
  *
  * Do not use the URL() parser here: passwords often contain `@` / `:` and
  * URL() then throws, which used to skip the rewrite.
+ *
+ * `sslmode=require` in the URI makes node-pg *verify* the cert. Supabase's
+ * chain then fails with "self-signed certificate in certificate chain".
+ * Strip sslmode and force rejectUnauthorized: false.
  */
 import { Pool } from "pg";
 
 export const SUPABASE_REF = "gposxgncsktonuhlgbpg";
 
+function stripSslMode(url: string): string {
+  const [base, qs] = url.split("?");
+  if (!qs) return url;
+  const kept = qs
+    .split("&")
+    .filter((p) => p && !/^sslmode=/i.test(p) && !/^ssl=/i.test(p))
+    .join("&");
+  return kept ? `${base}?${kept}` : base;
+}
+
 /** Rewrite pooler URLs that still use the bare `postgres` user. */
 export function normalizeDatabaseUrl(connectionString: string): string {
-  return connectionString.replace(
-    /^(postgres(?:ql)?:\/\/)postgres(:)/i,
-    `$1postgres.${SUPABASE_REF}$2`,
+  return stripSslMode(
+    connectionString.replace(
+      /^(postgres(?:ql)?:\/\/)postgres(:)/i,
+      `$1postgres.${SUPABASE_REF}$2`,
+    ),
   );
 }
 
@@ -35,7 +51,6 @@ export function makePgPool(connectionString: string): Pool {
     max: 1,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 8_000,
-    ssl: local ? undefined : { rejectUnauthorized: false },
+    ssl: local ? false : { rejectUnauthorized: false },
   });
 }
-// 2026-08-22T17:39:00+00:00

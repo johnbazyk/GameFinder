@@ -19,10 +19,17 @@ import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
 
 function normalizeDatabaseUrl(url) {
-  return url.replace(
+  const rewritten = url.replace(
     /^(postgres(?:ql)?:\/\/)postgres(:)/i,
     "$1postgres.gposxgncsktonuhlgbpg$2",
   );
+  const [base, qs] = rewritten.split("?");
+  if (!qs) return rewritten;
+  const kept = qs
+    .split("&")
+    .filter((p) => p && !/^sslmode=/i.test(p) && !/^ssl=/i.test(p))
+    .join("&");
+  return kept ? `${base}?${kept}` : base;
 }
 
 const databaseUrl = process.env.DATABASE_URL
