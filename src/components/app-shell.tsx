@@ -95,8 +95,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         {children}
       </main>
       {!hideNav ? (
-        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-background/90 backdrop-blur-md sm:hidden">
-          <ul className="mx-auto grid max-w-3xl grid-cols-5 px-2 pb-[env(safe-area-inset-bottom)]">
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-background/95 backdrop-blur-md sm:hidden">
+          <ul className="mx-auto grid max-w-3xl grid-cols-5 px-1 pt-1.5 pb-[max(0.55rem,env(safe-area-inset-bottom))]">
             {NAV.map((item) => {
               const active =
                 item.to === "/"
@@ -108,11 +108,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Link
                     to={item.to}
                     className={cn(
-                      "flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold",
+                      "flex min-h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-bold",
                       active ? "text-fox" : "text-muted-foreground",
                     )}
                   >
-                    <Icon className="size-5" strokeWidth={active ? 2.4 : 2} />
+                    <Icon className="size-6" strokeWidth={active ? 2.5 : 2} />
                     {item.label}
                   </Link>
                 </li>
