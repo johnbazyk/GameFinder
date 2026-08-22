@@ -73,16 +73,40 @@ const env = (key: string): string | undefined => {
 // provisions auth; set it to "false" to force auth off everywhere (dev user).
 const authDisabled = env("VITE_AUTH_ENABLED") === "false";
 
-// Broker federation creds: the deployer injects a per-app client when deployed;
-// otherwise fall back to the shared live-preview client, which the broker accepts
-// for any `*.grok-sandbox.com` callback (see `./preview`).
-const grokIssuer = env("GROK_AUTH_ISSUER") ?? GROK_ISSUER_DEFAULT;
-const grokClientId = env("GROK_AUTH_CLIENT_ID") ?? PREVIEW_CLIENT_ID;
-const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET;
+// Production marker: a real Postgres is configured. Read once, up here, so the
+// broker fallback below can key off it (the pool itself is built further down).
+const databaseUrl = env("DATABASE_URL");
 
-/** True when federated sign-in is active (real auth is enforced). */
+// Broker federation creds: an explicit per-app `GROK_AUTH_*` client is honored
+// anywhere. The shared live-preview client is a SANDBOX-ONLY fallback — it must
+// never serve production, so it is gated on "no DATABASE_URL" (the brief's
+// definition of preview). Production sign-in is email/password (and later
+// Google via Better Auth's own social provider, not the broker).
+const grokIssuer = env("GROK_AUTH_ISSUER") ?? GROK_ISSUER_DEFAULT;
+const grokClientId =
+  env("GROK_AUTH_CLIENT_ID") ?? (databaseUrl ? undefined : PREVIEW_CLIENT_ID);
+const grokClientSecret =
+  env("GROK_AUTH_CLIENT_SECRET") ?? (databaseUrl ? undefined : PREVIEW_CLIENT_SECRET);
+
+/** True when broker (federated) sign-in is active. */
+const brokerConfigured = !authDisabled && Boolean(grokClientId && grokClientSecret);
+
+/**
+ * True when real auth is enforced — some sign-in method exists (broker and/or
+ * local email/password). `verify.server.ts` fails closed on a real database
+ * when this is false.
+ */
 export const authConfigured =
-  !authDisabled && Boolean(grokClientId && grokClientSecret);
+  !authDisabled && (brokerConfigured || emailAndPasswordEnabled);
+
+// Fail closed (brief §5.10): a production database with an ephemeral, per-boot
+// auth secret would silently invalidate every family session on each deploy —
+// and papering over a missing secret is how ledgers get orphaned.
+if (databaseUrl && !env("BETTER_AUTH_SECRET")) {
+  throw new Error(
+    "[auth] DATABASE_URL is set but BETTER_AUTH_SECRET is missing — set it in the deploy environment.",
+  );
+}
 
 // This app's own Better Auth origin. When deployed the deployer injects the
 // public URL. In the sandbox live preview there's no fixed URL (each preview gets
@@ -124,8 +148,6 @@ const trustedOrigins: string[] = explicitBaseURL
       ...LOCAL_DEV_ORIGINS,
     ];
 
-const databaseUrl = env("DATABASE_URL");
-
 // Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
 // Discovery would cost an extra network hop to the broker before the popup can
 // even redirect to Google/X — the live-preview popup felt stuck on the app for
@@ -149,7 +171,7 @@ export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";
 
 // Built separately so the `betterAuth({...})` call stays easy to edit without
 // breaking brackets (models often trip on the conditional plugin spread).
-const grokOAuthPlugin = authConfigured
+const grokOAuthPlugin = brokerConfigured
   ? genericOAuth({
       config: GROK_PROVIDERS.map(({ providerId, idp }) => ({
         providerId,

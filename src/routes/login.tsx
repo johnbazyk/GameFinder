@@ -1,8 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
-import { GROK_PROVIDERS, authClient, authEnabled, signIn } from "@/lib/auth/client";
+import {
+  GROK_PROVIDERS,
+  authClient,
+  authEnabled,
+  federatedSignInAvailable,
+  signIn,
+} from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/login")({ component: Login });
@@ -15,6 +21,9 @@ function Login() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [federated, setFederated] = useState(false);
+
+  useEffect(() => setFederated(federatedSignInAvailable()), []);
 
   async function onEmail(e: FormEvent) {
     e.preventDefault();
@@ -52,21 +61,24 @@ function Login() {
 
       {authEnabled ? (
         <div className="mt-6 space-y-3">
-          {GROK_PROVIDERS.map((p) => (
-            <Button
-              key={p.providerId}
-              type="button"
-              variant="secondary"
-              className="w-full"
-              onClick={() => signIn(p.providerId, { callbackURL: "/" })}
-            >
-              Continue with {p.label}
-            </Button>
-          ))}
-
-          <p className="pt-2 text-center text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-            or email
-          </p>
+          {federated ? (
+            <>
+              {GROK_PROVIDERS.map((p) => (
+                <Button
+                  key={p.providerId}
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+                >
+                  Continue with {p.label}
+                </Button>
+              ))}
+              <p className="pt-2 text-center text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                or email
+              </p>
+            </>
+          ) : null}
 
           <form onSubmit={(e) => void onEmail(e)} className="space-y-2">
             {mode === "up" ? (

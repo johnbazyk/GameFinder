@@ -170,7 +170,10 @@ export default defineConfig(({ command, isPreview }) => ({
     ...(command === "build" || isPreview
       ? [
           nitro({
-            preset: "vercel",
+            // Deploy target is Netlify (gamefinderapp). NETLIFY is set in
+            // Netlify's build env; local `vite build`/`vite preview` keeps the
+            // plain node output so `npm run preview` still works.
+            preset: process.env.NETLIFY ? "netlify" : undefined,
             // Auto-registers server/middleware/* (the PWA install page +
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.

@@ -79,6 +79,20 @@ function inLivePreview(): boolean {
   );
 }
 
+/**
+ * Whether the broker (Google/X) sign-in buttons should render. The shared
+ * preview OAuth client only works on `*.grok-sandbox.com` hosts, and production
+ * deliberately does not use the broker (server.ts gates it on "no
+ * DATABASE_URL"), so on any other host the buttons would dead-end at the
+ * broker. `VITE_GROK_AUTH_ENABLED=true` re-enables them for a deploy that has
+ * its own per-app `GROK_AUTH_*` client. Call from an effect, not during
+ * render — it reads `window` and would mismatch SSR markup otherwise.
+ */
+export function federatedSignInAvailable(): boolean {
+  if (import.meta.env.VITE_GROK_AUTH_ENABLED === "true") return true;
+  return inLivePreview();
+}
+
 /** Message the popup posts back to the opener once sign-in completes. */
 type PopupMessage = { source: "grok-auth-popup"; token: string | null; error?: string };
 

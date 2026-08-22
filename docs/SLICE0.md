@@ -20,25 +20,27 @@ family owns, and restarting Netlify does not wipe the ledger.
   `BETTER_AUTH_SECRET` (generated, stored as secret), `BETTER_AUTH_URL`,
   `VITE_AUTH_ENABLED=true`.
 
-## Blocked — needs one manual step each
+## Also done (after the Grok export landed)
 
-1. **Export the app code from Grok Build to this repo.** `main` still holds the
-   pre-Grok chat prototype. The TanStack Start app (wizard, Bank, boards,
-   scoring) exists only in the Grok sandbox; the audit pack's dumps are
-   intentionally incomplete (`catalog.ts`, `scorecards.ts` truncated), so it
-   cannot be reconstructed here without rewriting — which the brief forbids.
-   Push the sandbox workspace to a branch of `johnbazyk/GameFinder`; slices 1–3
-   (score events, notifications, joinable Bank) start the moment it lands.
-2. **`DATABASE_URL` on Netlify.** Needs the database password, which only the
-   dashboard can issue. Supabase Dashboard → project `gamefinder` → Connect →
-   **Transaction pooler** (port 6543), then set it on Netlify as a secret:
-
-   ```
-   DATABASE_URL=postgresql://postgres.gposxgncsktonuhlgbpg:<DB_PASSWORD>@<pooler-host>:6543/postgres?pgbouncer=true
-   ```
-
-   Use the **direct** URI (port 5432, host `db.gposxgncsktonuhlgbpg.supabase.co`)
-   only for running migrations.
+- **App code merged** from `grok-export` (full TanStack Start app, 144 files,
+  complete `catalog.ts`/`scorecards.ts`). The old chat prototype is gone.
+- **Production auth gate** (`src/lib/auth/server.ts`): the shared Grok preview
+  OAuth client is now used ONLY when `DATABASE_URL` is unset (sandbox/local).
+  With a real database: email/password is the sign-in method, an explicit
+  per-app `GROK_AUTH_*` client is still honored, and startup **throws** if
+  `BETTER_AUTH_SECRET` is missing (fail closed).
+- **Login page** hides the Google/X broker buttons outside `*.grok-sandbox.com`
+  (they'd dead-end against the preview client's callback allowlist);
+  `VITE_GROK_AUTH_ENABLED=true` re-enables them for a real broker client.
+- **Netlify build**: nitro preset switches to `netlify` when Netlify's build env
+  is present (`vite.config.ts`); `netlify.toml` publishes `dist`, Node 22.
+  Validated locally: typecheck clean, `NETLIFY=1 npm run build` green.
+- **`DATABASE_URL`** set on Netlify by the owner (secret). If the first deploy
+  logs a TLS/SSL connection error from `pg`, append `?sslmode=require`.
+- Known pre-existing: 14 sandbox-scaffolding test failures
+  (`grok-pwa-plugin.test.mjs`, `check-auth-invariant.test.mjs`) — they expect
+  the sandbox's `.grok/` env files, which are deliberately not exported.
+  Identical failures on the pristine `grok-export` commit; app tests pass.
 
 ## Decisions (per brief §17, defaults taken)
 
