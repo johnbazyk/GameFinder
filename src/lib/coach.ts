@@ -121,8 +121,72 @@ export function stripForSpeech(text: string) {
     .replace(/\s+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
-    .slice(0, 720);
+    .slice(0, 1200);
 }
+
+export const LESSON_IDS = ["goal", "setup", "turn", "score", "oops"] as const;
+export type LessonId = (typeof LESSON_IDS)[number];
+export type LessonPack = Record<LessonId, string>;
+
+const LESSON_PROMPT = `Write the FULL spoken lesson as JSON only, keys: goal, setup, turn, score, oops.
+- goal: how someone wins
+- setup: how to set the table
+- turn: one complete turn, as if we are playing now
+- score: scoring and the end of the game
+- oops: the three mistakes first-timers always make
+Each value is 4-7 spoken sentences of official published rules. No markdown, no labels inside the strings, no emoji.`;
+
+function parseLesson(raw: string): LessonPack | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    const obj = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+    const pack = {} as LessonPack;
+    for (const id of LESSON_IDS) {
+      const text = stripForSpeech(String(obj[id] ?? ""));
+      if (text.length < 40) return null;
+      pack[id] = text;
+    }
+    return pack;
+  } catch {
+    return null;
+  }
+}
+
+export const askFinnLesson = createServerFn({ method: "POST" })
+  .validator((input: { gameId: string }) => ({
+    gameId: String(input?.gameId ?? "").slice(0, 32),
+  }))
+  .handler(async ({ data }) => {
+    const key = apiKey();
+    if (!key) return { ok: false as const, error: "unavailable" };
+    if (!brief(data.gameId)) return { ok: false as const, error: "unknown-game" };
+
+    const res = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: "grok-4.5",
+        temperature: 0.4,
+        max_tokens: 1800,
+        messages: [
+          { role: "system", content: systemPrompt(data.gameId, "teach") },
+          { role: "user", content: LESSON_PROMPT },
+        ],
+      }),
+    });
+
+    if (!res.ok) return { ok: false as const, error: `xAI API error ${res.status}` };
+    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const raw = body.choices?.[0]?.message?.content?.trim() ?? "";
+    const pack = parseLesson(raw);
+    if (!pack) return { ok: false as const, error: "empty-reply" };
+    return { ok: true as const, pack };
+  });
 
 export const speakFinn = createServerFn({ method: "POST" })
   .validator((input: { text: string }) => ({
@@ -143,13 +207,10 @@ export const speakFinn = createServerFn({ method: "POST" })
         text: data.text,
         voice_id: FINN_VOICE,
         language: "en",
-        output_format: { codec: "mp3", sample_rate: 24000 },
       }),
     });
 
     if (!res.ok) {
-      const detail = (await res.text()).slice(0, 180);
-      console.error("[finn] TTS", res.status, detail);
       return { ok: false as const, error: `xAI TTS error ${res.status}` };
     }
 

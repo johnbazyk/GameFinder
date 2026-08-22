@@ -6,6 +6,7 @@ import { FoxAvatar } from "@/components/fox-avatar";
 import { VoicePlayer } from "@/components/voice-player";
 import {
   askFinn,
+  askFinnLesson,
   hearFinn,
   speakFinn,
   type CoachMessage,
@@ -97,6 +98,8 @@ export function FinnCoach({
     title: CHAPTERS[0].title,
   });
   const [heard, setHeard] = useState<ChapterId[]>([]);
+  const [packLoading, setPackLoading] = useState(true);
+  const [readyClips, setReadyClips] = useState<ChapterId[]>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const unlockAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -110,6 +113,8 @@ export function FinnCoach({
   const streamRef = useRef<MediaStream | null>(null);
   const recTimerRef = useRef<number | null>(null);
   const prefetchingRef = useRef<Partial<Record<ChapterId, boolean>>>({});
+  const inflightRef = useRef<Partial<Record<ChapterId, Promise<string>>>>({});
+  const reloadGenRef = useRef(0);
 
   messagesRef.current = messages;
 
@@ -173,34 +178,97 @@ export function FinnCoach({
     async (meta: { id: ChapterId; title: string }, prompt: string, usedMode: CoachMode) => {
       const cached = cacheRef.current[meta.id];
       if (cached) return cached;
+      const inflight = inflightRef.current[meta.id];
+      if (inflight) return inflight;
 
-      let text = textCacheRef.current[meta.id];
-      if (!text) {
-        const history: CoachMessage[] = [
-          ...messagesRef.current,
-          { role: "user", content: prompt, label: meta.title },
-        ];
-        const reply = await askFinn({
-          data: { gameId: game.bggId, mode: usedMode, messages: history },
-        });
-        if (!reply.ok) throw new Error(reply.error);
-        text = reply.text;
-        textCacheRef.current[meta.id] = text;
-        messagesRef.current = [...history, { role: "assistant", content: text }];
-        setMessages(messagesRef.current);
+      const run = (async () => {
+        let text = textCacheRef.current[meta.id];
+        if (!text) {
+          const history: CoachMessage[] = [
+            ...messagesRef.current,
+            { role: "user", content: prompt, label: meta.title },
+          ];
+          const reply = await askFinn({
+            data: { gameId: game.bggId, mode: usedMode, messages: history },
+          });
+          if (!reply.ok) throw new Error(reply.error);
+          text = reply.text;
+          textCacheRef.current[meta.id] = text;
+          messagesRef.current = [...history, { role: "assistant", content: text }];
+          setMessages(messagesRef.current);
+        }
+
+        const spoken = await speakFinn({ data: { text } });
+        if (!spoken.ok) throw new Error(spoken.error);
+        if (!spoken.audioBase64) throw new Error("empty");
+        const url = base64ToObjectUrl(spoken.audioBase64, spoken.mime);
+        const prev = cacheRef.current[meta.id];
+        if (prev && prev !== url) URL.revokeObjectURL(prev);
+        cacheRef.current[meta.id] = url;
+        return url;
+      })();
+      inflightRef.current[meta.id] = run;
+      try {
+        return await run;
+      } finally {
+        delete inflightRef.current[meta.id];
       }
-
-      const spoken = await speakFinn({ data: { text } });
-      if (!spoken.ok) throw new Error(spoken.error);
-      if (!spoken.audioBase64) throw new Error("empty");
-      const url = base64ToObjectUrl(spoken.audioBase64, spoken.mime);
-      const prev = cacheRef.current[meta.id];
-      if (prev && prev !== url) URL.revokeObjectURL(prev);
-      cacheRef.current[meta.id] = url;
-      return url;
     },
     [game.bggId],
   );
+
+  useEffect(() => {
+    const gen = ++reloadGenRef.current;
+    Object.values(cacheRef.current).forEach((u) => u && URL.revokeObjectURL(u));
+    cacheRef.current = {};
+    textCacheRef.current = {};
+    prefetchingRef.current = {};
+    setHeard([]);
+    setReadyClips([]);
+    setHasClip(false);
+    setPackLoading(true);
+    messagesRef.current = [];
+    setMessages([]);
+
+    void (async () => {
+      const lesson = await askFinnLesson({ data: { gameId: game.bggId } }).catch(() => ({
+        ok: false as const,
+        error: "unavailable",
+      }));
+      if (reloadGenRef.current !== gen) return;
+      if (!lesson.ok) {
+        setPackLoading(false);
+        return;
+      }
+      for (const ch of CHAPTERS) {
+        textCacheRef.current[ch.id] = lesson.pack[ch.id];
+      }
+      const briefing = CHAPTERS.map((c) => `${c.title}. ${lesson.pack[c.id]}`).join("\n\n");
+      messagesRef.current = [{ role: "assistant", content: briefing, label: "Full rules" }];
+      setMessages(messagesRef.current);
+      setPackLoading(false);
+
+      await Promise.all(
+        CHAPTERS.map(async (ch) => {
+          if (reloadGenRef.current !== gen) return;
+          prefetchingRef.current[ch.id] = true;
+          try {
+            await ensureClip({ id: ch.id, title: ch.title }, ch.send, "teach");
+            if (reloadGenRef.current !== gen) return;
+            setReadyClips((ids) => (ids.includes(ch.id) ? ids : [...ids, ch.id]));
+          } catch {
+            /* playChapter will retry */
+          } finally {
+            prefetchingRef.current[ch.id] = false;
+          }
+        }),
+      );
+    })();
+
+    return () => {
+      reloadGenRef.current += 1;
+    };
+  }, [game.bggId, ensureClip]);
 
   const prefetch = useCallback(
     (id: LessonId) => {
@@ -391,9 +459,14 @@ export function FinnCoach({
 
   const foxMood = recording || pending ? "sniffing" : speaking ? "proud" : "hopeful";
   const idx = lessonIndex(track.id);
-  const loadStatus = pending
-    ? `Finn is pulling the ${game.name} rules for “${track.title}.” First load can take 10–20 seconds — stay on this page.`
-    : undefined;
+  const readyN = readyClips.length;
+  const loadStatus = packLoading
+    ? `Finn is loading the full ${game.name} rules — all five tracks. Stay on this page.`
+    : pending
+      ? `Finn is recording “${track.title}.” Give it a few seconds.`
+      : readyN < CHAPTERS.length && (started || variant === "table")
+        ? `${readyN} of ${CHAPTERS.length} tracks ready. Skip is instant once a track is green.`
+        : undefined;
 
   const mic = (
     <div className="flex flex-col items-center">
@@ -411,7 +484,13 @@ export function FinnCoach({
         {recording ? <Square className="size-7 fill-cream" /> : <Mic className="size-8" />}
       </button>
       <p className="mt-2 text-center text-sm font-semibold">
-        {recording ? "Listening — tap to send" : pending ? "Loading the rules…" : "Tap to ask"}
+        {recording
+          ? "Listening — tap to send"
+          : packLoading
+            ? "Loading all rules…"
+            : pending
+              ? "Loading the rules…"
+              : "Tap to ask"}
       </p>
       <p className="text-xs text-muted-foreground">Stuck mid-game? Just talk.</p>
     </div>
@@ -462,8 +541,8 @@ export function FinnCoach({
           caption={recording ? "Listening…" : "Ask a ruling. Don't pause the night."}
         />
         <p className="mt-3 text-sm leading-snug text-muted-foreground">
-          Tap the mic, ask the question, wait a few seconds while Finn checks the rules, then he
-          talks. First answer is the slow one.
+          Finn reloads the full {game.name} rules when you open this page, then answers from that.
+          Tap the mic, ask, wait a few seconds, then he talks.
         </p>
         <div className="mt-4">{player}</div>
         <div className="mt-auto flex justify-center pb-[max(0.25rem,env(safe-area-inset-bottom))]">
@@ -488,9 +567,8 @@ export function FinnCoach({
 
       <div className="rounded-card bg-muted/70 px-4 py-3 text-sm leading-relaxed text-foreground">
         <p>
-          Tap a track. The first time, wait — Finn is loading the real rules and recording the
-          voice. That can take ten to twenty seconds. Stay here. After a track has loaded once,
-          skip and replay are instant.
+          Opening this page reloads the official rules for {game.name} and records every track.
+          Stay here while Finn works. Skip and replay become instant as each track turns green.
         </p>
         <p className="mt-2 text-muted-foreground">
           Back: restart this track, tap again for the previous one. Forward: next track. Mic: ask
@@ -534,7 +612,7 @@ export function FinnCoach({
           </span>
           <span className="mt-3 font-display text-2xl">Start the lesson</span>
           <span className="mt-1 max-w-xs text-center text-sm text-muted-foreground">
-            Track 1 loads the rules. Give it a moment the first time.
+            All five tracks load together. Hit play when the first one is ready.
           </span>
         </button>
       )}
@@ -542,8 +620,8 @@ export function FinnCoach({
       <ol className="overflow-hidden rounded-card bg-card shadow-card">
         {CHAPTERS.map((ch, i) => {
           const on = track.id === ch.id && started;
-          const done = heard.includes(ch.id);
-          const loadingThis = on && pending;
+          const done = heard.includes(ch.id) || readyClips.includes(ch.id);
+          const loadingThis = (on && pending) || (packLoading && !readyClips.includes(ch.id));
           return (
             <li key={ch.id} className="border-b border-border last:border-0">
               <button
@@ -564,7 +642,7 @@ export function FinnCoach({
                 </span>
                 <span className="flex-1 font-semibold">{ch.title}</span>
                 <span className="text-xs text-muted-foreground">
-                  {loadingThis ? "loading" : on && speaking ? "playing" : done ? "replay" : "play"}
+                  {loadingThis ? "loading" : on && speaking ? "playing" : readyClips.includes(ch.id) ? "ready" : done ? "replay" : "play"}
                 </span>
               </button>
             </li>
