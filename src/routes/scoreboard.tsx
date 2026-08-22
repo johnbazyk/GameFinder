@@ -27,7 +27,12 @@ function ScoreboardPage() {
       <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-fox">Forever ledger</p>
       <h1 className="font-display text-3xl">Scoreboard</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Named players. Official-style pads. Wins never reset on this device.
+        Named players. Official-style pads. Wins never reset on this device. Family mini-game
+        points live on each table — open{" "}
+        <Link to="/circle" className="font-semibold text-sky">
+          Tables
+        </Link>
+        .
       </p>
 
       {ranked.length === 0 ? (

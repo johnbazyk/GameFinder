@@ -30,6 +30,7 @@ function GroupPage() {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"friends" | "family">("friends");
   const [role, setRole] = useState("member");
+  const [loaded, setLoaded] = useState(false);
   const [share, setShare] = useState(true);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
@@ -57,6 +58,7 @@ function GroupPage() {
     setShelf(v);
     setFamily(f);
     setSessions(s);
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -66,6 +68,7 @@ function GroupPage() {
 
   if (isPending) return <div className="h-40 animate-pulse rounded-card bg-muted" />;
   if (!user) return <RedirectToSignIn />;
+  if (!loaded && !err) return <div className="h-40 animate-pulse rounded-card bg-muted" />;
   if (err) {
     return (
       <div className="pb-10">
@@ -82,8 +85,13 @@ function GroupPage() {
   async function copyInvite() {
     try {
       const { token } = await createGroupInvite({ data: { groupId } });
-      await navigator.clipboard.writeText(`${window.location.origin}/invite/${token}`);
-      toast("Table invite copied. Good for 14 days.");
+      const url = `${window.location.origin}/invite/${token}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        toast("Table invite copied. Good for 14 days.");
+      } catch {
+        toast(`Copy this invite: ${url}`);
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : "Couldn't invite");
     }
@@ -113,11 +121,14 @@ function GroupPage() {
         >
           What should we play?
         </Button>
-        {role !== "member" ? (
-          <Button variant="secondary" onClick={() => void copyInvite()}>
-            Copy invite link
-          </Button>
+        {!shelf.length ? (
+          <p className="text-sm text-muted-foreground">
+            Share games from your vault first. The wizard uses this table’s shelf.
+          </p>
         ) : null}
+        <Button variant="secondary" onClick={() => void copyInvite()}>
+          Copy invite link
+        </Button>
         <button
           type="button"
           className="text-sm font-semibold text-muted-foreground"

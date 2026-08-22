@@ -437,6 +437,11 @@
   opacity: 0.62;
 }
 .bank-dock {
+  position: relative;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
   padding: 0.55rem 0.15rem calc(0.7rem + env(safe-area-inset-bottom));
 }
 .bank-vault { display: none; }

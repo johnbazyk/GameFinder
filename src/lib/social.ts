@@ -380,15 +380,16 @@ export const createGroup = createServerFn({ method: "POST" })
     return { id };
   });
 
-export const getGroup = createServerFn({ method: "GET" })
+export const getGroup = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { groupId: string }) => ({ groupId: String(input?.groupId ?? "") }))
   .handler(async ({ context, data }) => {
     if (!data.groupId) throw new Error("Missing table");
     await requireMember(data.groupId, context.userId);
     const sql = await getSql();
-    const groups = await sql<{ id: string; name: string; kind: GroupRow["kind"]; owner_id: string }>`
-      select id, name, kind, owner_id from play_groups where id = ${data.groupId} limit 1
+    const groups = await sql<{ id: string; table_name: string; table_kind: GroupRow["kind"]; owner_id: string }>`
+      select id, name as table_name, kind as table_kind, owner_id
+      from play_groups where id = ${data.groupId} limit 1
     `;
     const g = groups[0];
     if (!g) throw new Error("Table gone");
@@ -422,8 +423,8 @@ export const getGroup = createServerFn({ method: "GET" })
     const mine = members.find((m) => m.user_id === context.userId);
     return {
       id: g.id,
-      name: g.name,
-      kind: g.kind,
+      name: g.table_name,
+      kind: g.table_kind,
       role: mine?.role ?? "member",
       shareVault: Boolean(mine?.share_vault),
       members: members.map((m) => ({
@@ -446,8 +447,7 @@ export const createGroupInvite = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { groupId: string }) => ({ groupId: String(input?.groupId ?? "") }))
   .handler(async ({ context, data }) => {
-    const member = await requireMember(data.groupId, context.userId);
-    if (member.role === "member") throw new Error("Only the host can invite");
+    await requireMember(data.groupId, context.userId);
     const sql = await getSql();
     const t = token();
     await sql`

@@ -10,7 +10,7 @@ import type { SessionView } from "@/lib/minigames/server";
 import type { MiniAction } from "@/lib/minigames/types";
 import { cn } from "@/lib/utils";
 
-const BANK_WINDOW_MS = 2800;
+const BANK_WINDOW_MS = 8000;
 const THROW_MS = 1120;
 
 function clackDice() {
@@ -91,15 +91,22 @@ export function BankTable({
   }, [view.version, view.status, busy, spinning, state.phase, state.currentIdx, state.bankedIds.join(",")]);
 
   const busted = state.phase === "busted";
-  const pot = busted ? 0 : state.bank;
+  const pot = busted ? 0 : Number(state.bank) || 0;
   const current = state.players[state.currentIdx];
   const live = stillIn(state);
   const over = view.status === "finished" || state.phase === "game-over";
   const waiting = state.phase === "after-roll";
   const canRoll = state.phase === "need-roll" && !spinning && !busy;
   const myTurn = !isBot(current?.id ?? "") && (view.settings.passPhone || view.you === view.currentTurnUserId);
-  const humanCanBank =
-    waiting && !spinning && !busy && live.some((p) => p.id === view.you) && !isBot(view.you);
+  const youAreIn = Boolean(view.you) && live.some((p) => p.id === view.you) && !isBot(view.you);
+  const canCashOut =
+    youAreIn &&
+    !spinning &&
+    !busy &&
+    !busted &&
+    !over &&
+    pot > 0 &&
+    (state.phase === "need-roll" || state.phase === "after-roll");
   const awaitingHumanPass =
     waiting && !spinning && !busy && !nextBankBotAction(state) && myTurn;
 
@@ -109,7 +116,7 @@ export function BankTable({
       return;
     }
     const started = Date.now();
-    const delay = humanCanBank ? BANK_WINDOW_MS : 450;
+    const delay = BANK_WINDOW_MS;
     setPassIn(Math.ceil(delay / 1000));
     const tick = window.setInterval(() => {
       const left = delay - (Date.now() - started);
@@ -120,7 +127,7 @@ export function BankTable({
       window.clearTimeout(t);
       window.clearInterval(tick);
     };
-  }, [awaitingHumanPass, humanCanBank, view.version]);
+  }, [awaitingHumanPass, view.version]);
 
   const leave = (
     view.groupId === "lab" ? (
@@ -217,27 +224,32 @@ export function BankTable({
           </ul>
 
           <div className="bank-dock">
+            {canCashOut ? (
+              <Button
+                className="w-full"
+                size="xl"
+                disabled={busy}
+                onClick={() => act({ type: "bank", playerId: view.you })}
+              >
+                Bank {pot}
+                {passIn != null ? ` · ${passIn}` : ""}
+              </Button>
+            ) : null}
             {canRoll && myTurn ? (
-              <Button className="w-full" size="xl" disabled={busy} onClick={() => act({ type: "roll" })}>
+              <Button
+                className="w-full"
+                size="xl"
+                variant={canCashOut ? "secondary" : "default"}
+                disabled={busy}
+                onClick={() => act({ type: "roll" })}
+              >
                 Roll
               </Button>
             ) : null}
             {canRoll && isBot(current?.id ?? "") ? (
               <p className="text-center text-sm text-muted-foreground">{current?.name} is rolling…</p>
             ) : null}
-            {humanCanBank ? (
-              <Button
-                className="w-full"
-                size="xl"
-                variant="secondary"
-                disabled={busy}
-                onClick={() => act({ type: "bank", playerId: view.you })}
-              >
-                Bank {state.bank}
-                {passIn != null ? ` · ${passIn}` : ""}
-              </Button>
-            ) : null}
-            {waiting && !humanCanBank && !isBot(current?.id ?? "") ? (
+            {waiting && myTurn && !canCashOut ? (
               <p className="text-center text-sm text-muted-foreground">Passing the dice…</p>
             ) : null}
             {busted ? (
