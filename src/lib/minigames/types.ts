@@ -2,7 +2,7 @@ export type MiniGameType = "bank" | "connect4" | "checkers" | "chess" | "tictact
 
 export const MINI_GAMES: Record<
   MiniGameType,
-  { label: string; blurb: string; min: number; max: number; passPhone: boolean }
+  { label: string; blurb: string; min: number; max: number; passPhone: boolean; joinable?: boolean }
 > = {
   bank: {
     label: "Bank",
@@ -10,17 +10,18 @@ export const MINI_GAMES: Record<
     min: 2,
     max: 8,
     passPhone: true,
+    joinable: true,
   },
   connect4: {
-    label: "Connect Four",
-    blurb: "Four in a row.",
+    label: "Four in a Row",
+    blurb: "Drop a disc. Make four.",
     min: 2,
     max: 2,
     passPhone: false,
   },
   checkers: {
     label: "Checkers",
-    blurb: "English draughts.",
+    blurb: "English draughts. Captures are mandatory.",
     min: 2,
     max: 2,
     passPhone: false,
@@ -48,6 +49,9 @@ export type MiniAction =
   | { type: "next-round" }
   | { type: "drop"; col: number }
   | { type: "move"; from: number; to: number; promotion?: string }
+  | { type: "place"; at: number }
+  | { type: "hold"; dice: boolean[] }
+  | { type: "score"; category: string }
   | { type: "bot-step" }
   | { type: "resign" }
   | { type: "offer-draw" }
@@ -60,5 +64,5 @@ export type EngineResult = {
   finished: boolean;
   winnerId: string | null;
   lastLine: string;
-  dice?: [number, number];
+  dice?: [number, number] | number[];
 };
