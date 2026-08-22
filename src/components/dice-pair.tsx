@@ -35,6 +35,16 @@ const PIPS: Record<number, [number, number][]> = {
   ],
 };
 
+/** Cream pips on dark resin, night pips on gold/sky. */
+function pipTone(hex?: string) {
+  if (!hex || !hex.startsWith("#") || hex.length < 7) return "#fbf6ef";
+  const r = Number.parseInt(hex.slice(1, 3), 16) / 255;
+  const g = Number.parseInt(hex.slice(3, 5), 16) / 255;
+  const b = Number.parseInt(hex.slice(5, 7), 16) / 255;
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.54 ? "#1c1917" : "#fbf6ef";
+}
+
 function Stone({ value }: { value: number }) {
   const n = value >= 1 && value <= 6 ? value : 1;
   return (
@@ -57,10 +67,13 @@ export function CubeDie({
   lane?: "a" | "b";
   ink?: string;
 }) {
+  const style = ink
+    ? ({ "--die-ink": ink, "--die-pip": pipTone(ink) } as CSSProperties)
+    : undefined;
   return (
     <div
       className={cn("die-throw", throwing && (lane === "a" ? "is-throw-a" : "is-throw-b"))}
-      style={ink ? ({ "--die-ink": ink } as CSSProperties) : undefined}
+      style={style}
     >
       <span className="die-shadow" />
       <Stone value={value} />

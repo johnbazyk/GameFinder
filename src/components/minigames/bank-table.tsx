@@ -11,7 +11,7 @@ import type { MiniAction } from "@/lib/minigames/types";
 import { cn } from "@/lib/utils";
 
 const BANK_WINDOW_MS = 2800;
-const THROW_MS = 1100;
+const THROW_MS = 1030;
 
 function clackDice() {
   const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
