@@ -34,6 +34,7 @@ function Face({
   hot,
   onClick,
   tall,
+  hand,
   count,
 }: {
   card?: StockCard;
@@ -42,6 +43,7 @@ function Face({
   hot?: boolean;
   onClick?: () => void;
   tall?: boolean;
+  hand?: boolean;
   count?: number;
 }) {
   return (
@@ -54,6 +56,7 @@ function Face({
         "stock-card",
         band(card?.n),
         tall && "is-tall",
+        hand && "is-hand",
         selected && "is-sel",
         hot && "is-hot",
         !card && "is-empty",
@@ -223,13 +226,20 @@ export function StockpileTable({
             key={card.id}
             card={card}
             selected={pick?.src === "hand" && pick.i === i}
+            hand
             onClick={yourTurn ? () => setPick(pick?.src === "hand" && pick.i === i ? null : { src: "hand", i }) : undefined}
           />
         ))}
       </div>
-      <p className="stock-hint">
-        Tap a card, then a glowing build. 1–4 moss, 5–8 fox, 9–12 sky, W is wild. Empty your stock to win.
-      </p>
+      {yourTurn && (state.hands[seat]?.length ?? 0) < 5 ? (
+        <Button className="stock-draw" variant="secondary" disabled={busy} onClick={() => act({ type: "draw" })}>
+          Draw to 5 — you have {state.hands[seat]?.length ?? 0}
+        </Button>
+      ) : (
+        <p className="stock-hint">
+          Hand {state.hands[seat]?.length ?? 0}/5. Tap a card, then a glowing build. Park one to end the turn.
+        </p>
+      )}
 
       {over && view.id === "lab-stockpile" ? (
         <Button className="mt-1 w-full" onClick={() => act({ type: "next-round" })}>

@@ -167,7 +167,14 @@ export function applyStockpile(
 
   let s = startTurn(state);
 
-  if (action.type === "play-stock") {
+  if (action.type === "draw") {
+    if (s.hands[seat].length >= 5) throw new Error("Hand is full");
+    const before = s.hands[seat].length;
+    s = fillHand(s, seat);
+    const got = s.hands[seat].length - before;
+    if (got <= 0) throw new Error("Deck is empty");
+    s = { ...s, lastLine: `Drew to ${s.hands[seat].length}.` };
+  } else if (action.type === "play-stock") {
     const pile = Number(action.pile);
     const card = top(s.stocks[seat]);
     if (!card) throw new Error("Stock is empty");

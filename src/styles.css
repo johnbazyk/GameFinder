@@ -620,80 +620,79 @@
 .play-hand { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; }
 
 
+
 .stock-screen {
   position: fixed;
   inset: 0;
   z-index: 60;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
   height: 100dvh;
   overflow: hidden;
-  padding: env(safe-area-inset-top) 0.75rem calc(0.6rem + env(safe-area-inset-bottom));
+  padding: max(0.4rem, env(safe-area-inset-top)) 0.7rem max(0.5rem, env(safe-area-inset-bottom));
   background-color: var(--color-background);
   background-image:
     radial-gradient(ellipse 80% 45% at 50% -8%, color-mix(in oklab, var(--color-moss) 16%, transparent), transparent);
 }
 .stock-line {
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
   color: var(--color-muted-foreground);
-  min-height: 2.2rem;
 }
 .stock-rivals {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.35rem;
   overflow-x: auto;
-  padding-bottom: 0.15rem;
 }
 .stock-rival {
-  flex: 1 0 auto;
-  min-width: 9.5rem;
-  padding: 0.35rem 0.4rem 0.45rem;
-  border-radius: 0.85rem;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.3rem 0.35rem 0.35rem;
+  border-radius: 0.75rem;
   background: var(--color-card);
   box-shadow: var(--shadow-card);
 }
 .stock-rival.is-turn { box-shadow: var(--shadow-card), inset 0 0 0 1.5px var(--color-fox); }
-.stock-rival-name { display: block; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.25rem; }
+.stock-rival-name { display: block; font-weight: 700; font-size: 0.75rem; margin-bottom: 0.2rem; }
 .stock-rival-row {
   display: grid;
-  grid-template-columns: 1.6fr repeat(4, 1fr);
-  gap: 0.18rem;
+  grid-template-columns: 1.4fr repeat(4, 1fr);
+  gap: 0.15rem;
 }
-.stock-rival-row .stock-card { width: 100%; height: 2.35rem; font-size: 0.85rem; border-radius: 0.4rem; }
-.stock-builds-wrap { margin-top: 0.15rem; }
+.stock-rival-row .stock-card { width: 100%; height: 1.85rem; font-size: 0.75rem; border-radius: 0.35rem; }
+.stock-builds-wrap { flex: 0 0 auto; }
 .stock-builds, .stock-discards {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.4rem;
+  gap: 0.35rem;
   width: 100%;
 }
 .stock-you {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.75rem;
+  gap: 0.55rem;
   align-items: end;
-  margin-top: auto;
 }
-.stock-col { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.stock-col { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
 .stock-col.grow { min-width: 0; }
 .stock-kicker {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   font-weight: 800;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-fox);
 }
 .stock-card {
   position: relative;
   width: 100%;
-  height: 4.4rem;
-  border-radius: 0.65rem;
+  height: 3.7rem;
+  border-radius: 0.55rem;
   display: grid;
   place-items: center;
   font-family: var(--font-display);
-  font-size: 1.35rem;
+  font-size: 1.2rem;
   color: var(--color-cream);
   background: var(--color-card);
   border: 1px solid var(--color-border);
@@ -701,14 +700,14 @@
 }
 .stock-card em {
   position: absolute;
-  right: 0.28rem;
-  bottom: 0.15rem;
-  font-size: 0.65rem;
+  right: 0.22rem;
+  bottom: 0.1rem;
+  font-size: 0.6rem;
   font-style: normal;
   font-weight: 800;
   opacity: 0.8;
 }
-.stock-card.is-tall { width: 4.4rem; height: 6rem; font-size: 1.9rem; }
+.stock-card.is-tall { width: 3.7rem; height: 5rem; font-size: 1.65rem; }
 .stock-card.is-low { background: var(--color-moss); border-color: transparent; }
 .stock-card.is-mid { background: var(--color-fox); border-color: transparent; }
 .stock-card.is-high { background: var(--color-sky); border-color: transparent; color: var(--color-night); }
@@ -726,6 +725,25 @@
 .stock-card.is-hot { box-shadow: 0 0 0 3px var(--color-fox); }
 .stock-hint {
   text-align: center;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--color-muted-foreground);
+}
+.stock-screen .play-hand {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: 0.3rem;
+}
+.stock-screen .play-hand .stock-card {
+  width: 3.15rem;
+  flex: 0 0 3.15rem;
+  height: 4.25rem;
+  font-size: 1.2rem;
+}
+.stock-draw { width: 100%; min-height: 2.55rem; }
+.stock-card.is-hand {
+  width: 3.15rem !important;
+  flex: 0 0 3.15rem !important;
+  height: 4.25rem;
+  font-size: 1.2rem;
 }
