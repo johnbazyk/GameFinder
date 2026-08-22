@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { BankTable } from "@/components/minigames/bank-table";
 import { CheckersBoard, ChessBoard, Connect4Board, SeatDots, TttBoard } from "@/components/minigames/boards";
 import { ShedTable } from "@/components/minigames/shed-table";
+import { StockpileTable } from "@/components/minigames/stockpile-table";
 import { useMiniSession } from "@/components/minigames/play-table";
 import { Button } from "@/components/ui/button";
 import { MINI_GAMES } from "@/lib/minigames/types";
@@ -31,6 +32,9 @@ function PlaySession() {
 
   if (view.gameType === "bank") {
     return <BankTable view={view} busy={busy} act={act} />;
+  }
+  if (view.gameType === "stockpile") {
+    return <StockpileTable view={view} busy={busy} act={act} />;
   }
 
   const meta = MINI_GAMES[view.gameType];

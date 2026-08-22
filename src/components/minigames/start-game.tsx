@@ -20,7 +20,7 @@ export function StartGame({
   const navigate = useNavigate();
   const [kind, setKind] = useState<MiniGameType>("bank");
   const [picked, setPicked] = useState<string[]>([you]);
-  const [rounds, setRounds] = useState<10 | 15 | 20>(15);
+  const [rounds, setRounds] = useState<10 | 15 | 20 | 30>(15);
   const [busy, setBusy] = useState(false);
   const meta = MINI_GAMES[kind];
 
@@ -60,7 +60,7 @@ export function StartGame({
             onClick={() => {
               setKind(k);
               setPicked((cur) => {
-                const keep = k === "bank" ? cur : cur.filter((id) => !id.startsWith("bot:"));
+                const keep = k === "bank" || k === "stockpile" ? cur : cur.filter((id) => !id.startsWith("bot:"));
                 return keep.slice(0, MINI_GAMES[k].max);
               });
             }}
@@ -93,7 +93,7 @@ export function StartGame({
           </li>
         ))}
       </ul>
-      {kind === "bank" ? (
+      {kind === "bank" || kind === "stockpile" ? (
         <div className="mt-4">
           <p className="text-sm font-semibold">House players</p>
           <p className="text-sm text-muted-foreground">
@@ -133,6 +133,23 @@ export function StartGame({
               )}
             >
               {n} rounds
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {kind === "stockpile" ? (
+        <div className="mt-3 flex gap-2">
+          {([10, 20, 30] as const).map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setRounds(n)}
+              className={cn(
+                "min-h-11 flex-1 rounded-full text-sm font-bold",
+                rounds === n ? "bg-fox text-cream" : "bg-muted",
+              )}
+            >
+              {n} in stock
             </button>
           ))}
         </div>

@@ -12,6 +12,7 @@ import { useAppStore } from "@/lib/store";
 import { VIBE_META, traitScore } from "@/lib/vibes";
 import { amazonSearchUrl } from "@/lib/affiliate";
 import { BANK_BGG_ID } from "@/lib/bank";
+const STOCKPILE_BGG_ID = "1269";
 import type { VibeId } from "@/lib/types";
 import { useFlag } from "@/lib/flags";
 import { FinnCoach } from "@/components/finn-coach";
@@ -171,6 +172,14 @@ function GamePage() {
             <Link to="/play/bank">
               <Play className="size-4" />
               Play Bank at the table
+            </Link>
+          </Button>
+        ) : null}
+        {game.bggId === STOCKPILE_BGG_ID ? (
+          <Button className="mt-3 w-full" variant="secondary" asChild>
+            <Link to="/play/stockpile">
+              <Play className="size-4" />
+              Play Stockpile at the table
             </Link>
           </Button>
         ) : null}

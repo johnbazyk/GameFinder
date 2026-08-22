@@ -25,6 +25,7 @@ import { Route as InternalFlagsRouteImport } from './routes/internal.flags'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as PlaySessionIdRouteImport } from './routes/play.$sessionId'
 import { Route as PlayBankRouteImport } from './routes/play.bank'
+import { Route as PlayStockpileRouteImport } from './routes/play.stockpile'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as GameIdIndexRouteImport } from './routes/game.$id.index'
 import { Route as GameIdScoreRouteImport } from './routes/game.$id.score'
@@ -110,6 +111,11 @@ const PlayBankRoute = PlayBankRouteImport.update({
   path: '/play/bank',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlayStockpileRoute = PlayStockpileRouteImport.update({
+  id: '/play/stockpile',
+  path: '/play/stockpile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -147,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/invite/$token': typeof InviteTokenRoute
   '/play/$sessionId': typeof PlaySessionIdRoute
   '/play/bank': typeof PlayBankRoute
+  '/play/stockpile': typeof PlayStockpileRoute
   '/circle/': typeof CircleIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/game/$id/score': typeof GameIdScoreRoute
@@ -167,6 +174,7 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof InviteTokenRoute
   '/play/$sessionId': typeof PlaySessionIdRoute
   '/play/bank': typeof PlayBankRoute
+  '/play/stockpile': typeof PlayStockpileRoute
   '/circle': typeof CircleIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/game/$id/score': typeof GameIdScoreRoute
@@ -190,6 +198,7 @@ export interface FileRoutesById {
   '/invite/$token': typeof InviteTokenRoute
   '/play/$sessionId': typeof PlaySessionIdRoute
   '/play/bank': typeof PlayBankRoute
+  '/play/stockpile': typeof PlayStockpileRoute
   '/circle/': typeof CircleIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/game/$id/score': typeof GameIdScoreRoute
@@ -214,6 +223,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/play/$sessionId'
     | '/play/bank'
+    | '/play/stockpile'
     | '/circle/'
     | '/api/auth/$'
     | '/game/$id/score'
@@ -234,6 +244,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/play/$sessionId'
     | '/play/bank'
+    | '/play/stockpile'
     | '/circle'
     | '/api/auth/$'
     | '/game/$id/score'
@@ -256,6 +267,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/play/$sessionId'
     | '/play/bank'
+    | '/play/stockpile'
     | '/circle/'
     | '/api/auth/$'
     | '/game/$id/score'
@@ -278,6 +290,7 @@ export interface RootRouteChildren {
   InviteTokenRoute: typeof InviteTokenRoute
   PlaySessionIdRoute: typeof PlaySessionIdRoute
   PlayBankRoute: typeof PlayBankRoute
+  PlayStockpileRoute: typeof PlayStockpileRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -395,6 +408,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayBankRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/play/stockpile': {
+      id: '/play/stockpile'
+      path: '/play/stockpile'
+      fullPath: '/play/stockpile'
+      preLoaderRoute: typeof PlayStockpileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -469,6 +489,7 @@ const rootRouteChildren: RootRouteChildren = {
   InviteTokenRoute: InviteTokenRoute,
   PlaySessionIdRoute: PlaySessionIdRoute,
   PlayBankRoute: PlayBankRoute,
+  PlayStockpileRoute: PlayStockpileRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

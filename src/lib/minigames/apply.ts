@@ -7,6 +7,7 @@ import { applyCheckers, initCheckers, type CheckersState } from "./checkers";
 import { applyChess, initChess, type ChessState } from "./chess";
 import { applyTtt, initTtt, type TttState } from "./tictactoe";
 import { applyShed, initShed, type ShedState } from "./shed";
+import { applyStockpile, initStockpile, type StockpileState } from "./stockpile";
 
 export function initState(
   type: MiniGameType,
@@ -32,6 +33,15 @@ export function initState(
   if (type === "checkers") return initCheckers();
   if (type === "chess") return initChess();
   if (type === "shed") return initShed(playerIds.length);
+  if (type === "stockpile") {
+    const size = settings.rounds === 10 || settings.rounds === 20 || settings.rounds === 30 ? settings.rounds : 20;
+    return initStockpile(
+      playerIds.length,
+      playerIds.map((id, i) => (isBot(id) ? botLabel(id) : names[i] ?? "Player")),
+      playerIds.map((id, i) => (isBot(id) ? botColor(id) : colors?.[i] || PLAYER_COLORS[i % PLAYER_COLORS.length])),
+      size,
+    );
+  }
   return initTtt();
 }
 
@@ -88,5 +98,6 @@ export function applyAction(
   if (type === "checkers") return applyCheckers(state as CheckersState, action, seat, playerIds);
   if (type === "chess") return applyChess(state as ChessState, action, actorId, playerIds);
   if (type === "shed") return applyShed(state as ShedState, action, seat, playerIds);
+  if (type === "stockpile") return applyStockpile(state as StockpileState, action, seat, playerIds);
   return applyTtt(state as TttState, action, seat, playerIds);
 }

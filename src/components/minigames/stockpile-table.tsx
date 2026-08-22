@@ -1,0 +1,207 @@
+import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
+import { isBot } from "@/lib/minigames/bots";
+import {
+  canPlace,
+  labelStock,
+  nextStockpileBotAction,
+  top,
+  type StockCard,
+  type StockpileState,
+} from "@/lib/minigames/stockpile";
+import type { SessionView } from "@/lib/minigames/server";
+import type { MiniAction } from "@/lib/minigames/types";
+import { cn } from "@/lib/utils";
+
+type Pick =
+  | { src: "stock" }
+  | { src: "hand"; i: number }
+  | { src: "discard"; i: number };
+
+function Face({
+  card,
+  ghost,
+  selected,
+  onClick,
+  tall,
+}: {
+  card?: StockCard;
+  ghost?: string;
+  selected?: boolean;
+  onClick?: () => void;
+  tall?: boolean;
+}) {
+  const wild = card?.n === 0;
+  return (
+    <button
+      type="button"
+      disabled={!onClick}
+      onClick={onClick}
+      className={cn("stock-card", tall && "is-tall", wild && "is-wild", selected && "is-sel", !card && "is-empty")}
+    >
+      {card ? labelStock(card) : ghost}
+    </button>
+  );
+}
+
+export function StockpileTable({
+  view,
+  busy,
+  act,
+}: {
+  view: SessionView;
+  busy: boolean;
+  act: (a: MiniAction) => void;
+}) {
+  const state = view.state as StockpileState;
+  const seat = view.players.find((p) => p.userId === view.you)?.seat ?? 0;
+  const yourTurn = view.you === view.currentTurnUserId && view.status === "active" && !isBot(view.you);
+  const [pick, setPick] = useState<Pick | null>(null);
+  const over = view.status === "finished" || state.winner != null;
+  const current = view.players[state.turn];
+
+  useEffect(() => {
+    if (over || busy) return;
+    const id = view.players[state.turn]?.userId;
+    if (!id || !isBot(id)) return;
+    if (!nextStockpileBotAction(state)) return;
+    const t = window.setTimeout(() => act({ type: "bot-step" }), 650);
+    return () => window.clearTimeout(t);
+  }, [view.version, view.status, busy, state.turn, state.drawn, state.lastLine]);
+
+  function playTo(pile: number) {
+    if (!pick || !yourTurn || busy) return;
+    if (pick.src === "stock") act({ type: "play-stock", pile });
+    else if (pick.src === "hand") act({ type: "play-hand", i: pick.i, pile });
+    else act({ type: "play-discard", from: pick.i, pile });
+    setPick(null);
+  }
+
+  function parkTo(pile: number) {
+    if (!pick || pick.src !== "hand" || !yourTurn || busy) return;
+    act({ type: "park", i: pick.i, pile });
+    setPick(null);
+  }
+
+  const pickedCard =
+    pick?.src === "stock"
+      ? top(state.stocks[seat] ?? [])
+      : pick?.src === "hand"
+        ? state.hands[seat]?.[pick.i]
+        : pick?.src === "discard"
+          ? top(state.discards[seat]?.[pick.i] ?? [])
+          : undefined;
+
+  return (
+    <div className="stock-screen">
+      <div className="bank-chrome">
+        {view.id === "lab-stockpile" ? (
+          <Link to="/" className="text-sm font-semibold text-sky">
+            Home
+          </Link>
+        ) : (
+          <Link to="/circle/$groupId" params={{ groupId: view.groupId }} className="text-sm font-semibold text-sky">
+            Table
+          </Link>
+        )}
+        <p className="font-display text-xl">Stockpile</p>
+        <span className="text-xs font-bold uppercase tracking-wide text-fox">
+          {state.stocks[seat]?.length ?? 0} left
+        </span>
+      </div>
+
+      <p className="stock-line">
+        {over
+          ? state.winner != null
+            ? `${state.names[state.winner] ?? view.players[state.winner]?.name} emptied their stock.`
+            : "Game over."
+          : `${current?.name ?? "Someone"}'s turn. ${state.lastLine}`}
+      </p>
+
+      <div className="stock-rivals">
+        {view.players.map((p, i) =>
+          i === seat ? null : (
+            <div key={p.userId} className={cn("stock-rival", i === state.turn && "is-turn")}>
+              <span className="stock-rival-name" style={{ color: p.color }}>
+                {p.name}
+              </span>
+              <span className="text-xs text-muted-foreground">{state.stocks[i]?.length ?? 0} in stock</span>
+            </div>
+          ),
+        )}
+      </div>
+
+      <p className="text-center text-[11px] font-bold uppercase tracking-[0.16em] text-fox">Build 1–12</p>
+      <div className="stock-builds">
+        {state.build.map((pile, i) => (
+          <Face
+            key={i}
+            card={top(pile)}
+            ghost={String(state.need[i])}
+            onClick={yourTurn && pickedCard && canPlace(pickedCard, state.need[i]) ? () => playTo(i) : undefined}
+          />
+        ))}
+      </div>
+
+      <div className="stock-you">
+        <div className="stock-col">
+          <p className="stock-kicker">Your stock</p>
+          <Face
+            card={top(state.stocks[seat] ?? [])}
+            ghost="—"
+            tall
+            selected={pick?.src === "stock"}
+            onClick={
+              yourTurn && top(state.stocks[seat] ?? [])
+                ? () => setPick(pick?.src === "stock" ? null : { src: "stock" })
+                : undefined
+            }
+          />
+        </div>
+        <div className="stock-col grow">
+          <p className="stock-kicker">Park here to end turn</p>
+          <div className="stock-discards">
+            {state.discards[seat]?.map((pile, i) => (
+              <Face
+                key={i}
+                card={top(pile)}
+                ghost="+"
+                selected={pick?.src === "discard" && pick.i === i}
+                onClick={() => {
+                  if (!yourTurn) return;
+                  if (pick?.src === "hand") {
+                    parkTo(i);
+                    return;
+                  }
+                  if (!top(pile)) return;
+                  setPick(pick?.src === "discard" && pick.i === i ? null : { src: "discard", i });
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="play-hand">
+        {(state.hands[seat] ?? []).map((card, i) => (
+          <Face
+            key={card.id}
+            card={card}
+            selected={pick?.src === "hand" && pick.i === i}
+            onClick={yourTurn ? () => setPick(pick?.src === "hand" && pick.i === i ? null : { src: "hand", i }) : undefined}
+          />
+        ))}
+      </div>
+      <p className="text-center text-xs text-muted-foreground">
+        Tap a card, then a build pile. Tap a park slot with a hand card to end your turn.
+      </p>
+
+      {over && view.id === "lab-stockpile" ? (
+        <Button className="mt-2 w-full" onClick={() => act({ type: "next-round" })}>
+          Play again
+        </Button>
+      ) : null}
+    </div>
+  );
+}

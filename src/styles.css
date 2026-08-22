@@ -618,3 +618,86 @@
   background: linear-gradient(135deg, var(--color-fox), var(--color-moss), var(--color-sky), var(--color-berry));
 }
 .play-hand { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; }
+
+
+.stock-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: calc(100dvh - 5.5rem);
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+}
+.stock-line {
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--color-muted-foreground);
+}
+.stock-rivals {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem;
+}
+.stock-rival {
+  min-width: 5.5rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.8rem;
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
+  text-align: center;
+}
+.stock-rival.is-turn { box-shadow: var(--shadow-card), inset 0 0 0 1.5px var(--color-fox); }
+.stock-rival-name { display: block; font-weight: 700; font-size: 0.85rem; }
+.stock-builds, .stock-discards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+  max-width: 18rem;
+  margin-inline: auto;
+  width: 100%;
+}
+.stock-you {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: end;
+}
+.stock-col { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.stock-col.grow { min-width: 0; }
+.stock-discards { max-width: none; }
+.stock-builds .stock-card, .stock-discards .stock-card { width: 100%; }
+.stock-kicker {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-fox);
+}
+.stock-card {
+  width: 3.3rem;
+  height: 4.5rem;
+  border-radius: 0.65rem;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  color: var(--color-night);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-card);
+}
+.stock-card.is-tall { width: 4.2rem; height: 5.8rem; font-size: 1.8rem; }
+.stock-card.is-wild {
+  background: var(--color-fox);
+  color: var(--color-cream);
+  border-color: transparent;
+}
+.stock-card.is-empty {
+  background: var(--color-muted);
+  color: var(--color-muted-foreground);
+  box-shadow: none;
+}
+.stock-card.is-sel {
+  outline: 2px solid var(--color-fox);
+  outline-offset: 2px;
+}

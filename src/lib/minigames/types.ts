@@ -1,4 +1,4 @@
-export type MiniGameType = "bank" | "connect4" | "checkers" | "chess" | "tictactoe" | "shed";
+export type MiniGameType = "bank" | "connect4" | "checkers" | "chess" | "tictactoe" | "shed" | "stockpile";
 
 export const MINI_GAMES: Record<
   MiniGameType,
@@ -47,6 +47,13 @@ export const MINI_GAMES: Record<
     max: 6,
     passPhone: false,
   },
+  stockpile: {
+    label: "Stockpile",
+    blurb: "Empty your stock. Build 1 to 12. Wilds are W.",
+    min: 2,
+    max: 6,
+    passPhone: false,
+  },
 };
 
 export type MiniAction =
@@ -61,6 +68,10 @@ export type MiniAction =
   | { type: "score"; category: string }
   | { type: "play-card"; i: number; wild?: 0 | 1 | 2 | 3 }
   | { type: "draw" }
+  | { type: "play-stock"; pile: number }
+  | { type: "play-hand"; i: number; pile: number }
+  | { type: "play-discard"; from: number; pile: number }
+  | { type: "park"; i: number; pile: number }
   | { type: "bot-step" }
   | { type: "resign" }
   | { type: "offer-draw" }

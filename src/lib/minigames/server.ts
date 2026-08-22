@@ -3,6 +3,7 @@ import { getSql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { applyAction, initState } from "./apply";
 import { botColor, botLabel, isBot, nextBankBotAction } from "./bots";
+import { nextStockpileBotAction, type StockpileState } from "./stockpile";
 import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "@/lib/piece-color";
 import { PLAYER_COLORS } from "@/lib/types";
 import { roll2d6 } from "@/lib/dice";
@@ -364,11 +365,22 @@ export const playMiniAction = createServerFn({ method: "POST" })
     let action = data.action;
     let actorId = context.userId;
     if (action.type === "bot-step") {
-      if (row.game_type !== "bank") throw new Error("No house players here");
-      const step = nextBankBotAction(JSON.parse(row.state) as BankState);
-      if (!step) return { ok: true as const, dice: null, lastLine: "", pointsAwarded: null };
-      action = step.action;
-      actorId = step.actorId;
+      if (row.game_type === "bank") {
+        const step = nextBankBotAction(JSON.parse(row.state) as BankState);
+        if (!step) return { ok: true as const, dice: null, lastLine: "", pointsAwarded: null };
+        action = step.action;
+        actorId = step.actorId;
+      } else if (row.game_type === "stockpile") {
+        const s = JSON.parse(row.state) as StockpileState;
+        const botId = playerIds[s.turn];
+        if (!botId || !isBot(botId)) return { ok: true as const, dice: null, lastLine: "", pointsAwarded: null };
+        const step = nextStockpileBotAction(s);
+        if (!step) return { ok: true as const, dice: null, lastLine: "", pointsAwarded: null };
+        action = step;
+        actorId = botId;
+      } else {
+        throw new Error("No house players here");
+      }
     } else {
       actorId =
         passPhone && (action.type === "roll" || action.type === "pass" || action.type === "next-round")
@@ -384,6 +396,10 @@ export const playMiniAction = createServerFn({ method: "POST" })
           action.type === "move" ||
           action.type === "play-card" ||
           action.type === "draw" ||
+          action.type === "play-stock" ||
+          action.type === "play-hand" ||
+          action.type === "play-discard" ||
+          action.type === "park" ||
           action.type === "next-round";
         if (turnLocked && row.current_turn_user_id && row.current_turn_user_id !== context.userId) {
           throw new Error("Wait your turn");
