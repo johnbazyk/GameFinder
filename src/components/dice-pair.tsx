@@ -35,14 +35,14 @@ const PIPS: Record<number, [number, number][]> = {
   ],
 };
 
-/** Bring this face to the camera. Same map as GitSquared/diceroll. */
-const FACE: Record<number, { x: number; y: number }> = {
-  1: { x: 0, y: 0 },
-  2: { x: -90, y: 0 },
-  3: { x: 0, y: -90 },
-  4: { x: 0, y: 90 },
-  5: { x: 90, y: 0 },
-  6: { x: 0, y: 180 },
+/** Put this face on +Y so a top-down camera sees the score. */
+const FACE: Record<number, { x: number; y: number; z: number }> = {
+  1: { x: 90, y: 0, z: 0 },
+  2: { x: 0, y: 0, z: 0 },
+  3: { x: 0, y: 0, z: -90 },
+  4: { x: 0, y: 0, z: 90 },
+  5: { x: 180, y: 0, z: 0 },
+  6: { x: -90, y: 0, z: 0 },
 };
 
 const FACE_CLASS = [
@@ -67,8 +67,8 @@ function pipTone(hex?: string) {
   return lum > 0.54 ? "#1c1917" : "#fbf6ef";
 }
 
-function pose(x: number, y: number) {
-  return `rotateX(${x}deg) rotateY(${y}deg)`;
+function pose(x: number, y: number, z = 0) {
+  return `rotateX(${x}deg) rotateY(${y}deg) rotateZ(${z}deg)`;
 }
 
 function Face({ n }: { n: number }) {
@@ -105,7 +105,7 @@ export function CubeDie({
     const cube = cubeRef.current;
     if (!wrap || !cube) return;
 
-    const rest = pose(face.x, face.y);
+    const rest = pose(face.x, face.y, face.z);
     const reduce =
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -127,7 +127,7 @@ export function CubeDie({
     const midY = lane === "a" ? "-48px" : "-22px";
 
     wrap.style.transform = `translate3d(${fromX}, ${fromY}, 0)`;
-    cube.style.transform = pose(face.x + extraX, face.y + extraY);
+    cube.style.transform = pose(face.x + extraX, face.y + extraY, face.z);
 
     const slide = wrap.animate(
       [
@@ -138,7 +138,7 @@ export function CubeDie({
       { duration: THROW_MS, delay, easing: EASE_SLIDE, fill: "forwards" },
     );
     const spin = cube.animate(
-      [{ transform: pose(face.x + extraX, face.y + extraY) }, { transform: rest }],
+      [{ transform: pose(face.x + extraX, face.y + extraY, face.z) }, { transform: rest }],
       { duration: THROW_MS, delay, easing: EASE_SPIN, fill: "forwards" },
     );
 
@@ -146,13 +146,13 @@ export function CubeDie({
       slide.cancel();
       spin.cancel();
     };
-  }, [throwing, face.x, face.y, lane]);
+  }, [throwing, face.x, face.y, face.z, lane]);
 
   return (
     <div ref={wrapRef} className="die-throw" style={style}>
       <span className="die-shadow" />
       <div className="die-stage">
-        <div ref={cubeRef} className="die-cube" style={{ transform: pose(face.x, face.y) }}>
+        <div ref={cubeRef} className="die-cube" style={{ transform: pose(face.x, face.y, face.z) }}>
           <Face n={1} />
           <Face n={2} />
           <Face n={3} />
