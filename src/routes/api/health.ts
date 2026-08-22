@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getSql } from "@/lib/db";
+import { peekDbUser } from "@/lib/pg-pool";
 
 export const Route = createFileRoute("/api/health")({
   server: {
@@ -7,9 +8,11 @@ export const Route = createFileRoute("/api/health")({
       GET: async () => {
         const out: Record<string, unknown> = {
           ok: false,
+          version: "pooler-2",
           hasDatabaseUrl: Boolean(process.env.DATABASE_URL?.trim()),
           hasAuthSecret: Boolean(process.env.BETTER_AUTH_SECRET?.trim()),
           authUrl: process.env.BETTER_AUTH_URL ?? null,
+          dbUser: peekDbUser(process.env.DATABASE_URL),
         };
         try {
           const sql = await getSql();

@@ -19,17 +19,10 @@ import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
 
 function normalizeDatabaseUrl(url) {
-  try {
-    const u = new URL(url.replace(/^postgres(ql)?:/i, "https:"));
-    if (u.hostname.includes("pooler.supabase.com") && u.username === "postgres") {
-      u.username = "postgres.gposxgncsktonuhlgbpg";
-    }
-    return u
-      .toString()
-      .replace(/^https:/i, url.startsWith("postgres://") ? "postgres:" : "postgresql:");
-  } catch {
-    return url;
-  }
+  return url.replace(
+    /^(postgres(?:ql)?:\/\/)postgres(:)/i,
+    "$1postgres.gposxgncsktonuhlgbpg$2",
+  );
 }
 
 const databaseUrl = process.env.DATABASE_URL

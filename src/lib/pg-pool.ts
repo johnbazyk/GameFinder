@@ -5,23 +5,26 @@
  * and TLS. The shared pooler also requires user `postgres.<project-ref>` —
  * a URL with user `postgres` authenticates as the wrong role and sign-up
  * 500s with "password authentication failed for user postgres".
+ *
+ * Do not use the URL() parser here: passwords often contain `@` / `:` and
+ * URL() then throws, which used to skip the rewrite.
  */
 import { Pool } from "pg";
 
-const SUPABASE_REF = "gposxgncsktonuhlgbpg";
+export const SUPABASE_REF = "gposxgncsktonuhlgbpg";
 
 /** Rewrite pooler URLs that still use the bare `postgres` user. */
 export function normalizeDatabaseUrl(connectionString: string): string {
-  try {
-    const u = new URL(connectionString.replace(/^postgres(ql)?:/i, "https:"));
-    const pooler = u.hostname.includes("pooler.supabase.com");
-    if (pooler && u.username === "postgres") {
-      u.username = `postgres.${SUPABASE_REF}`;
-    }
-    return u.toString().replace(/^https:/i, connectionString.startsWith("postgres://") ? "postgres:" : "postgresql:");
-  } catch {
-    return connectionString;
-  }
+  return connectionString.replace(
+    /^(postgres(?:ql)?:\/\/)postgres(:)/i,
+    `$1postgres.${SUPABASE_REF}$2`,
+  );
+}
+
+export function peekDbUser(connectionString: string | undefined): string | null {
+  if (!connectionString) return null;
+  const m = normalizeDatabaseUrl(connectionString).match(/^postgres(?:ql)?:\/\/([^:]+):/i);
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 export function makePgPool(connectionString: string): Pool {
@@ -35,3 +38,4 @@ export function makePgPool(connectionString: string): Pool {
     ssl: local ? undefined : { rejectUnauthorized: false },
   });
 }
+// 2026-08-22T17:39:00+00:00
