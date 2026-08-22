@@ -35,8 +35,13 @@ family owns, and restarting Netlify does not wipe the ledger.
 - **Netlify build**: nitro preset switches to `netlify` when Netlify's build env
   is present (`vite.config.ts`); `netlify.toml` publishes `dist`, Node 22.
   Validated locally: typecheck clean, `NETLIFY=1 npm run build` green.
-- **`DATABASE_URL`** set on Netlify by the owner (secret). If the first deploy
-  logs a TLS/SSL connection error from `pg`, append `?sslmode=require`.
+- **`DATABASE_URL`** set on Netlify by the owner (secret). The project's shared
+  Transaction pooler is `aws-0-us-east-1.pooler.supabase.com:6543` with user
+  `postgres.gposxgncsktonuhlgbpg` — the first deploy failed with
+  "(ENOTFOUND) tenant/user … not found" because the URL pointed at the `aws-1`
+  cluster. Do not use the "Dedicated pooler" (`db.<ref>.supabase.co:6543`)
+  from Netlify: that host is IPv6-only and Netlify egress is IPv4. If a deploy
+  ever logs a TLS error from `pg`, append `?sslmode=require`.
 - Known pre-existing: 14 sandbox-scaffolding test failures
   (`grok-pwa-plugin.test.mjs`, `check-auth-invariant.test.mjs`) — they expect
   the sandbox's `.grok/` env files, which are deliberately not exported.
