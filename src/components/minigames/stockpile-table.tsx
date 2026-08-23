@@ -133,6 +133,13 @@ export function StockpileTable({
           {state.stocks[seat]?.length ?? 0} left
         </span>
       </div>
+      <Link
+        to="/game/$id/table"
+        params={{ id: "1269" }}
+        className="text-center text-sm font-semibold text-sky"
+      >
+        Teach me with Finn
+      </Link>
 
       <p className="stock-line">
         {over

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { ExternalLink, Heart, Library, Play, Trophy } from "lucide-react";
+import { ExternalLink, Heart, Library, Mic, Play, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { GameCover } from "@/components/game-cover";
 import { RubricRadar } from "@/components/rubric-radar";
@@ -41,7 +41,6 @@ function GamePage() {
   );
   const [logging, setLogging] = useState(false);
   const [enjoyed, setEnjoyed] = useState(true);
-  const bookworm = useFlag("bookworm");
   const amazonOn = useFlag("amazon_cta");
 
   if (!game) {
@@ -132,7 +131,13 @@ function GamePage() {
         </Button>
       ) : null}
 
-      {bookworm ? <FinnCoach game={game} /> : null}
+      <Button className="mt-3 w-full" variant="secondary" asChild>
+        <Link to="/game/$id/table" params={{ id: game.bggId }}>
+          <Mic className="size-4" />
+          Teach me with Finn
+        </Link>
+      </Button>
+      <FinnCoach game={game} />
 
       <section className="mt-8 rounded-card bg-card p-4 shadow-card">
         <h2 className="font-display text-xl">How it plays</h2>

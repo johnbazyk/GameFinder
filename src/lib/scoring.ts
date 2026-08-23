@@ -169,3 +169,13 @@ export function pickSurprise(ownedIds: string[], avoidId?: string): Game | undef
   if (!pool.length) return undefined;
   return pool[Math.floor(Math.random() * pool.length)];
 }
+
+/** Tonight's constraints first; random vault only if the wizard has no owned hit. */
+export function pickTonight(
+  ctx: WizardContext,
+  user: UserSignals,
+  avoidId?: string,
+): Game | undefined {
+  const result = runWizard(ctx, user, avoidId ? [avoidId] : []);
+  return result.ownedTop[0] ?? pickSurprise(user.owned, avoidId);
+}

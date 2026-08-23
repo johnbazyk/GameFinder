@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { DicePair, THROW_MS } from "@/components/dice-pair";
 import { Button } from "@/components/ui/button";
 import type { BankState } from "@/lib/bank";
-import { ranked, stillIn } from "@/lib/bank";
+import { BANK_BGG_ID, ranked, stillIn } from "@/lib/bank";
 import { isBot, nextBankBotAction } from "@/lib/minigames/bots";
 import { PLAYER_COLORS } from "@/lib/types";
 import type { SessionView } from "@/lib/minigames/server";
@@ -155,6 +155,13 @@ export function BankTable({
           {over ? "Final" : busted ? "Bust" : state.rollsThisRound < 3 ? "Safe" : "Danger"}
         </span>
       </div>
+      <Link
+        to="/game/$id/table"
+        params={{ id: BANK_BGG_ID }}
+        className="text-center text-sm font-semibold text-sky"
+      >
+        Teach me with Finn
+      </Link>
 
       {over ? (
         <div className="bank-over">

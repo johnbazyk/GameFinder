@@ -1,12 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Dices } from "lucide-react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
 import { VibeGrid } from "@/components/vibe-grid";
 import { AgeBands, PlayerPicker, TimeChips } from "@/components/wizard-controls";
 import { useAppStore } from "@/lib/store";
-import { runWizard } from "@/lib/scoring";
+import { pickTonight, runWizard } from "@/lib/scoring";
 import type { VibeId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { VIBE_META } from "@/lib/vibes";
@@ -62,6 +62,21 @@ function WizardPage() {
     if (step === 3) setWizard({ vibes: [], exactTraits: null });
     if (last) finish();
     else setStep((s) => s + 1);
+  }
+
+  function surpriseFromAnswers() {
+    const { owned, wishlist, plays, vibeWeights, wizard: ctx, recPool } = useAppStore.getState();
+    const pick = pickTonight(ctx, {
+      owned: recPool?.ids.length ? recPool.ids : owned,
+      wishlist,
+      plays,
+      vibeWeights,
+    });
+    if (!pick) {
+      navigate({ to: "/vault" });
+      return;
+    }
+    navigate({ to: "/game/$id", params: { id: pick.bggId } });
   }
 
   function toggleVibe(id: VibeId) {
@@ -201,6 +216,14 @@ function WizardPage() {
           {last ? "Sniff it out" : "Next"}
           <ArrowRight className="size-5" />
         </Button>
+        <button
+          type="button"
+          className="mt-2 inline-flex min-h-11 w-full items-center justify-center gap-2 text-sm font-semibold text-sky"
+          onClick={surpriseFromAnswers}
+        >
+          <Dices className="size-4" />
+          Surprise me with these answers
+        </button>
       </div>
     </div>
   );

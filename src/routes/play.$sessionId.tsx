@@ -6,6 +6,12 @@ import { StockpileTable } from "@/components/minigames/stockpile-table";
 import { useMiniSession } from "@/components/minigames/play-table";
 import { Button } from "@/components/ui/button";
 import { MINI_GAMES } from "@/lib/minigames/types";
+import { BANK_BGG_ID } from "@/lib/bank";
+
+const TEACH_FOR: Partial<Record<string, string>> = {
+  bank: BANK_BGG_ID,
+  stockpile: "1269",
+};
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
@@ -55,6 +61,15 @@ function PlaySession() {
         Family game
       </p>
       <h1 className="font-display text-3xl">{meta.label}</h1>
+      {TEACH_FOR[view.gameType] ? (
+        <Link
+          to="/game/$id/table"
+          params={{ id: TEACH_FOR[view.gameType]! }}
+          className="mt-1 inline-block text-sm font-semibold text-sky"
+        >
+          Teach me with Finn
+        </Link>
+      ) : null}
       <SeatDots players={view.players} />
       {view.status === "finished" ? (
         <p className="mt-3 rounded-card bg-fox/10 px-4 py-3 text-sm font-semibold">
