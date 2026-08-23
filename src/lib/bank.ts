@@ -1,5 +1,7 @@
 /** Bank — family dice game. Shared pot, pass two dice, shout BANK before a 7. */
 
+import { whose } from "@/lib/utils";
+
 export const BANK_BGG_ID = "412804";
 
 export type BankRounds = 10 | 15 | 20;
@@ -152,7 +154,7 @@ export function passDice(state: BankState): BankState {
     ...state,
     currentIdx: idx,
     phase: "need-roll",
-    lastLine: `${next.name}'s dice.`,
+    lastLine: `${whose(next.name, "dice")}.`,
   };
 }
 

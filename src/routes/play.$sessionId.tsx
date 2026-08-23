@@ -1,3 +1,4 @@
+import { whose } from "@/lib/utils";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { BankTable } from "@/components/minigames/bank-table";
 import { CheckersBoard, ChessBoard, Connect4Board, SeatDots, TttBoard } from "@/components/minigames/boards";
@@ -7,13 +8,14 @@ import { useMiniSession } from "@/components/minigames/play-table";
 import { Button } from "@/components/ui/button";
 import { MINI_GAMES } from "@/lib/minigames/types";
 import { BANK_BGG_ID } from "@/lib/bank";
+import { STOCKPILE_ID } from "@/lib/minigames/stockpile";
+import { RedirectToSignIn } from "@/lib/auth/gates";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 const TEACH_FOR: Partial<Record<string, string>> = {
   bank: BANK_BGG_ID,
-  stockpile: "1269",
+  stockpile: STOCKPILE_ID,
 };
-import { RedirectToSignIn } from "@/lib/auth/gates";
-import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 export const Route = createFileRoute("/play/$sessionId")({ component: PlaySession });
 
@@ -79,7 +81,7 @@ function PlaySession() {
         </p>
       ) : (
         <p className="mt-3 text-sm font-semibold">
-          {turnName ? `${turnName}'s turn` : "Waiting"}
+          {turnName ? whose(turnName, "turn") : "Waiting"}
           {view.you === view.currentTurnUserId ? " — that's you." : "."}
         </p>
       )}

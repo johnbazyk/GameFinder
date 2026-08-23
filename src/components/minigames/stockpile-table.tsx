@@ -12,7 +12,7 @@ import {
 } from "@/lib/minigames/stockpile";
 import type { SessionView } from "@/lib/minigames/server";
 import type { MiniAction } from "@/lib/minigames/types";
-import { cn } from "@/lib/utils";
+import { cn, whose } from "@/lib/utils";
 
 type Pick =
   | { src: "stock" }
@@ -146,7 +146,7 @@ export function StockpileTable({
           ? state.winner != null
             ? `${state.names[state.winner] ?? view.players[state.winner]?.name} emptied their stock.`
             : "Game over."
-          : `${current?.name ?? "Someone"}'s turn — ${state.lastLine}`}
+          : `${whose(current?.name ?? "Someone", "turn")} — ${state.lastLine}`}
       </p>
 
       <div className="stock-rivals">

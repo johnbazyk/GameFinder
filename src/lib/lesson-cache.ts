@@ -1,6 +1,6 @@
 import { askFinnLesson, type LessonPack } from "@/lib/coach";
 
-const KEY = "gf-lesson-packs-v1";
+const KEY = "gf-lesson-packs-v2";
 const TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const inflight = new Map<string, Promise<LessonPack | null>>();
 const refreshed = new Set<string>();

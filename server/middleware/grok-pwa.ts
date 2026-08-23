@@ -60,12 +60,18 @@ function injectHeadStreaming(response: Response, host: string): Response {
   });
 }
 
+function isGrokPreviewHost(host: string) {
+  const h = host.split(",")[0].trim().split(":")[0].toLowerCase();
+  return h.endsWith(".grok.me") || h.endsWith(".grok-sandbox.com");
+}
+
 export default async function grokPwaMiddleware(
   event: GrokPwaEvent,
   next: () => unknown | Promise<unknown>,
 ): Promise<unknown> {
   const method = (event.req.method ?? "GET").toUpperCase();
   if (method !== "GET") return next();
+  if (!isGrokPreviewHost(requestHost(event))) return next();
 
   const path = event.url.pathname;
   const urlWithQuery = path + event.url.search;

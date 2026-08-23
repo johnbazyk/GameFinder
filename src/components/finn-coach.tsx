@@ -115,6 +115,7 @@ export function FinnCoach({
   const prefetchingRef = useRef<Partial<Record<ChapterId, boolean>>>({});
   const inflightRef = useRef<Partial<Record<ChapterId, Promise<string>>>>({});
   const reloadGenRef = useRef(0);
+  const justRestartedRef = useRef(false);
 
   messagesRef.current = messages;
 
@@ -314,6 +315,7 @@ export function FinnCoach({
         if (requestIdRef.current !== requestId) return;
         setHeard((h) => (h.includes(ch.id) ? h : [...h, ch.id]));
         setPending(false);
+        justRestartedRef.current = false;
         await attachUrl(url, { id: ch.id, title: ch.title }, requestId);
         const idx = lessonIndex(ch.id);
         const next = CHAPTERS[idx + 1];
@@ -359,12 +361,15 @@ export function FinnCoach({
 
   const skipPrev = useCallback(() => {
     const audio = audioRef.current;
-    if (audio && !audio.paused && audio.currentTime > 1.5) {
+    const atStart = !audio || audio.currentTime <= 1.5 || audio.paused;
+    if (audio && !atStart && !justRestartedRef.current) {
       audio.currentTime = 0;
+      justRestartedRef.current = true;
       void audio.play();
       setSpeaking(true);
       return;
     }
+    justRestartedRef.current = false;
     const idx = lessonIndex(track.id);
     if (idx > 0) {
       void playChapter(CHAPTERS[idx - 1].id);

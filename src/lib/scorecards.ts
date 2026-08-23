@@ -213,8 +213,7 @@ export const SCORE_CARDS: Record<string, ScoreCardDef> = {
   "2223": points("Uno: winner of a hand scores the leftover cards in everyone else's hands. Play to 500, or log this hand.", [
     { id: "hand", label: "Points this hand" },
   ]),
-  "1269": last("Skip-Bo: first to empty their stock pile. Optional: play several rounds to 500."),
-  "40507": last("Skip-Bo Junior: first to empty the shorter stock pile."),
+  "1269": last("Stockpile: first to empty their stock pile. Optional: play several rounds to 500."),
   "1258": points("Phase 10: first through all ten phases. If it's close, lowest leftover card points wins.", [
     { id: "phase", label: "Phase reached", min: 0, max: 10 },
     { id: "left", label: "Leftover card points" },

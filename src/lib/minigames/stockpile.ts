@@ -1,4 +1,6 @@
-/** Stockpile — Skip-Bo rules, original name. Empty your stock. Build 1–12. */
+/** Stockpile — original in-app card game. Empty your stock. Build 1–12. */
+export const STOCKPILE_ID = "1269";
+
 
 import type { EngineResult, MiniAction } from "./types";
 
