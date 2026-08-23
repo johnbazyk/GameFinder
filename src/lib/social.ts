@@ -43,6 +43,13 @@ export type InvitePreview = {
   expired: boolean;
 };
 
+export type HouseholdPerson = {
+  userId: string;
+  displayName: string;
+  pieceColor: string;
+  source: "you" | "family" | "friends";
+};
+
 export type ActivityRow = {
   id: string;
   body: string;
@@ -351,6 +358,63 @@ export const listMyGroups = createServerFn({ method: "GET" })
       shareVault: Boolean(r.share_vault),
       memberCount: Number(r.member_count),
     })) satisfies GroupRow[];
+  });
+
+
+/** Everyone at your family/friends tables, plus accepted friends. For Who's home. */
+export const listHousehold = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    await ensureProfile(context.userId);
+    const sql = await getSql();
+    const you = await sql<{ user_id: string; display_name: string; piece_color: string }>`
+      select user_id, display_name, piece_color from profiles where user_id = ${context.userId} limit 1
+    `;
+    const table = await sql<{
+      user_id: string;
+      display_name: string;
+      piece_color: string;
+      kind: "family" | "friends";
+    }>`
+      select p.user_id, p.display_name, p.piece_color, g.kind
+      from group_members mine
+      join group_members m on m.group_id = mine.group_id
+      join play_groups g on g.id = mine.group_id
+      join profiles p on p.user_id = m.user_id
+      where mine.user_id = ${context.userId}
+    `;
+    const pals = await sql<{ user_id: string; display_name: string; piece_color: string }>`
+      select p.user_id, p.display_name, p.piece_color
+      from friendships f
+      join profiles p
+        on p.user_id = case
+          when f.requester_id = ${context.userId} then f.addressee_id
+          else f.requester_id
+        end
+      where (f.requester_id = ${context.userId} or f.addressee_id = ${context.userId})
+        and f.status = 'accepted'
+    `;
+    const map = new Map<string, HouseholdPerson>();
+    const put = (
+      row: { user_id: string; display_name: string; piece_color: string },
+      source: HouseholdPerson["source"],
+    ) => {
+      const name = String(row.display_name ?? "").trim().slice(0, 20);
+      if (!name || map.has(row.user_id)) return;
+      map.set(row.user_id, {
+        userId: row.user_id,
+        displayName: name,
+        pieceColor: normalizePieceColor(row.piece_color),
+        source,
+      });
+    };
+    if (you[0]) put(you[0], "you");
+    for (const r of table) put(r, r.kind === "family" ? "family" : "friends");
+    for (const r of pals) put(r, "friends");
+    return [...map.values()].sort((a, b) => {
+      const rank = { you: 0, family: 1, friends: 2 };
+      return rank[a.source] - rank[b.source] || a.displayName.localeCompare(b.displayName);
+    });
   });
 
 export const createGroup = createServerFn({ method: "POST" })

@@ -48,6 +48,7 @@ type AppState = {
 
   tablePlayers: TablePlayer[];
   addPlayer: (name: string) => "ok" | "empty" | "dup" | "limit";
+  ensurePlayer: (person: { id?: string; name: string; color?: string }) => string | null;
   renamePlayer: (id: string, name: string) => "ok" | "empty" | "dup";
   removePlayer: (id: string) => void;
 
@@ -219,6 +220,36 @@ export const useAppStore = create<AppState>()(
           ],
         });
         return "ok";
+      },
+      ensurePlayer: ({ id, name, color }) => {
+        const trimmed = name.trim().slice(0, 20);
+        if (!trimmed) return null;
+        const list = get().tablePlayers;
+        const hit = list.find(
+          (p) => (id && p.id === id) || p.name.toLowerCase() === trimmed.toLowerCase(),
+        );
+        if (hit) {
+          if (color && hit.color !== color) {
+            set({
+              tablePlayers: list.map((p) => (p.id === hit.id ? { ...p, color } : p)),
+            });
+          }
+          return hit.id;
+        }
+        if (list.length >= 16) return null;
+        const pid = id ?? nid();
+        set({
+          tablePlayers: [
+            ...list,
+            {
+              id: pid,
+              name: trimmed,
+              color: color || PLAYER_COLORS[list.length % PLAYER_COLORS.length],
+              createdAt: Date.now(),
+            },
+          ],
+        });
+        return pid;
       },
       renamePlayer: (id, name) => {
         const trimmed = name.trim().slice(0, 20);
