@@ -118,7 +118,7 @@ export type FeedbackType = "thumbs_up" | "thumbs_down";
 export const FREE_VAULT_LIMIT = 50;
 export const PREMIUM_PRICE = "$3.99/month";
 export const PREMIUM_YEARLY = "$29.99/year";
-export const PREMIUM_LIFE = "$29 once";
+export const PREMIUM_LIFE = "$49.99 once";
 
 export const PLAYER_COLORS = [
   "#e8642b",

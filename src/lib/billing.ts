@@ -22,7 +22,7 @@ export const BILLING = {
   lifetime: {
     id: "lifetime" as const,
     label: "Lifetime",
-    price: "$29",
+    price: "$49.99",
     blurb: "Pay once. No subscription.",
     env: "STRIPE_PRICE_LIFETIME",
     mode: "payment" as const,

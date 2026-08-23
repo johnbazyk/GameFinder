@@ -29,7 +29,7 @@ export function UpgradeSheet() {
         </div>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{prompt}</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          Unlimited vault, no ads, exact-score filters. Yearly is $29.99. Lifetime is $29 once.
+          Unlimited vault, no ads, exact-score filters. Yearly is $29.99. Lifetime is $49.99 once.
         </p>
         <Button
           className="mt-5 w-full"

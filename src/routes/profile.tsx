@@ -153,7 +153,7 @@ function ProfilePage() {
         <p className="mt-1 text-sm text-muted-foreground">
           {isPremium
             ? "Unlimited vault, no ads during the night, exact-score filters."
-            : `Free vaults hold ${FREE_VAULT_LIMIT} games. Family plan is $3.99/month, $29.99/year, or $29 once.`}
+            : `Free vaults hold ${FREE_VAULT_LIMIT} games. Family plan is $3.99/month, $29.99/year, or $49.99 once.`}
         </p>
         <Button className="mt-4 w-full" variant={isPremium ? "secondary" : "primary"} asChild>
           <Link to="/premium" search={{ session_id: "" }}>{isPremium ? "Manage plan" : "See the family plan"}</Link>
