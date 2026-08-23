@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as CircleRouteImport } from './routes/circle'
 import { Route as DiscoverRouteImport } from './routes/discover'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as PremiumRouteImport } from './routes/premium'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as ResultsRouteImport } from './routes/results'
 import { Route as ScoreboardRouteImport } from './routes/scoreboard'
@@ -49,6 +50,11 @@ const DiscoverRoute = DiscoverRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PremiumRoute = PremiumRouteImport.update({
+  id: '/premium',
+  path: '/premium',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileRoute = ProfileRouteImport.update({
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/circle': typeof CircleRouteWithChildren
   '/discover': typeof DiscoverRoute
   '/login': typeof LoginRoute
+  '/premium': typeof PremiumRoute
   '/profile': typeof ProfileRoute
   '/results': typeof ResultsRoute
   '/scoreboard': typeof ScoreboardRoute
@@ -164,6 +171,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/discover': typeof DiscoverRoute
   '/login': typeof LoginRoute
+  '/premium': typeof PremiumRoute
   '/profile': typeof ProfileRoute
   '/results': typeof ResultsRoute
   '/scoreboard': typeof ScoreboardRoute
@@ -187,6 +195,7 @@ export interface FileRoutesById {
   '/circle': typeof CircleRouteWithChildren
   '/discover': typeof DiscoverRoute
   '/login': typeof LoginRoute
+  '/premium': typeof PremiumRoute
   '/profile': typeof ProfileRoute
   '/results': typeof ResultsRoute
   '/scoreboard': typeof ScoreboardRoute
@@ -212,6 +221,7 @@ export interface FileRouteTypes {
     | '/circle'
     | '/discover'
     | '/login'
+    | '/premium'
     | '/profile'
     | '/results'
     | '/scoreboard'
@@ -234,6 +244,7 @@ export interface FileRouteTypes {
     | '/'
     | '/discover'
     | '/login'
+    | '/premium'
     | '/profile'
     | '/results'
     | '/scoreboard'
@@ -256,6 +267,7 @@ export interface FileRouteTypes {
     | '/circle'
     | '/discover'
     | '/login'
+    | '/premium'
     | '/profile'
     | '/results'
     | '/scoreboard'
@@ -280,6 +292,7 @@ export interface RootRouteChildren {
   CircleRoute: typeof CircleRouteWithChildren
   DiscoverRoute: typeof DiscoverRoute
   LoginRoute: typeof LoginRoute
+  PremiumRoute: typeof PremiumRoute
   ProfileRoute: typeof ProfileRoute
   ResultsRoute: typeof ResultsRoute
   ScoreboardRoute: typeof ScoreboardRoute
@@ -322,6 +335,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/premium': {
+      id: '/premium'
+      path: '/premium'
+      fullPath: '/premium'
+      preLoaderRoute: typeof PremiumRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile': {
@@ -479,6 +499,7 @@ const rootRouteChildren: RootRouteChildren = {
   CircleRoute: CircleRouteWithChildren,
   DiscoverRoute: DiscoverRoute,
   LoginRoute: LoginRoute,
+  PremiumRoute: PremiumRoute,
   ProfileRoute: ProfileRoute,
   ResultsRoute: ResultsRoute,
   ScoreboardRoute: ScoreboardRoute,

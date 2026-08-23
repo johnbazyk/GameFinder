@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ScanGames } from "@/components/scan-games";
 import { useAppStore } from "@/lib/store";
 import { GAMES } from "@/lib/catalog";
-import { FREE_VAULT_LIMIT, PREMIUM_PRICE } from "@/lib/types";
+import { FREE_VAULT_LIMIT } from "@/lib/types";
 import { useFlag } from "@/lib/flags";
 import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -24,7 +24,6 @@ function ProfilePage() {
   const haptics = useAppStore((s) => s.haptics);
   const setHaptics = useAppStore((s) => s.setHaptics);
   const isPremium = useAppStore((s) => s.isPremium);
-  const setUpgradePrompt = useAppStore((s) => s.setUpgradePrompt);
   const pieceColor = useAppStore((s) => s.pieceColor);
   const setPieceColor = useAppStore((s) => s.setPieceColor);
   const enjoyed = plays.filter((p) => p.enjoyed).length;
@@ -32,7 +31,6 @@ function ProfilePage() {
   const [scan, setScan] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const scanOn = useFlag("scan_games");
-  const paywall = useFlag("premium_paywall");
 
   useEffect(() => {
     if (!user) return;
@@ -148,30 +146,19 @@ function ProfilePage() {
         <span className="text-sm font-semibold text-sky">Open</span>
       </Link>
 
-      {paywall ? (
       <section className="mt-8 rounded-card bg-card p-4 shadow-card">
         <h2 className="font-display text-xl">
           {isPremium ? "You're on Premium" : "GameFinder Premium"}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {isPremium
-            ? "Unlimited vault, no ads, exact-score filters. Bookworm rules help is coming later."
-            : `Free vaults hold ${FREE_VAULT_LIMIT} games. Premium is ${PREMIUM_PRICE} for unlimited storage, no ads, and advanced filters.`}
+            ? "Unlimited vault, no ads during the night, exact-score filters."
+            : `Free vaults hold ${FREE_VAULT_LIMIT} games. Family plan is $3.99/month, $29.99/year, or $29 once.`}
         </p>
-        {!isPremium ? (
-          <Button
-            className="mt-4 w-full"
-            onClick={() =>
-              setUpgradePrompt(
-                "Unlock unlimited vault storage, no banner ads, advanced exact-score filters, and future Bookworm rules help.",
-              )
-            }
-          >
-            Upgrade for {PREMIUM_PRICE}
-          </Button>
-        ) : null}
+        <Button className="mt-4 w-full" variant={isPremium ? "secondary" : "primary"} asChild>
+          <Link to="/premium" search={{ session_id: "" }}>{isPremium ? "Manage plan" : "See the family plan"}</Link>
+        </Button>
       </section>
-      ) : null}
 
       {scanOn ? (
       <section className="mt-8 space-y-2">

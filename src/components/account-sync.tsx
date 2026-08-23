@@ -26,6 +26,7 @@ export function AccountSync() {
         return getMyProfile()
           .then((prof) => {
             if (prof.pieceColor) useAppStore.getState().setPieceColor(prof.pieceColor);
+            useAppStore.setState({ isPremium: prof.plan === "premium" });
           })
           .catch(() => undefined)
           .then(() => replaceCloudVault({ data: { owned, wishlist } }));
