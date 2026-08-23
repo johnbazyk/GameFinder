@@ -6,13 +6,13 @@ import { FoxAvatar } from "@/components/fox-avatar";
 import { VoicePlayer } from "@/components/voice-player";
 import {
   askFinn,
-  askFinnLesson,
   hearFinn,
   speakFinn,
   type CoachMessage,
   type CoachMode,
 } from "@/lib/coach";
 import type { Game } from "@/lib/types";
+import { ensureLesson, peekLesson } from "@/lib/lesson-cache";
 import { cn } from "@/lib/utils";
 
 const SILENT_WAV =
@@ -231,19 +231,25 @@ export function FinnCoach({
     setMessages([]);
 
     void (async () => {
-      const lesson = await askFinnLesson({ data: { gameId: game.bggId } }).catch(() => ({
-        ok: false as const,
-        error: "unavailable",
-      }));
+      const cached = peekLesson(game.bggId);
+      if (cached && reloadGenRef.current === gen) {
+        for (const ch of CHAPTERS) textCacheRef.current[ch.id] = cached[ch.id];
+        const briefing = CHAPTERS.map((c) => `${c.title}. ${cached[c.id]}`).join("\n\n");
+        messagesRef.current = [{ role: "assistant", content: briefing, label: "Full rules" }];
+        setMessages(messagesRef.current);
+        setPackLoading(false);
+      }
+
+      const pack = await ensureLesson(game.bggId).catch(() => null);
       if (reloadGenRef.current !== gen) return;
-      if (!lesson.ok) {
+      if (!pack) {
         setPackLoading(false);
         return;
       }
       for (const ch of CHAPTERS) {
-        textCacheRef.current[ch.id] = lesson.pack[ch.id];
+        textCacheRef.current[ch.id] = pack[ch.id];
       }
-      const briefing = CHAPTERS.map((c) => `${c.title}. ${lesson.pack[c.id]}`).join("\n\n");
+      const briefing = CHAPTERS.map((c) => `${c.title}. ${pack[c.id]}`).join("\n\n");
       messagesRef.current = [{ role: "assistant", content: briefing, label: "Full rules" }];
       setMessages(messagesRef.current);
       setPackLoading(false);

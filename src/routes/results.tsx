@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { MatchCard } from "@/components/match-card";
 import { EmptyState } from "@/components/empty-state";
@@ -8,6 +9,7 @@ import { useAppStore } from "@/lib/store";
 import { VIBE_META, AGE_BANDS } from "@/lib/vibes";
 import { useFlag } from "@/lib/flags";
 import { cn } from "@/lib/utils";
+import { prefetchLessons } from "@/lib/lesson-cache";
 
 export const Route = createFileRoute("/results")({ component: ResultsPage });
 
@@ -34,6 +36,10 @@ function ResultsPage() {
 
   const f = result.appliedFilters;
   const noOwned = result.ownedTop.length === 0;
+
+  useEffect(() => {
+    prefetchLessons(result.ownedTop.map((g) => g.bggId));
+  }, [result.ownedTop.map((g) => g.bggId).join(",")]);
 
   if (noOwned && result.unownedTop.length === 0) {
     return (

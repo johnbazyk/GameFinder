@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Dices, Library, Mic, Trophy, Users, X } from "lucide-react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ import {
 } from "@/lib/scoring";
 import { getScoreCard, lifetimeStats, resolveWinners } from "@/lib/scorecards";
 import type { Game } from "@/lib/types";
+import { prefetchLessons } from "@/lib/lesson-cache";
+import { BANK_BGG_ID } from "@/lib/bank";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -39,6 +41,14 @@ function Home() {
   const shelf = owned.map(getGame).filter(Boolean).slice(0, 6);
 
   const recs = (lastResults?.ownedTop.length ? lastResults.ownedTop : lastResults?.unownedTop ?? []).slice(0, 3);
+
+  useEffect(() => {
+    prefetchLessons([
+      ...recs.map((g) => g.bggId),
+      BANK_BGG_ID,
+      "1269",
+    ]);
+  }, [recs.map((g) => g.bggId).join(",")]);
 
   const ranked = [...tablePlayers]
     .map((p) => ({
