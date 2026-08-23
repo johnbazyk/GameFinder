@@ -21,6 +21,17 @@ function apiKey() {
 function brief(gameId: string) {
   const game = getGame(gameId);
   if (!game) return null;
+  if (gameId === "1269") {
+    return [
+      "Stockpile — original GameFinder card game (not a licensed title)",
+      "Players: 2–6 (best 3–4)",
+      "Playtime: 20–40 minutes",
+      "Age: 6+",
+      "How to win: empty your personal stock pile",
+      "Shared build piles go 1 through 12. Wilds are W.",
+      "Never call this Skip-Bo, Skipbo, or Uno.",
+    ].join("\n");
+  }
   const vibes = game.vibes.map((v) => VIBE_META[v].label).join(", ");
   return [
     `${game.name} (${game.yearPublished}) by ${game.designer}`,
@@ -119,6 +130,7 @@ export function stripForSpeech(text: string) {
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/[#*_`]/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\bskip[\s-]?bo\b/gi, "Stockpile")
     .replace(/\s+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
@@ -135,7 +147,7 @@ const LESSON_PROMPT = `Write the FULL spoken lesson as JSON only, keys: goal, se
 - turn: one complete turn, as if we are playing now
 - score: scoring and the end of the game
 - oops: the three mistakes first-timers always make
-Each value is 4-7 spoken sentences of official published rules. No markdown, no labels inside the strings, no emoji.`;
+Each value is 4-7 spoken sentences of official published rules. No markdown, no labels inside the strings, no emoji. If this is Stockpile: call it Stockpile only. Never Skip-Bo, Skipbo, or Uno.`;
 
 function parseLesson(raw: string): LessonPack | null {
   const start = raw.indexOf("{");
