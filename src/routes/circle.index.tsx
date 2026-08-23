@@ -39,7 +39,7 @@ function CirclePage() {
             Guest mode still finds tonight's game.
           </p>
           <Button asChild className="mt-4">
-            <Link to="/login">Sign in</Link>
+            <Link to="/login" search={{ next: "/circle" }}>Sign in</Link>
           </Button>
         </div>
       </SignedOut>

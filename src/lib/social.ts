@@ -473,6 +473,81 @@ export const setShareVault = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+export const updateGroup = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { groupId: string; name: string; kind: "friends" | "family" }) => ({
+    groupId: String(input?.groupId ?? ""),
+    name: String(input?.name ?? "").trim().slice(0, 40),
+    kind: input?.kind === "friends" ? ("friends" as const) : ("family" as const),
+  }))
+  .handler(async ({ context, data }) => {
+    if (!data.groupId) throw new Error("Missing table");
+    if (!data.name) throw new Error("Name the table");
+    const mine = await requireMember(data.groupId, context.userId);
+    if (mine.role !== "owner") throw new Error("Only the table owner can change this");
+    const sql = await getSql();
+    await sql`
+      update play_groups
+      set name = ${data.name}, kind = ${data.kind}
+      where id = ${data.groupId}
+    `;
+    const who = await profileName(context.userId);
+    await sql`
+      insert into group_activity (id, group_id, user_id, kind, body)
+      values (${nid()}, ${data.groupId}, ${context.userId}, 'updated', ${`${who} renamed the table to ${data.name}.`})
+    `;
+    return { ok: true as const, name: data.name, kind: data.kind };
+  });
+
+export const deleteGroup = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { groupId: string }) => ({ groupId: String(input?.groupId ?? "") }))
+  .handler(async ({ context, data }) => {
+    if (!data.groupId) throw new Error("Missing table");
+    const mine = await requireMember(data.groupId, context.userId);
+    if (mine.role !== "owner") throw new Error("Only the table owner can throw it out");
+    const sql = await getSql();
+    await sql`delete from invites where group_id = ${data.groupId}`;
+    await sql`delete from play_groups where id = ${data.groupId}`;
+    return { ok: true as const };
+  });
+
+export const leaveGroup = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { groupId: string }) => ({ groupId: String(input?.groupId ?? "") }))
+  .handler(async ({ context, data }) => {
+    if (!data.groupId) throw new Error("Missing table");
+    const mine = await requireMember(data.groupId, context.userId);
+    const sql = await getSql();
+    const others = await sql<{ user_id: string; role: string }>`
+      select user_id, role from group_members
+      where group_id = ${data.groupId} and user_id <> ${context.userId}
+      order by joined_at
+    `;
+    const who = await profileName(context.userId);
+    if (!others.length) {
+      await sql`delete from invites where group_id = ${data.groupId}`;
+      await sql`delete from play_groups where id = ${data.groupId}`;
+      return { ok: true as const, gone: true };
+    }
+    if (mine.role === "owner") {
+      const next = others[0];
+      await sql`
+        update group_members set role = 'owner'
+        where group_id = ${data.groupId} and user_id = ${next.user_id}
+      `;
+      await sql`update play_groups set owner_id = ${next.user_id} where id = ${data.groupId}`;
+    }
+    await sql`
+      delete from group_members where group_id = ${data.groupId} and user_id = ${context.userId}
+    `;
+    await sql`
+      insert into group_activity (id, group_id, user_id, kind, body)
+      values (${nid()}, ${data.groupId}, ${context.userId}, 'left', ${`${who} left the table.`})
+    `;
+    return { ok: true as const, gone: false };
+  });
+
 export const listGroupVault = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .validator((input: { groupId: string }) => ({ groupId: String(input?.groupId ?? "") }))

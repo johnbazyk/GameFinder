@@ -25,6 +25,7 @@ export function AuthChip() {
       <SignedOut>
         <Link
           to="/login"
+          search={{ next: "/" }}
           className="rounded-full bg-fox px-3 py-1.5 text-sm font-semibold text-cream"
         >
           Sign in
