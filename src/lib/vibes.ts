@@ -22,13 +22,18 @@ export const VIBE_META: Record<
   board: { label: "Board-Based", tagline: "A board, map, or tiles", icon: "layout" },
 };
 
-export const AGE_BANDS: { id: AgeBand; label: string; maxAge: number }[] = [
-  { id: "under6", label: "Under 6", maxAge: 5 },
-  { id: "6-7", label: "6–7", maxAge: 7 },
-  { id: "8-10", label: "8–10", maxAge: 10 },
-  { id: "11-13", label: "11–13", maxAge: 13 },
-  { id: "14-17", label: "14–17", maxAge: 17 },
-  { id: "adults", label: "Adults Only", maxAge: 99 },
+export const AGE_BANDS: {
+  id: AgeBand;
+  label: string;
+  youngestAge: number | null;
+}[] = [
+  // Under 6 keeps its existing cutoff pending a product decision on its meaning.
+  { id: "under6", label: "Under 6", youngestAge: 5 },
+  { id: "6-7", label: "6–7", youngestAge: 6 },
+  { id: "8-10", label: "8–10", youngestAge: 8 },
+  { id: "11-13", label: "11–13", youngestAge: 11 },
+  { id: "14-17", label: "14–17", youngestAge: 14 },
+  { id: "adults", label: "Adults Only", youngestAge: null },
 ];
 
 const ALL_ONES: VibeWeights = {
@@ -43,7 +48,7 @@ const ALL_ONES: VibeWeights = {
 
 export const DEFAULT_USER_WEIGHTS: VibeWeights = { ...ALL_ONES };
 
-const ADULT_IDS = new Set([
+const CURATED_ADULT_CONTENT_IDS = new Set([
   "188834", // Secret Hitler
   "286096", // Tainted Grail
   "37111", // Battlestar Galactica
@@ -51,7 +56,7 @@ const ADULT_IDS = new Set([
 ]);
 
 export function hasAdultContent(game: Game): boolean {
-  return Boolean(game.adultContent) || ADULT_IDS.has(game.bggId) || game.age.publisher >= 17;
+  return Boolean(game.adultContent) || CURATED_ADULT_CONTENT_IDS.has(game.bggId);
 }
 
 function clamp5(n: number): number {
@@ -104,7 +109,7 @@ export function autoVibeTags(game: Game): VibeId[] {
 }
 
 export function listedPlaytime(game: Game): number {
-  return game.playtime.avg;
+  return game.playtime.max;
 }
 
 export function passesHardConstraints(game: Game, ctx: WizardContext): boolean {
@@ -118,7 +123,7 @@ export function passesHardConstraints(game: Game, ctx: WizardContext): boolean {
   if (ctx.ageBand) {
     const band = AGE_BANDS.find((b) => b.id === ctx.ageBand);
     const listedAge = game.age.publisher || game.age.community;
-    if (band && listedAge > band.maxAge) return false;
+    if (band?.youngestAge != null && listedAge > band.youngestAge) return false;
     if (ctx.ageBand !== "adults" && hasAdultContent(game)) return false;
   }
   if (ctx.timeOver60) {
