@@ -7,6 +7,7 @@ let server;
 let constraints;
 let games;
 let runWizard;
+let pickSurprise;
 let defaultUserWeights;
 
 before(async () => {
@@ -18,7 +19,7 @@ before(async () => {
   });
   constraints = await server.ssrLoadModule("/src/lib/vibes.ts");
   ({ GAMES: games } = await server.ssrLoadModule("/src/lib/catalog.ts"));
-  ({ runWizard } = await server.ssrLoadModule("/src/lib/scoring.ts"));
+  ({ runWizard, pickSurprise } = await server.ssrLoadModule("/src/lib/scoring.ts"));
   ({ DEFAULT_USER_WEIGHTS: defaultUserWeights } = constraints);
 });
 
@@ -227,4 +228,68 @@ test("runWizard excludes Wingspan from owned and unowned recommendations for the
   const ticketToRide = result.ownedList.find((candidate) => candidate.bggId === "9209");
   assert.equal(game("9209").playtime.max, 60);
   assert.ok(ticketToRide, "Ticket to Ride remains eligible at an exact 60-minute maximum");
+});
+
+test("rerolls show at most three new owned recommendations and exclude prior unowned recommendations", () => {
+  const scenario = context({
+    players: 4,
+    ageBand: "8-10",
+    maxTimeMin: 60,
+    timeOver60: false,
+    vibes: ["family"],
+  });
+  const user = {
+    owned: ["1294", "2453", "230802", "9209", "13", "30549", "266192"],
+    wishlist: [],
+    plays: [],
+    vibeWeights: defaultUserWeights,
+  };
+  const first = runWizard(scenario, user);
+  const previouslyShown = [
+    ...first.ownedTop,
+    ...first.unownedTop,
+  ].map((candidate) => candidate.bggId);
+  const next = runWizard(scenario, user, previouslyShown);
+
+  assert.ok(first.ownedTop.length <= 3);
+  assert.ok(next.ownedTop.length <= 3);
+  assert.equal(
+    next.ownedTop.some((candidate) => previouslyShown.includes(candidate.bggId)),
+    false,
+  );
+  assert.equal(
+    next.unownedTop.some((candidate) => previouslyShown.includes(candidate.bggId)),
+    false,
+  );
+  assert.deepEqual(next.appliedFilters, scenario);
+});
+
+test("rerolls clearly report exhaustion after every matching owned game was shown", () => {
+  const scenario = context({ players: null });
+  const user = {
+    owned: ["9209"],
+    wishlist: [],
+    plays: [],
+    vibeWeights: defaultUserWeights,
+  };
+  const first = runWizard(scenario, user);
+  const shownIds = [...first.ownedTop, ...first.unownedTop].map((candidate) => candidate.bggId);
+  const next = runWizard(scenario, user, shownIds);
+
+  assert.equal(first.ownedTop.length, 1);
+  assert.equal(next.ownedTop.length, 0);
+  assert.equal(next.exhaustedVault, true);
+});
+
+test("Surprise Me randomly selects only an owned catalog game and avoids the previous pick when possible", () => {
+  const originalRandom = Math.random;
+  try {
+    Math.random = () => 0;
+    assert.equal(pickSurprise(["9209", "266192"])?.bggId, "9209");
+    assert.equal(pickSurprise(["9209", "266192"], "9209")?.bggId, "266192");
+    assert.equal(pickSurprise(["not-in-catalog"]), undefined);
+    assert.equal(pickSurprise(["9209"], "9209")?.bggId, "9209");
+  } finally {
+    Math.random = originalRandom;
+  }
 });

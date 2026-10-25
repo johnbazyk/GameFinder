@@ -103,7 +103,9 @@ export function runWizard(
     .filter((g) => !ownedSet.has(g.bggId))
     .map((g) => toScored(g, ctx, false))
     .sort((a, b) => b.score - a.score);
-  const unownedTop = unownedEligible.slice(0, 3);
+  const unownedTop = unownedEligible
+    .filter((g) => !excluded.has(g.bggId))
+    .slice(0, 3);
 
   return {
     ownedTop,
@@ -165,9 +167,11 @@ export function formatAge(game: Game): string {
 export function pickSurprise(ownedIds: string[], avoidId?: string): Game | undefined {
   const pool = ownedIds
     .map(getGame)
-    .filter((g): g is Game => g != null && g.bggId !== avoidId);
+    .filter((g): g is Game => g != null);
   if (!pool.length) return undefined;
-  return pool[Math.floor(Math.random() * pool.length)];
+  const alternatives = pool.filter((g) => g.bggId !== avoidId);
+  const selectable = alternatives.length ? alternatives : pool;
+  return selectable[Math.floor(Math.random() * selectable.length)];
 }
 
 /** Tonight's constraints first; random vault only if the wizard has no owned hit. */
