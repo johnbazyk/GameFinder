@@ -11,12 +11,15 @@ import { getGame } from "@/lib/scoring";
 import { useAppStore } from "@/lib/store";
 import { FREE_VAULT_LIMIT } from "@/lib/types";
 import { useFlag } from "@/lib/flags";
+import type { CatalogGameRecord } from "@/lib/catalog-foundation";
+import type { Game } from "@/lib/types";
 
 export const Route = createFileRoute("/vault")({ component: VaultPage });
 
 function VaultPage() {
   const owned = useAppStore((s) => s.owned);
   const wishlist = useAppStore((s) => s.wishlist);
+  const customGames = useAppStore((s) => s.customGames);
   const isPremium = useAppStore((s) => s.isPremium);
   const stockStarterShelf = useAppStore((s) => s.stockStarterShelf);
   const [scan, setScan] = useState(false);
@@ -28,13 +31,17 @@ function VaultPage() {
   const games = useMemo(() => {
     const ids = tab === "owned" ? owned : wishlist;
     return ids
-      .map(getGame)
-      .filter((g): g is NonNullable<typeof g> => Boolean(g))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [owned, wishlist, tab]);
+      .map((id) => getGame(id) ?? customGames.find((game) => game.id === id))
+      .filter((game): game is Game | CatalogGameRecord => Boolean(game))
+      .sort((a, b) =>
+        ("name" in a ? a.name : a.title).localeCompare("name" in b ? b.name : b.title),
+      );
+  }, [owned, wishlist, customGames, tab]);
 
   const filtered = q.trim()
-    ? games.filter((g) => g.name.toLowerCase().includes(q.trim().toLowerCase()))
+    ? games.filter((game) =>
+        ("name" in game ? game.name : game.title).toLowerCase().includes(q.trim().toLowerCase()),
+      )
     : games;
 
   if (owned.length === 0 && wishlist.length === 0) {
@@ -117,12 +124,23 @@ function VaultPage() {
       </label>
 
       <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4">
-        {filtered.map((g) => (
-          <Link key={g.bggId} to="/game/$id" params={{ id: g.bggId }}>
-            <GameCover game={g} className="aspect-[5/7] w-full" />
-            <p className="mt-1 truncate text-xs font-semibold">{g.name}</p>
-          </Link>
-        ))}
+        {filtered.map((game) => {
+          const isLegacyGame = "bggId" in game;
+          const id = isLegacyGame ? game.bggId : game.id;
+          const title = isLegacyGame ? game.name : game.title;
+          return (
+            <Link key={id} to="/game/$id" params={{ id }}>
+              {isLegacyGame ? (
+                <GameCover game={game} className="aspect-[5/7] w-full" />
+              ) : (
+                <div className="grid aspect-[5/7] w-full place-items-center rounded-card bg-muted text-sm font-semibold text-muted-foreground">
+                  Custom game
+                </div>
+              )}
+              <p className="mt-1 truncate text-xs font-semibold">{title}</p>
+            </Link>
+          );
+        })}
       </div>
 
       <button
@@ -140,13 +158,7 @@ function VaultPage() {
   );
 }
 
-function VaultLimitNotice({
-  isPremium,
-  ownedCount,
-}: {
-  isPremium: boolean;
-  ownedCount: number;
-}) {
+function VaultLimitNotice({ isPremium, ownedCount }: { isPremium: boolean; ownedCount: number }) {
   if (isPremium) return null;
   const atLimit = ownedCount >= FREE_VAULT_LIMIT;
   return (

@@ -11,6 +11,7 @@ local dev falls back to embedded PGLite when `DATABASE_URL` is unset.
 
 - Product brief: `GAMEFINDER_FAMILY_PLATFORM.md`
 - Infrastructure runbook: `docs/SLICE0.md`
+- Catalog and content-rights plan: `docs/catalog-and-content-rights.md`
 - Schema contract: `migrations/` (additive only)
 
 ## Develop
@@ -21,6 +22,9 @@ npm run dev        # http://localhost:8080, PGLite, auth against local DB
 npm run typecheck
 npm test
 ```
+
+Apply additive database migrations to the configured production database with
+`npm run db:migrate` before deploying code that uses the new schema.
 
 ## Deploy
 

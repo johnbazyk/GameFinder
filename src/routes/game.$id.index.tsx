@@ -20,6 +20,7 @@ export const Route = createFileRoute("/game/$id/")({ component: GamePage });
 function GamePage() {
   const { id } = Route.useParams();
   const game = getGame(id);
+  const customGame = useAppStore((s) => s.customGames.find((entry) => entry.id === id));
   const owned = useAppStore((s) => s.owned.includes(id));
   const wish = useAppStore((s) => s.wishlist.includes(id));
   const addOwned = useAppStore((s) => s.addOwned);
@@ -29,7 +30,7 @@ function GamePage() {
   const fromResults = useAppStore((s) =>
     Boolean(
       s.lastResults &&
-        [...s.lastResults.ownedTop, ...s.lastResults.unownedTop].some((g) => g.bggId === id),
+      [...s.lastResults.ownedTop, ...s.lastResults.unownedTop].some((g) => g.bggId === id),
     ),
   );
   const match = useAppStore((s) =>
@@ -42,6 +43,47 @@ function GamePage() {
   const amazonOn = useFlag("amazon_cta");
 
   if (!game) {
+    if (customGame) {
+      return (
+        <section className="space-y-4 pb-10">
+          <div className="grid aspect-[5/7] max-h-72 place-items-center rounded-card bg-muted text-sm font-semibold text-muted-foreground">
+            Custom game
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-fox">
+              Personal catalog entry
+            </p>
+            <h1 className="mt-1 font-display text-3xl">{customGame.title}</h1>
+          </div>
+          <p className="rounded-card bg-muted px-4 py-3 text-sm text-muted-foreground">
+            Player count, age, playtime, and rule sources are unknown. This entry is kept in your
+            Vault but will not be recommended against hard filters until verified details are added.
+          </p>
+          {owned ? (
+            <Button className="w-full" variant="outline" onClick={() => removeOwned(id)}>
+              Remove from Vault
+            </Button>
+          ) : (
+            <Button className="w-full" onClick={() => addOwned(id)}>
+              <Library className="size-4" />
+              Add to Vault
+            </Button>
+          )}
+          <Button
+            className="w-full"
+            variant={wish ? "secondary" : "outline"}
+            onClick={() => toggleWishlist(id)}
+          >
+            <Heart className={wish ? "size-4 fill-fox text-fox" : "size-4"} />
+            {wish ? "On Wishlist" : "Add to Wishlist"}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Finn is unavailable for this entry until a correct edition and authorized source are
+            identified.
+          </p>
+        </section>
+      );
+    }
     return (
       <EmptyState
         mood="shrug"
@@ -111,7 +153,10 @@ function GamePage() {
               <Library className="size-4" />
               Add to Vault
             </Button>
-            <Button variant={wish ? "secondary" : "outline"} onClick={() => toggleWishlist(game.bggId)}>
+            <Button
+              variant={wish ? "secondary" : "outline"}
+              onClick={() => toggleWishlist(game.bggId)}
+            >
               <Heart className={wish ? "size-4 fill-fox text-fox" : "size-4"} />
               {wish ? "On Wishlist" : "Add to Wishlist"}
             </Button>
@@ -174,10 +219,18 @@ function GamePage() {
           <div className="mt-4 space-y-3">
             <p className="text-sm text-muted-foreground">Quick vibe check instead?</p>
             <div className="flex gap-2">
-              <Button size="sm" variant={enjoyed ? "primary" : "outline"} onClick={() => setEnjoyed(true)}>
+              <Button
+                size="sm"
+                variant={enjoyed ? "primary" : "outline"}
+                onClick={() => setEnjoyed(true)}
+              >
                 We loved it
               </Button>
-              <Button size="sm" variant={!enjoyed ? "berry" : "outline"} onClick={() => setEnjoyed(false)}>
+              <Button
+                size="sm"
+                variant={!enjoyed ? "berry" : "outline"}
+                onClick={() => setEnjoyed(false)}
+              >
                 Not our night
               </Button>
             </div>

@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "@/lib/piece-color";
+import { isCustomCatalogGame, type CatalogGameRecord } from "@/lib/catalog-foundation";
 
 export type Profile = {
   userId: string;
@@ -159,7 +160,9 @@ export const getMyProfile = createServerFn({ method: "GET" })
 export const updateMyProfile = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { displayName?: string; pieceColor?: string }) => ({
-    displayName: String(input?.displayName ?? "").trim().slice(0, 32),
+    displayName: String(input?.displayName ?? "")
+      .trim()
+      .slice(0, 32),
     pieceColor: input?.pieceColor ? normalizePieceColor(input.pieceColor) : undefined,
   }))
   .handler(async ({ context, data }) => {
@@ -221,6 +224,55 @@ export const replaceCloudVault = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+export const getCloudCatalogGames = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const sql = await getSql();
+    const rows = await sql<{ record: unknown }>`
+      select record from catalog_games
+      where owner_user_id = ${context.userId}
+      order by created_at
+    `;
+    return rows.map(({ record }) => {
+      let value = record;
+      if (typeof value === "string") {
+        try {
+          value = JSON.parse(value) as unknown;
+        } catch (error) {
+          console.error("[catalog-sync] Stored catalog record is invalid JSON.", error);
+          throw new Error("A saved catalog record could not be read.");
+        }
+      }
+      if (!isCustomCatalogGame(value)) {
+        throw new Error("A saved catalog record has an invalid shape.");
+      }
+      return value;
+    }) satisfies CatalogGameRecord[];
+  });
+
+export const syncCloudCatalogGames = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { games: CatalogGameRecord[] }) => {
+    if (!Array.isArray(input?.games)) throw new Error("Catalog records must be an array.");
+    if (input.games.length > 200) throw new Error("Too many catalog records.");
+    if (!input.games.every(isCustomCatalogGame)) {
+      throw new Error("A custom catalog record is invalid.");
+    }
+    return { games: input.games };
+  })
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    for (const game of data.games) {
+      await sql`
+        insert into catalog_games (owner_user_id, id, title, record)
+        values (${context.userId}, ${game.id}, ${game.title}, ${JSON.stringify(game)}::jsonb)
+        on conflict (owner_user_id, id) do update
+          set title = excluded.title, record = excluded.record, updated_at = now()
+      `;
+    }
+    return { ok: true as const };
+  });
+
 export const listFriends = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
@@ -258,7 +310,9 @@ export const listFriends = createServerFn({ method: "GET" })
 export const requestFriendByEmail = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { email: string }) => ({
-    email: String(input?.email ?? "").trim().toLowerCase(),
+    email: String(input?.email ?? "")
+      .trim()
+      .toLowerCase(),
   }))
   .handler(async ({ context, data }) => {
     if (!data.email || !data.email.includes("@")) throw new Error("Need an email");
@@ -268,7 +322,10 @@ export const requestFriendByEmail = createServerFn({ method: "POST" })
       select id from "user" where lower(email) = ${data.email} limit 1
     `;
     const other = users[0]?.id;
-    if (!other) throw new Error("Nobody with that email has a GameFinder account yet. Send them an invite link.");
+    if (!other)
+      throw new Error(
+        "Nobody with that email has a GameFinder account yet. Send them an invite link.",
+      );
     if (other === context.userId) throw new Error("That's you.");
 
     const blocked = await sql<{ id: string }>`
@@ -380,7 +437,6 @@ export const listMyGroups = createServerFn({ method: "GET" })
     })) satisfies GroupRow[];
   });
 
-
 /** Everyone at your family/friends tables, plus accepted friends. For Players Tonight. */
 export const listHousehold = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -419,7 +475,9 @@ export const listHousehold = createServerFn({ method: "GET" })
       row: { user_id: string; display_name: string; piece_color: string },
       source: HouseholdPerson["source"],
     ) => {
-      const name = String(row.display_name ?? "").trim().slice(0, 20);
+      const name = String(row.display_name ?? "")
+        .trim()
+        .slice(0, 20);
       if (!name || map.has(row.user_id)) return;
       map.set(row.user_id, {
         userId: row.user_id,
@@ -440,7 +498,9 @@ export const listHousehold = createServerFn({ method: "GET" })
 export const createGroup = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { name: string; kind: "friends" | "family" }) => ({
-    name: String(input?.name ?? "").trim().slice(0, 40),
+    name: String(input?.name ?? "")
+      .trim()
+      .slice(0, 40),
     kind: input?.kind === "family" ? ("family" as const) : ("friends" as const),
   }))
   .handler(async ({ context, data }) => {
@@ -471,7 +531,12 @@ export const getGroup = createServerFn({ method: "POST" })
     if (!data.groupId) throw new Error("Missing table");
     await requireMember(data.groupId, context.userId);
     const sql = await getSql();
-    const groups = await sql<{ id: string; table_name: string; table_kind: GroupRow["kind"]; owner_id: string }>`
+    const groups = await sql<{
+      id: string;
+      table_name: string;
+      table_kind: GroupRow["kind"];
+      owner_id: string;
+    }>`
       select id, name as table_name, kind as table_kind, owner_id
       from play_groups where id = ${data.groupId} limit 1
     `;
@@ -561,7 +626,9 @@ export const updateGroup = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { groupId: string; name: string; kind: "friends" | "family" }) => ({
     groupId: String(input?.groupId ?? ""),
-    name: String(input?.name ?? "").trim().slice(0, 40),
+    name: String(input?.name ?? "")
+      .trim()
+      .slice(0, 40),
     kind: input?.kind === "friends" ? ("friends" as const) : ("family" as const),
   }))
   .handler(async ({ context, data }) => {
@@ -713,7 +780,9 @@ export const logGroupPlay = createServerFn({ method: "POST" })
       notes: String(input?.notes ?? "").slice(0, 280) || undefined,
       seats: (input?.seats ?? [])
         .map((s) => ({
-          playerName: String(s.playerName ?? "").trim().slice(0, 32),
+          playerName: String(s.playerName ?? "")
+            .trim()
+            .slice(0, 32),
           total: Number(s.total) || 0,
           won: Boolean(s.won),
         }))
@@ -768,7 +837,9 @@ export const previewInvite = createServerFn({ method: "GET" })
     const fromName = await profileName(inv.from_user_id);
     let groupName: string | null = null;
     if (inv.group_id) {
-      const g = await sql<{ name: string }>`select name from play_groups where id = ${inv.group_id} limit 1`;
+      const g = await sql<{
+        name: string;
+      }>`select name from play_groups where id = ${inv.group_id} limit 1`;
       groupName = g[0]?.name ?? null;
     }
     const expired = new Date(inv.expires_at).getTime() < Date.now();

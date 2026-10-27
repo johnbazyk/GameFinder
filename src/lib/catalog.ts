@@ -1,4 +1,5 @@
 import type { Game, Rubric, VibeId } from "./types";
+import { DIMENSIONS } from "./types";
 import { autoVibeTags } from "./vibes";
 
 function r(
@@ -1591,7 +1592,8 @@ const RAW: Raw[] = [
     categories: ["Card Game", "Children's Game"],
     bggRating: 6.2,
     designer: "GameFinder",
-    description: "Empty your personal stock. Build shared piles 1 through 12. Wilds are W. Play it here.",
+    description:
+      "Empty your personal stock. Build shared piles 1 through 12. Wilds are W. Play it here.",
   },
   {
     bggId: "1258",
@@ -2031,6 +2033,110 @@ const RAW: Raw[] = [
 ];
 
 const byId = new Map<string, Game>();
+const rawByExternalId = new Map<string, string[]>();
+for (const raw of RAW) {
+  const names = rawByExternalId.get(raw.bggId) ?? [];
+  names.push(raw.name);
+  rawByExternalId.set(raw.bggId, names);
+}
+export const CATALOG_EXTERNAL_ID_CONFLICTS = Array.from(rawByExternalId)
+  .filter(([, names]) => names.length > 1)
+  .map(([bggId, names]) => ({ provider: "bgg" as const, externalId: bggId, names }));
+
+export type CatalogQualityAudit = {
+  invalidPlayerCounts: string[];
+  invalidPlaytimes: string[];
+  invalidAges: string[];
+  invalidRubrics: string[];
+  invalidRatings: string[];
+  ageDisagreements: { title: string; publisherAge: number; communityAge: number }[];
+  unresolvedExpansionReferences: { title: string; expansionId: string; expansionName: string }[];
+  editionLabelsWithoutMetadata: string[];
+  missingPublisherCount: number;
+  missingEditionCount: number;
+  duplicateExternalIds: typeof CATALOG_EXTERNAL_ID_CONFLICTS;
+  unverifiedCommunityRatingCount: number;
+};
+
+export function auditCatalogQuality(): CatalogQualityAudit {
+  const knownIds = new Set(RAW.map((game) => game.bggId));
+  const audit: CatalogQualityAudit = {
+    invalidPlayerCounts: [],
+    invalidPlaytimes: [],
+    invalidAges: [],
+    invalidRubrics: [],
+    invalidRatings: [],
+    ageDisagreements: [],
+    unresolvedExpansionReferences: [],
+    editionLabelsWithoutMetadata: RAW.filter((game) =>
+      /\((?:\d+(?:st|nd|rd|th)|second|third|fourth)\)/i.test(game.name),
+    ).map((game) => game.name),
+    missingPublisherCount: RAW.length,
+    missingEditionCount: RAW.length,
+    duplicateExternalIds: CATALOG_EXTERNAL_ID_CONFLICTS,
+    unverifiedCommunityRatingCount: RAW.length,
+  };
+  for (const game of RAW) {
+    if (
+      !Number.isInteger(game.players.min) ||
+      !Number.isInteger(game.players.max) ||
+      game.players.min < 1 ||
+      game.players.max < game.players.min ||
+      game.players.best.some((players) => players < game.players.min || players > game.players.max)
+    ) {
+      audit.invalidPlayerCounts.push(game.name);
+    }
+    if (
+      !Number.isFinite(game.playtime.min) ||
+      !Number.isFinite(game.playtime.max) ||
+      !Number.isFinite(game.playtime.avg) ||
+      game.playtime.min < 1 ||
+      game.playtime.max < game.playtime.min ||
+      game.playtime.avg < game.playtime.min ||
+      game.playtime.avg > game.playtime.max
+    ) {
+      audit.invalidPlaytimes.push(game.name);
+    }
+    if (
+      !Number.isInteger(game.age.publisher) ||
+      !Number.isInteger(game.age.community) ||
+      game.age.publisher < 0 ||
+      game.age.community < 0
+    ) {
+      audit.invalidAges.push(game.name);
+    } else if (game.age.publisher !== game.age.community) {
+      audit.ageDisagreements.push({
+        title: game.name,
+        publisherAge: game.age.publisher,
+        communityAge: game.age.community,
+      });
+    }
+    if (
+      DIMENSIONS.some(
+        (dimension) =>
+          !Number.isFinite(game.rubric[dimension]) ||
+          game.rubric[dimension] < 0 ||
+          game.rubric[dimension] > 100,
+      )
+    ) {
+      audit.invalidRubrics.push(game.name);
+    }
+    if (!Number.isFinite(game.bggRating) || game.bggRating < 0 || game.bggRating > 10) {
+      audit.invalidRatings.push(game.name);
+    }
+    for (const expansion of game.expansions ?? []) {
+      if (!knownIds.has(expansion.bggId)) {
+        audit.unresolvedExpansionReferences.push({
+          title: game.name,
+          expansionId: expansion.bggId,
+          expansionName: expansion.name,
+        });
+      }
+    }
+  }
+  return audit;
+}
+
 export const GAMES: Game[] = RAW.map((raw) => {
   // Unique names: the second Wonderland's War entry was a placeholder.
   if (raw.bggId === "318184") {
@@ -2060,10 +2166,13 @@ export function searchGames(query: string): Game[] {
   const q = query.trim().toLowerCase();
   const pool = standaloneGames();
   if (!q) return pool.slice().sort((a, b) => b.bggRating - a.bggRating);
-  return pool.filter((g) => {
-    const hay = `${g.name} ${g.designer} ${g.categories.join(" ")} ${g.vibes.join(" ")}`.toLowerCase();
-    return hay.includes(q);
-  }).sort((a, b) => b.bggRating - a.bggRating);
+  return pool
+    .filter((g) => {
+      const hay =
+        `${g.name} ${g.designer} ${g.categories.join(" ")} ${g.vibes.join(" ")}`.toLowerCase();
+      return hay.includes(q);
+    })
+    .sort((a, b) => b.bggRating - a.bggRating);
 }
 
 export function isStandaloneGame(game: Game): boolean {

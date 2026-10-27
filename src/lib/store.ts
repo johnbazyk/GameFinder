@@ -13,6 +13,7 @@ import { FREE_VAULT_LIMIT, PLAYER_COLORS } from "./types";
 import { DEFAULT_USER_WEIGHTS } from "./vibes";
 import { applyFeedbackDelta, getGame, runWizard } from "./scoring";
 import { STARTER_SHELF_IDS } from "./catalog";
+import { createCustomCatalogGame, type CatalogGameRecord } from "./catalog-foundation";
 import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "./piece-color";
 
 export const DEFAULT_WIZARD: WizardContext = {
@@ -37,6 +38,8 @@ type AppState = {
 
   owned: string[];
   wishlist: string[];
+  customGames: CatalogGameRecord[];
+  addCustomGame: (title: string) => CatalogGameRecord;
   addOwned: (id: string) => "ok" | "exists" | "limit";
   removeOwned: (id: string) => void;
   toggleWishlist: (id: string) => void;
@@ -111,9 +114,7 @@ export const useAppStore = create<AppState>()(
         set({
           lastResults: r,
           shownIds: r ? Array.from(new Set([...get().shownIds, ...shown])) : [],
-          pendingPlayPrompt: top
-            ? { bggId: top.bggId, name: top.name }
-            : get().pendingPlayPrompt,
+          pendingPlayPrompt: top ? { bggId: top.bggId, name: top.name } : get().pendingPlayPrompt,
         });
       },
       sniffAgain: () => {
@@ -142,6 +143,12 @@ export const useAppStore = create<AppState>()(
 
       owned: [],
       wishlist: [],
+      customGames: [],
+      addCustomGame: (title) => {
+        const game = createCustomCatalogGame(title);
+        set({ customGames: [...get().customGames, game] });
+        return game;
+      },
       addOwned: (id) => {
         const { owned, isPremium, wishlist } = get();
         if (owned.includes(id)) return "exists";
@@ -159,14 +166,11 @@ export const useAppStore = create<AppState>()(
         });
         return "ok";
       },
-      removeOwned: (id) =>
-        set({ owned: get().owned.filter((x) => x !== id) }),
+      removeOwned: (id) => set({ owned: get().owned.filter((x) => x !== id) }),
       toggleWishlist: (id) => {
         const list = get().wishlist;
         set({
-          wishlist: list.includes(id)
-            ? list.filter((x) => x !== id)
-            : [...list, id],
+          wishlist: list.includes(id) ? list.filter((x) => x !== id) : [...list, id],
         });
       },
       stockStarterShelf: () => {
@@ -212,10 +216,7 @@ export const useAppStore = create<AppState>()(
         if (list.length >= 16) return "limit";
         const color = PLAYER_COLORS[list.length % PLAYER_COLORS.length];
         set({
-          tablePlayers: [
-            ...list,
-            { id: nid(), name: trimmed, color, createdAt: Date.now() },
-          ],
+          tablePlayers: [...list, { id: nid(), name: trimmed, color, createdAt: Date.now() }],
         });
         return "ok";
       },
@@ -286,8 +287,7 @@ export const useAppStore = create<AppState>()(
         }
         return full;
       },
-      deleteSession: (id) =>
-        set({ scoreSessions: get().scoreSessions.filter((s) => s.id !== id) }),
+      deleteSession: (id) => set({ scoreSessions: get().scoreSessions.filter((s) => s.id !== id) }),
       lastPlayerIds: [],
       setLastPlayerIds: (ids) => set({ lastPlayerIds: ids }),
 
@@ -331,6 +331,7 @@ export const useAppStore = create<AppState>()(
       partialize: (s) => ({
         owned: s.owned,
         wishlist: s.wishlist,
+        customGames: s.customGames,
         plays: s.plays,
         vibeWeights: s.vibeWeights,
         theme: s.theme,

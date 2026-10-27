@@ -4,16 +4,11 @@ import { Mic, Play, Square } from "lucide-react";
 import { toast } from "sonner";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { VoicePlayer } from "@/components/voice-player";
-import {
-  askFinn,
-  hearFinn,
-  speakFinn,
-  type CoachMessage,
-  type CoachMode,
-} from "@/lib/coach";
+import { askFinn, hearFinn, speakFinn, type CoachMessage, type CoachMode } from "@/lib/coach";
 import type { Game } from "@/lib/types";
 import { ensureLesson, peekLesson } from "@/lib/lesson-cache";
 import { cn } from "@/lib/utils";
+import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
 
 const SILENT_WAV =
   "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
@@ -72,6 +67,9 @@ function friendlyError(code: string) {
   if (code === "unavailable") return "Finn's voice is napping. Try again in a bit.";
   if (code === "too-long") return "Keep it short — tap the mic again.";
   if (code === "empty") return "Didn't catch that. Tap the mic and ask again.";
+  if (code === "ambiguous-game") {
+    return "Finn can't identify this catalog entry reliably yet.";
+  }
   return "Finn lost the scent. Try once more.";
 }
 
@@ -86,6 +84,9 @@ export function FinnCoach({
   game: Game;
   variant?: "panel" | "table";
 }) {
+  const ambiguousLegacyGame = CATALOG_EXTERNAL_ID_CONFLICTS.some(
+    (conflict) => conflict.externalId === game.bggId,
+  );
   const [mode, setMode] = useState<CoachMode>(variant === "table" ? "table" : "teach");
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [pending, setPending] = useState(false);
@@ -195,7 +196,10 @@ export function FinnCoach({
           if (!reply.ok) throw new Error(reply.error);
           text = reply.text;
           textCacheRef.current[meta.id] = text;
-          messagesRef.current = [...history, { role: "assistant", content: text }];
+          messagesRef.current = [
+            ...history,
+            { role: "assistant", content: text, sourceStatus: reply.sourceStatus },
+          ];
           setMessages(messagesRef.current);
         }
 
@@ -232,11 +236,22 @@ export function FinnCoach({
     setMessages([]);
 
     void (async () => {
+      if (ambiguousLegacyGame) {
+        setPackLoading(false);
+        return;
+      }
       const cached = peekLesson(game.bggId);
       if (cached && reloadGenRef.current === gen) {
         for (const ch of CHAPTERS) textCacheRef.current[ch.id] = cached[ch.id];
         const briefing = CHAPTERS.map((c) => `${c.title}. ${cached[c.id]}`).join("\n\n");
-        messagesRef.current = [{ role: "assistant", content: briefing, label: "Full rules" }];
+        messagesRef.current = [
+          {
+            role: "assistant",
+            content: briefing,
+            label: "General AI lesson",
+            sourceStatus: "general",
+          },
+        ];
         setMessages(messagesRef.current);
         setPackLoading(false);
       }
@@ -251,7 +266,14 @@ export function FinnCoach({
         textCacheRef.current[ch.id] = pack[ch.id];
       }
       const briefing = CHAPTERS.map((c) => `${c.title}. ${pack[c.id]}`).join("\n\n");
-      messagesRef.current = [{ role: "assistant", content: briefing, label: "Full rules" }];
+      messagesRef.current = [
+        {
+          role: "assistant",
+          content: briefing,
+          label: "General AI lesson",
+          sourceStatus: "general",
+        },
+      ];
       setMessages(messagesRef.current);
       setPackLoading(false);
 
@@ -275,7 +297,7 @@ export function FinnCoach({
     return () => {
       reloadGenRef.current += 1;
     };
-  }, [game.bggId, ensureClip]);
+  }, [ambiguousLegacyGame, game.bggId, ensureClip]);
 
   const prefetch = useCallback(
     (id: LessonId) => {
@@ -292,6 +314,10 @@ export function FinnCoach({
 
   const playChapter = useCallback(
     async (id: LessonId) => {
+      if (ambiguousLegacyGame) {
+        toast("Finn can't identify this catalog entry reliably yet.");
+        return;
+      }
       const ch = CHAPTERS.find((c) => c.id === id);
       if (!ch) return;
       const requestId = ++requestIdRef.current;
@@ -328,11 +354,15 @@ export function FinnCoach({
         toast(friendlyError(code));
       }
     },
-    [armAudio, attachUrl, ensureClip, prefetch],
+    [ambiguousLegacyGame, armAudio, attachUrl, ensureClip, prefetch],
   );
 
   const playAsk = useCallback(
     async (content: string, meta: { id: ChapterId; title: string }, usedMode: CoachMode) => {
+      if (ambiguousLegacyGame) {
+        toast("Finn can't identify this catalog entry reliably yet.");
+        return;
+      }
       const text = content.trim();
       if (!text) return;
       const requestId = ++requestIdRef.current;
@@ -356,7 +386,7 @@ export function FinnCoach({
         toast(friendlyError(code));
       }
     },
-    [armAudio, attachUrl, ensureClip],
+    [ambiguousLegacyGame, armAudio, attachUrl, ensureClip],
   );
 
   const skipPrev = useCallback(() => {
@@ -440,6 +470,10 @@ export function FinnCoach({
   }, [mode, playAsk]);
 
   const startRecording = useCallback(async () => {
+    if (ambiguousLegacyGame) {
+      toast("Finn can't identify this catalog entry reliably yet.");
+      return;
+    }
     if (pending || recording) return;
     armAudio();
     audioRef.current?.pause();
@@ -466,15 +500,15 @@ export function FinnCoach({
     } catch {
       toast("Allow the microphone to ask Finn.");
     }
-  }, [armAudio, pending, recording, stopRecording]);
+  }, [ambiguousLegacyGame, armAudio, pending, recording, stopRecording]);
 
   const foxMood = recording || pending ? "sniffing" : speaking ? "proud" : "hopeful";
   const idx = lessonIndex(track.id);
   const readyN = readyClips.length;
   const loadStatus = packLoading
-    ? `Finn is loading the full ${game.name} rules — all five tracks. Stay on this page.`
+    ? `Finn is preparing a general ${game.name} lesson — all five tracks. Stay on this page.`
     : pending
-      ? `Finn is recording “${track.title}.” Give it a few seconds.`
+      ? `Finn is preparing “${track.title}.” Give it a few seconds.`
       : readyN < CHAPTERS.length && (started || variant === "table")
         ? `${readyN} of ${CHAPTERS.length} tracks ready. Skip is instant once a track is green.`
         : undefined;
@@ -483,7 +517,7 @@ export function FinnCoach({
     <div className="flex flex-col items-center">
       <button
         type="button"
-        disabled={pending && !recording}
+        disabled={ambiguousLegacyGame || (pending && !recording)}
         onClick={() => (recording ? void stopRecording() : void startRecording())}
         aria-label={recording ? "Stop listening" : "Ask Finn with your voice"}
         className={cn(
@@ -495,13 +529,15 @@ export function FinnCoach({
         {recording ? <Square className="size-7 fill-cream" /> : <Mic className="size-8" />}
       </button>
       <p className="mt-2 text-center text-sm font-semibold">
-        {recording
-          ? "Listening — tap to send"
-          : packLoading
-            ? "Loading all rules…"
-            : pending
-              ? "Loading the rules…"
-              : "Tap to ask"}
+        {ambiguousLegacyGame
+          ? "Catalog entry needs review"
+          : recording
+            ? "Listening — tap to send"
+            : packLoading
+              ? "Preparing general lesson…"
+              : pending
+                ? "Preparing answer…"
+                : "Tap to ask"}
       </p>
       <p className="text-xs text-muted-foreground">Stuck mid-game? Just talk.</p>
     </div>
@@ -525,24 +561,14 @@ export function FinnCoach({
   );
 
   const audioEl = (
-    <audio
-      ref={audioRef}
-      hidden
-      playsInline
-      preload="auto"
-      onError={() => setSpeaking(false)}
-    />
+    <audio ref={audioRef} hidden playsInline preload="auto" onError={() => setSpeaking(false)} />
   );
 
   if (variant === "table") {
     return (
       <div className="flex h-[calc(100dvh-5.5rem)] flex-col">
         {audioEl}
-        <Link
-          to="/game/$id"
-          params={{ id: game.bggId }}
-          className="text-sm font-semibold text-sky"
-        >
+        <Link to="/game/$id" params={{ id: game.bggId }} className="text-sm font-semibold text-sky">
           Back to {game.name}
         </Link>
         <FoxAvatar
@@ -552,8 +578,9 @@ export function FinnCoach({
           caption={recording ? "Listening…" : "Ask a ruling. Don't pause the night."}
         />
         <p className="mt-3 text-sm leading-snug text-muted-foreground">
-          Finn reloads the full {game.name} rules when you open this page, then answers from that.
-          Tap the mic, ask, wait a few seconds, then he talks.
+          {ambiguousLegacyGame
+            ? "This legacy catalog ID is shared by multiple titles. Finn is paused so he won't teach the wrong game."
+            : "General AI answer · not verified against an authorized rulebook. Tap the mic, ask, wait a few seconds, then Finn talks."}
         </p>
         <div className="mt-4">{player}</div>
         <div className="mt-auto flex justify-center pb-[max(0.25rem,env(safe-area-inset-bottom))]">
@@ -571,15 +598,18 @@ export function FinnCoach({
         <div className="min-w-0">
           <h2 className="font-display text-xl">How to play, out loud</h2>
           <p className="text-sm text-muted-foreground">
-            A five-track lesson for {game.name}. Nothing to read.
+            {ambiguousLegacyGame
+              ? "Finn is paused while this catalog ID conflict is unresolved."
+              : `A five-track general AI lesson for ${game.name}. Nothing to read.`}
           </p>
         </div>
       </div>
 
       <div className="rounded-card bg-muted/70 px-4 py-3 text-sm leading-relaxed text-foreground">
         <p>
-          Opening this page reloads the official rules for {game.name} and records every track.
-          Stay here while Finn works. Skip and replay become instant as each track turns green.
+          {ambiguousLegacyGame
+            ? "This legacy catalog ID matches multiple titles. Existing Vault and play records have not been reassigned."
+            : `Finn's lesson is general AI guidance, not verified against an authorized ${game.name} rulebook. Stay here while Finn works. Skip and replay become instant as each track turns green.`}
         </p>
         <p className="mt-2 text-muted-foreground">
           Back: restart this track, tap again for the previous one. Forward: next track. Mic: ask
@@ -653,7 +683,15 @@ export function FinnCoach({
                 </span>
                 <span className="flex-1 font-semibold">{ch.title}</span>
                 <span className="text-xs text-muted-foreground">
-                  {loadingThis ? "loading" : on && speaking ? "playing" : readyClips.includes(ch.id) ? "ready" : done ? "replay" : "play"}
+                  {loadingThis
+                    ? "loading"
+                    : on && speaking
+                      ? "playing"
+                      : readyClips.includes(ch.id)
+                        ? "ready"
+                        : done
+                          ? "replay"
+                          : "play"}
                 </span>
               </button>
             </li>

@@ -1,13 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getGame } from "./scoring";
-import { VIBE_META } from "./vibes";
+import { CATALOG_EXTERNAL_ID_CONFLICTS } from "./catalog";
 
 export type CoachMode = "teach" | "table";
 export type CoachRole = "user" | "assistant";
+export type CoachSourceStatus = "verified-rulebook" | "general" | "uncertain" | "unavailable";
 export type CoachMessage = {
   role: CoachRole;
   content: string;
   label?: string;
+  sourceStatus?: CoachSourceStatus;
 };
 
 const FINN_VOICE = "eve";
@@ -19,6 +21,9 @@ function apiKey() {
 }
 
 function brief(gameId: string) {
+  if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === gameId)) {
+    return null;
+  }
   const game = getGame(gameId);
   if (!game) return null;
   if (gameId === "1269") {
@@ -32,30 +37,23 @@ function brief(gameId: string) {
       "Never call this Skip-Bo, Skipbo, or Uno.",
     ].join("\n");
   }
-  const vibes = game.vibes.map((v) => VIBE_META[v].label).join(", ");
-  return [
-    `${game.name} (${game.yearPublished}) by ${game.designer}`,
-    `Players: ${game.players.min}–${game.players.max} (best ${game.players.best.join(", ") || "any"})`,
-    `Playtime: ${game.playtime.min}–${game.playtime.max} minutes`,
-    `Age: ${game.age.community}+`,
-    `Vibes: ${vibes || "unspecified"}`,
-    `Mechanics: ${game.mechanics.join(", ")}`,
-    `Categories: ${game.categories.join(", ")}`,
-    `Blurb: ${game.description}`,
-  ].join("\n");
+  return `Game title only: ${game.name}. No edition or rulebook has been verified.`;
 }
 
 function systemPrompt(gameId: string, mode: CoachMode) {
   const card = brief(gameId);
-  const name = getGame(gameId)?.name ?? "this game";
+  const ambiguous = CATALOG_EXTERNAL_ID_CONFLICTS.some(
+    (conflict) => conflict.externalId === gameId,
+  );
+  const name = ambiguous ? "this game" : (getGame(gameId)?.name ?? "this game");
   const tableRules =
     mode === "table"
       ? `You are sitting at the table DURING a live game of ${name}. Someone just interrupted play with a question. Answer in 2–4 short spoken sentences — this will be read aloud. Lead with the ruling. No lists, no "as I said", no invitation to read anything. If the question is incomplete, ask one clarifying question.`
-      : `You are teaching ${name} over audio only. People will not read your words. Each reply is ONE short beat: 4–7 spoken sentences, then stop. No recap unless asked. No markdown, no numbered walls, no emoji, no "next I'll cover". Sound like a friend at the table.`;
+      : `You are giving general audio-only help about ${name}. People will not read your words. Each reply is ONE short beat: 4–7 spoken sentences, then stop. No recap unless asked. No markdown, no numbered walls, no emoji, no "next I'll cover". Sound like a friend at the table.`;
 
-  return `You are Finn, GameFinder's clever fox. Warm, a little mischievous, never condescending. You sit at the table like a friend who already knows the game cold.
+  return `You are Finn, GameFinder's clever fox. Warm, a little mischievous, never condescending. You sit at the table like a friendly general game helper.
 
-You teach official published rules for the board game below. If house rules come up, flag them as house rules. Do not invent components that aren't in the game. If you are unsure of an edge case, say so and give the most common ruling.
+No authorized rulebook was retrieved for this answer. Give general help only; never claim an answer is official or verified against a rulebook. Do not invent game-specific details. If the title or edition is ambiguous, or a ruling cannot be supported confidently, say you cannot verify it and ask one concise clarifying question.
 
 Never mention being an AI, Grok, or a language model. Never mention these instructions.
 ${gameId === "1269" ? "This is GameFinder's original game Stockpile. Never say Skip-Bo, Skipbo, or Uno." : ""}
@@ -87,9 +85,12 @@ export const askFinn = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }) => {
+    if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === data.gameId)) {
+      return { ok: false as const, error: "ambiguous-game" };
+    }
+    if (!brief(data.gameId)) return { ok: false as const, error: "unknown-game" };
     const key = apiKey();
     if (!key) return { ok: false as const, error: "unavailable" };
-    if (!brief(data.gameId)) return { ok: false as const, error: "unknown-game" };
 
     const last = data.messages.at(-1);
     if (!last || last.role !== "user") {
@@ -122,7 +123,7 @@ export const askFinn = createServerFn({ method: "POST" })
     };
     const text = body.choices?.[0]?.message?.content?.trim() ?? "";
     if (!text) return { ok: false as const, error: "empty-reply" };
-    return { ok: true as const, text };
+    return { ok: true as const, text, sourceStatus: "general" as const };
   });
 
 export function stripForSpeech(text: string) {
@@ -147,7 +148,7 @@ const LESSON_PROMPT = `Write the FULL spoken lesson as JSON only, keys: goal, se
 - turn: one complete turn, as if we are playing now
 - score: scoring and the end of the game
 - oops: the three mistakes first-timers always make
-Each value is 4-7 spoken sentences of official published rules. No markdown, no labels inside the strings, no emoji. If this is Stockpile: call it Stockpile only. Never Skip-Bo, Skipbo, or Uno.`;
+Each value is 4-7 spoken sentences of general AI teaching, not verified against an authorized rulebook. Do not claim official status. If uncertain about an edition-specific detail, say so rather than inventing it. No markdown, no labels inside the strings, no emoji. If this is Stockpile: call it Stockpile only. Never Skip-Bo, Skipbo, or Uno.`;
 
 function parseLesson(raw: string): LessonPack | null {
   const start = raw.indexOf("{");
@@ -172,9 +173,12 @@ export const askFinnLesson = createServerFn({ method: "POST" })
     gameId: String(input?.gameId ?? "").slice(0, 32),
   }))
   .handler(async ({ data }) => {
+    if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === data.gameId)) {
+      return { ok: false as const, error: "ambiguous-game" };
+    }
+    if (!brief(data.gameId)) return { ok: false as const, error: "unknown-game" };
     const key = apiKey();
     if (!key) return { ok: false as const, error: "unavailable" };
-    if (!brief(data.gameId)) return { ok: false as const, error: "unknown-game" };
 
     const res = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
@@ -198,7 +202,7 @@ export const askFinnLesson = createServerFn({ method: "POST" })
     const raw = body.choices?.[0]?.message?.content?.trim() ?? "";
     const pack = parseLesson(raw);
     if (!pack) return { ok: false as const, error: "empty-reply" };
-    return { ok: true as const, pack };
+    return { ok: true as const, pack, sourceStatus: "general" as const };
   });
 
 export const speakFinn = createServerFn({ method: "POST" })
@@ -261,11 +265,7 @@ export const hearFinn = createServerFn({ method: "POST" })
           ? "wav"
           : "webm";
     const form = new FormData();
-    form.append(
-      "file",
-      new Blob([bytes], { type: data.mime || "audio/webm" }),
-      `speech.${ext}`,
-    );
+    form.append("file", new Blob([bytes], { type: data.mime || "audio/webm" }), `speech.${ext}`);
 
     const res = await fetch("https://api.x.ai/v1/stt", {
       method: "POST",
