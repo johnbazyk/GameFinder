@@ -15,18 +15,19 @@ import { Route as DiscoverRouteImport } from './routes/discover'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PremiumRouteImport } from './routes/premium'
 import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as RecentlyPlayedRouteImport } from './routes/recently-played'
 import { Route as ResultsRouteImport } from './routes/results'
 import { Route as ScoreboardRouteImport } from './routes/scoreboard'
+import { Route as SignupRouteImport } from './routes/signup'
+import { Route as TableSetupRouteImport } from './routes/table-setup'
 import { Route as VaultRouteImport } from './routes/vault'
 import { Route as WizardRouteImport } from './routes/wizard'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as CircleIndexRouteImport } from './routes/circle.index'
 import { Route as CircleGroupIdRouteImport } from './routes/circle.$groupId'
 import { Route as GameIdRouteImport } from './routes/game.$id'
 import { Route as InternalFlagsRouteImport } from './routes/internal.flags'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
-import { Route as PlaySessionIdRouteImport } from './routes/play.$sessionId'
-import { Route as PlayBankRouteImport } from './routes/play.bank'
-import { Route as PlayStockpileRouteImport } from './routes/play.stockpile'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as GameIdIndexRouteImport } from './routes/game.$id.index'
 import { Route as GameIdScoreRouteImport } from './routes/game.$id.score'
@@ -62,6 +63,11 @@ const ProfileRoute = ProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RecentlyPlayedRoute = RecentlyPlayedRouteImport.update({
+  id: '/recently-played',
+  path: '/recently-played',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ResultsRoute = ResultsRouteImport.update({
   id: '/results',
   path: '/results',
@@ -72,6 +78,16 @@ const ScoreboardRoute = ScoreboardRouteImport.update({
   path: '/scoreboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TableSetupRoute = TableSetupRouteImport.update({
+  id: '/table-setup',
+  path: '/table-setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VaultRoute = VaultRouteImport.update({
   id: '/vault',
   path: '/vault',
@@ -80,6 +96,11 @@ const VaultRoute = VaultRouteImport.update({
 const WizardRoute = WizardRouteImport.update({
   id: '/wizard',
   path: '/wizard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CircleIndexRoute = CircleIndexRouteImport.update({
@@ -105,21 +126,6 @@ const InternalFlagsRoute = InternalFlagsRouteImport.update({
 const InviteTokenRoute = InviteTokenRouteImport.update({
   id: '/invite/$token',
   path: '/invite/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PlaySessionIdRoute = PlaySessionIdRouteImport.update({
-  id: '/play/$sessionId',
-  path: '/play/$sessionId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PlayBankRoute = PlayBankRouteImport.update({
-  id: '/play/bank',
-  path: '/play/bank',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PlayStockpileRoute = PlayStockpileRouteImport.update({
-  id: '/play/stockpile',
-  path: '/play/stockpile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -150,17 +156,18 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/premium': typeof PremiumRoute
   '/profile': typeof ProfileRoute
+  '/recently-played': typeof RecentlyPlayedRoute
   '/results': typeof ResultsRoute
   '/scoreboard': typeof ScoreboardRoute
+  '/signup': typeof SignupRoute
+  '/table-setup': typeof TableSetupRoute
   '/vault': typeof VaultRoute
   '/wizard': typeof WizardRoute
+  '/api/health': typeof ApiHealthRoute
   '/circle/$groupId': typeof CircleGroupIdRoute
   '/game/$id': typeof GameIdRouteWithChildren
   '/internal/flags': typeof InternalFlagsRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/play/$sessionId': typeof PlaySessionIdRoute
-  '/play/bank': typeof PlayBankRoute
-  '/play/stockpile': typeof PlayStockpileRoute
   '/circle/': typeof CircleIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/game/$id/score': typeof GameIdScoreRoute
@@ -173,16 +180,17 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/premium': typeof PremiumRoute
   '/profile': typeof ProfileRoute
+  '/recently-played': typeof RecentlyPlayedRoute
   '/results': typeof ResultsRoute
   '/scoreboard': typeof ScoreboardRoute
+  '/signup': typeof SignupRoute
+  '/table-setup': typeof TableSetupRoute
   '/vault': typeof VaultRoute
   '/wizard': typeof WizardRoute
+  '/api/health': typeof ApiHealthRoute
   '/circle/$groupId': typeof CircleGroupIdRoute
   '/internal/flags': typeof InternalFlagsRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/play/$sessionId': typeof PlaySessionIdRoute
-  '/play/bank': typeof PlayBankRoute
-  '/play/stockpile': typeof PlayStockpileRoute
   '/circle': typeof CircleIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/game/$id/score': typeof GameIdScoreRoute
@@ -197,17 +205,18 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/premium': typeof PremiumRoute
   '/profile': typeof ProfileRoute
+  '/recently-played': typeof RecentlyPlayedRoute
   '/results': typeof ResultsRoute
   '/scoreboard': typeof ScoreboardRoute
+  '/signup': typeof SignupRoute
+  '/table-setup': typeof TableSetupRoute
   '/vault': typeof VaultRoute
   '/wizard': typeof WizardRoute
+  '/api/health': typeof ApiHealthRoute
   '/circle/$groupId': typeof CircleGroupIdRoute
   '/game/$id': typeof GameIdRouteWithChildren
   '/internal/flags': typeof InternalFlagsRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/play/$sessionId': typeof PlaySessionIdRoute
-  '/play/bank': typeof PlayBankRoute
-  '/play/stockpile': typeof PlayStockpileRoute
   '/circle/': typeof CircleIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/game/$id/score': typeof GameIdScoreRoute
@@ -223,17 +232,18 @@ export interface FileRouteTypes {
     | '/login'
     | '/premium'
     | '/profile'
+    | '/recently-played'
     | '/results'
     | '/scoreboard'
+    | '/signup'
+    | '/table-setup'
     | '/vault'
     | '/wizard'
+    | '/api/health'
     | '/circle/$groupId'
     | '/game/$id'
     | '/internal/flags'
     | '/invite/$token'
-    | '/play/$sessionId'
-    | '/play/bank'
-    | '/play/stockpile'
     | '/circle/'
     | '/api/auth/$'
     | '/game/$id/score'
@@ -246,16 +256,17 @@ export interface FileRouteTypes {
     | '/login'
     | '/premium'
     | '/profile'
+    | '/recently-played'
     | '/results'
     | '/scoreboard'
+    | '/signup'
+    | '/table-setup'
     | '/vault'
     | '/wizard'
+    | '/api/health'
     | '/circle/$groupId'
     | '/internal/flags'
     | '/invite/$token'
-    | '/play/$sessionId'
-    | '/play/bank'
-    | '/play/stockpile'
     | '/circle'
     | '/api/auth/$'
     | '/game/$id/score'
@@ -269,17 +280,18 @@ export interface FileRouteTypes {
     | '/login'
     | '/premium'
     | '/profile'
+    | '/recently-played'
     | '/results'
     | '/scoreboard'
+    | '/signup'
+    | '/table-setup'
     | '/vault'
     | '/wizard'
+    | '/api/health'
     | '/circle/$groupId'
     | '/game/$id'
     | '/internal/flags'
     | '/invite/$token'
-    | '/play/$sessionId'
-    | '/play/bank'
-    | '/play/stockpile'
     | '/circle/'
     | '/api/auth/$'
     | '/game/$id/score'
@@ -294,16 +306,17 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   PremiumRoute: typeof PremiumRoute
   ProfileRoute: typeof ProfileRoute
+  RecentlyPlayedRoute: typeof RecentlyPlayedRoute
   ResultsRoute: typeof ResultsRoute
   ScoreboardRoute: typeof ScoreboardRoute
+  SignupRoute: typeof SignupRoute
+  TableSetupRoute: typeof TableSetupRoute
   VaultRoute: typeof VaultRoute
   WizardRoute: typeof WizardRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   GameIdRoute: typeof GameIdRouteWithChildren
   InternalFlagsRoute: typeof InternalFlagsRoute
   InviteTokenRoute: typeof InviteTokenRoute
-  PlaySessionIdRoute: typeof PlaySessionIdRoute
-  PlayBankRoute: typeof PlayBankRoute
-  PlayStockpileRoute: typeof PlayStockpileRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -351,6 +364,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/recently-played': {
+      id: '/recently-played'
+      path: '/recently-played'
+      fullPath: '/recently-played'
+      preLoaderRoute: typeof RecentlyPlayedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/results': {
       id: '/results'
       path: '/results'
@@ -365,6 +385,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ScoreboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/table-setup': {
+      id: '/table-setup'
+      path: '/table-setup'
+      fullPath: '/table-setup'
+      preLoaderRoute: typeof TableSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/vault': {
       id: '/vault'
       path: '/vault'
@@ -377,6 +411,13 @@ declare module '@tanstack/react-router' {
       path: '/wizard'
       fullPath: '/wizard'
       preLoaderRoute: typeof WizardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/circle/': {
@@ -412,27 +453,6 @@ declare module '@tanstack/react-router' {
       path: '/invite/$token'
       fullPath: '/invite/$token'
       preLoaderRoute: typeof InviteTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/play/$sessionId': {
-      id: '/play/$sessionId'
-      path: '/play/$sessionId'
-      fullPath: '/play/$sessionId'
-      preLoaderRoute: typeof PlaySessionIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/play/bank': {
-      id: '/play/bank'
-      path: '/play/bank'
-      fullPath: '/play/bank'
-      preLoaderRoute: typeof PlayBankRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/play/stockpile': {
-      id: '/play/stockpile'
-      path: '/play/stockpile'
-      fullPath: '/play/stockpile'
-      preLoaderRoute: typeof PlayStockpileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -501,16 +521,17 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   PremiumRoute: PremiumRoute,
   ProfileRoute: ProfileRoute,
+  RecentlyPlayedRoute: RecentlyPlayedRoute,
   ResultsRoute: ResultsRoute,
   ScoreboardRoute: ScoreboardRoute,
+  SignupRoute: SignupRoute,
+  TableSetupRoute: TableSetupRoute,
   VaultRoute: VaultRoute,
   WizardRoute: WizardRoute,
+  ApiHealthRoute: ApiHealthRoute,
   GameIdRoute: GameIdRouteWithChildren,
   InternalFlagsRoute: InternalFlagsRoute,
   InviteTokenRoute: InviteTokenRoute,
-  PlaySessionIdRoute: PlaySessionIdRoute,
-  PlayBankRoute: PlayBankRoute,
-  PlayStockpileRoute: PlayStockpileRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

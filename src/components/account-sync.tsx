@@ -15,6 +15,7 @@ export function AccountSync() {
     }
     if (mergedFor.current === user.id) return;
     mergedFor.current = user.id;
+    useAppStore.setState({ isPremium: false });
     const local = useAppStore.getState();
     void getCloudVault()
       .then((cloud) => {
@@ -25,10 +26,15 @@ export function AccountSync() {
         useAppStore.setState({ owned, wishlist });
         return getMyProfile()
           .then((prof) => {
+            if (mergedFor.current !== user.id) return;
             if (prof.pieceColor) useAppStore.getState().setPieceColor(prof.pieceColor);
             useAppStore.setState({ isPremium: prof.plan === "premium" });
           })
-          .catch(() => undefined)
+          .catch((error) => {
+            if (mergedFor.current !== user.id) return;
+            useAppStore.setState({ isPremium: false });
+            console.error("[account-sync] Couldn't verify Premium plan status.", error);
+          })
           .then(() => replaceCloudVault({ data: { owned, wishlist } }));
       })
       .catch(() => {

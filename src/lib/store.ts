@@ -13,7 +13,6 @@ import { FREE_VAULT_LIMIT, PLAYER_COLORS } from "./types";
 import { DEFAULT_USER_WEIGHTS } from "./vibes";
 import { applyFeedbackDelta, getGame, runWizard } from "./scoring";
 import { STARTER_SHELF_IDS } from "./catalog";
-import { flagOn } from "./flags";
 import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "./piece-color";
 
 export const DEFAULT_WIZARD: WizardContext = {
@@ -70,7 +69,6 @@ type AppState = {
   dismissPlayPrompt: () => void;
 
   isPremium: boolean;
-  upgrade: () => void;
   lastSurpriseId: string | null;
   setLastSurprise: (id: string | null) => void;
 
@@ -147,7 +145,7 @@ export const useAppStore = create<AppState>()(
       addOwned: (id) => {
         const { owned, isPremium, wishlist } = get();
         if (owned.includes(id)) return "exists";
-        if (flagOn("premium_paywall") && !isPremium && owned.length >= FREE_VAULT_LIMIT) {
+        if (!isPremium && owned.length >= FREE_VAULT_LIMIT) {
           set({
             upgradePrompt:
               "Free vaults hold up to 50 games. Upgrade to GameFinder Premium for unlimited vault storage.",
@@ -172,7 +170,7 @@ export const useAppStore = create<AppState>()(
         });
       },
       stockStarterShelf: () => {
-        const { owned, isPremium, addOwned } = get();
+        const { owned, addOwned } = get();
         let last: "ok" | "limit" = "ok";
         for (const id of STARTER_SHELF_IDS) {
           if (owned.includes(id)) continue;
@@ -316,7 +314,6 @@ export const useAppStore = create<AppState>()(
       dismissPlayPrompt: () => set({ pendingPlayPrompt: null }),
 
       isPremium: false,
-      upgrade: () => set({ isPremium: true, upgradePrompt: null }),
       lastSurpriseId: null,
       setLastSurprise: (id) => set({ lastSurpriseId: id }),
       upgradePrompt: null,
@@ -341,13 +338,17 @@ export const useAppStore = create<AppState>()(
         wizard: s.wizard,
         lastResults: s.lastResults,
         pendingPlayPrompt: s.pendingPlayPrompt,
-        isPremium: s.isPremium,
         lastSurpriseId: s.lastSurpriseId,
         shownIds: s.shownIds,
         tablePlayers: s.tablePlayers,
         scoreSessions: s.scoreSessions,
         lastPlayerIds: s.lastPlayerIds,
         pieceColor: s.pieceColor,
+      }),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...(persistedState as Partial<AppState>),
+        isPremium: false,
       }),
       onRehydrateStorage: () => (state) => {
         if (state?.theme === "dark" && typeof document !== "undefined") {

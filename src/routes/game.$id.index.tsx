@@ -11,8 +11,6 @@ import { getGame, similarGames, formatPlaytime, formatPlayers, formatAge } from 
 import { useAppStore } from "@/lib/store";
 import { VIBE_META, traitScore } from "@/lib/vibes";
 import { amazonSearchUrl } from "@/lib/affiliate";
-import { BANK_BGG_ID } from "@/lib/bank";
-import { STOCKPILE_ID } from "@/lib/minigames/stockpile";
 import type { VibeId } from "@/lib/types";
 import { useFlag } from "@/lib/flags";
 import { FinnCoach } from "@/components/finn-coach";
@@ -172,22 +170,6 @@ function GamePage() {
             Open {game.name} scorecard
           </Link>
         </Button>
-        {game.bggId === BANK_BGG_ID ? (
-          <Button className="mt-3 w-full" variant="secondary" asChild>
-            <Link to="/play/bank">
-              <Play className="size-4" />
-              Play Bank at the table
-            </Link>
-          </Button>
-        ) : null}
-        {game.bggId === STOCKPILE_ID ? (
-          <Button className="mt-3 w-full" variant="secondary" asChild>
-            <Link to="/play/stockpile">
-              <Play className="size-4" />
-              Play Stockpile at the table
-            </Link>
-          </Button>
-        ) : null}
         {logging ? (
           <div className="mt-4 space-y-3">
             <p className="text-sm text-muted-foreground">Quick vibe check instead?</p>
@@ -222,7 +204,7 @@ function GamePage() {
         )}
       </section>
 
-      {!owned && amazonOn && game.bggId !== BANK_BGG_ID && game.bggId !== STOCKPILE_ID ? (
+      {!owned && amazonOn ? (
         <a
           href={amazon}
           target="_blank"

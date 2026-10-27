@@ -6,7 +6,6 @@ export const FLAG_KEYS = [
   "scan_games",
   "surprise_me",
   "banner_ads",
-  "premium_paywall",
   "bookworm",
   "advanced_filters",
   "expand_shelf",
@@ -64,14 +63,6 @@ export const FLAG_DEFS: FlagDef[] = [
     defaultPercent: 100,
   },
   {
-    key: "premium_paywall",
-    name: "50-game vault cap",
-    description: "Free vault limit and upgrade prompts. Off = unlimited on this build.",
-    owner: "John / monetize",
-    defaultMode: "on",
-    defaultPercent: 100,
-  },
-  {
     key: "bookworm",
     name: "Bookworm (voice coach)",
     description: "Finn teaches rules aloud with Grok voice, and stays at the table for rulings.",
@@ -82,7 +73,7 @@ export const FLAG_DEFS: FlagDef[] = [
   {
     key: "advanced_filters",
     name: "Advanced exact-score filters",
-    description: "Premium sliders on the vibe step. Still requires Premium if the paywall is on.",
+    description: "Premium exact-score sliders on the Vibe step.",
     owner: "John / premium",
     defaultMode: "on",
     defaultPercent: 100,

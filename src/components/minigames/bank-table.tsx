@@ -245,7 +245,7 @@ export function BankTable({
               <Button
                 className="w-full"
                 size="xl"
-                variant={canCashOut ? "secondary" : "default"}
+                variant={canCashOut ? "secondary" : "primary"}
                 disabled={busy}
                 onClick={() => act({ type: "roll" })}
               >

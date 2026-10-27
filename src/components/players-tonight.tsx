@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -7,8 +8,10 @@ import { listHousehold, type HouseholdPerson } from "@/lib/social";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-export function WhosHome() {
+export function PlayersTonight() {
+  const navigate = useNavigate();
   const { user } = useCurrentUserState();
+  const userId = user?.id;
   const players = useAppStore((s) => s.tablePlayers);
   const addPlayer = useAppStore((s) => s.addPlayer);
   const ensurePlayer = useAppStore((s) => s.ensurePlayer);
@@ -22,7 +25,7 @@ export function WhosHome() {
   const seated = lastPlayerIds.filter((id) => players.some((p) => p.id === id));
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     void listHousehold()
       .then((people) => {
         setHouse(people);
@@ -35,11 +38,10 @@ export function WhosHome() {
         }
       })
       .catch(() => setHouse([]));
-  }, [user?.id, ensurePlayer]);
+  }, [userId, ensurePlayer]);
 
   function seat(ids: string[]) {
     setLastPlayerIds(ids);
-    if (ids.length) setWizard({ players: ids.length });
   }
 
   function toggle(id: string) {
@@ -108,7 +110,9 @@ export function WhosHome() {
 
   return (
     <section className="anim-rise mt-6 text-left">
-      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-fox">Who's home tonight</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-fox">
+        Players Tonight
+      </p>
       {players.length ? (
         <div className="mt-2 flex flex-wrap gap-2">
           {players.map((p) => {
@@ -132,8 +136,8 @@ export function WhosHome() {
       ) : (
         <p className="mt-1 text-sm text-muted-foreground">
           {user
-            ? "Family names load from your tables. Tap who is playing, or type to add a kid without an account."
-            : "Add the people at the table. Finn remembers who won."}
+            ? "People from your tables appear here. Select tonight’s players or add guests without accounts."
+            : "Add and select the people joining game night. Finn remembers these names for next time."}
         </p>
       )}
       <form
@@ -151,7 +155,7 @@ export function WhosHome() {
           }}
           onFocus={() => setOpen(true)}
           onBlur={() => window.setTimeout(() => setOpen(false), 160)}
-          placeholder={house.length ? "Type a family name" : "Add a name"}
+          placeholder={house.length ? "Add a guest or find a name" : "Add a name"}
           maxLength={20}
           autoComplete="off"
           className="min-h-11 flex-1 rounded-card border border-border bg-card px-3 text-sm"
@@ -178,6 +182,18 @@ export function WhosHome() {
           </ul>
         ) : null}
       </form>
+      {seated.length ? (
+        <Button
+          className="mt-3"
+          variant="secondary"
+          onClick={() => {
+            setWizard({ players: seated.length });
+            void navigate({ to: "/wizard" });
+          }}
+        >
+          Use {seated.length} player{seated.length === 1 ? "" : "s"} for Find a Game
+        </Button>
+      ) : null}
     </section>
   );
 }

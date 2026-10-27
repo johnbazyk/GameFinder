@@ -2,11 +2,11 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { FoxAvatar } from "@/components/fox-avatar";
-import { Button } from "@/components/ui/button";
-import { BILLING, billingStatus, confirmCheckout, grantPreviewPremium, startCheckout, type BillingTier } from "@/lib/billing";
+import { BILLING, billingStatus, confirmCheckout, startCheckout, type BillingTier } from "@/lib/billing";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { usePremiumAccess } from "@/lib/use-premium-access";
 
 export const Route = createFileRoute("/premium")({
   validateSearch: (raw: Record<string, unknown>) => ({
@@ -18,39 +18,53 @@ export const Route = createFileRoute("/premium")({
 function PremiumPage() {
   const { session_id: sessionId } = Route.useSearch();
   const navigate = useNavigate();
-  const { user, isPending } = useCurrentUserState();
-  const isPremium = useAppStore((s) => s.isPremium);
+  const { user } = useCurrentUserState();
+  const userId = user?.id;
+  const { access, retry: retryEntitlement } = usePremiumAccess();
+  const isPremium = access === "premium";
   const [stripe, setStripe] = useState<boolean | null>(null);
+  const [subscriptionManagement, setSubscriptionManagement] = useState(false);
   const [prices, setPrices] = useState<Record<BillingTier, boolean>>({
     monthly: false,
-    yearly: true,
-    lifetime: false,
+    yearly: false,
   });
-  const [busy, setBusy] = useState<BillingTier | "preview" | "confirm" | null>(null);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<BillingTier | "confirm" | null>(null);
 
   useEffect(() => {
     void billingStatus()
       .then((s) => {
         setStripe(s.stripe);
+        setSubscriptionManagement(s.subscriptionManagement);
         setPrices(s.prices);
       })
-      .catch(() => setStripe(false));
+      .catch((error) => {
+        setStripe(false);
+        setSubscriptionManagement(false);
+        setPrices({ monthly: false, yearly: false });
+        setBillingError(
+          error instanceof Error
+            ? error.message
+            : "Couldn't verify the Stripe checkout configuration.",
+        );
+      });
   }, []);
 
   useEffect(() => {
-    if (!sessionId || !user) return;
+    if (!sessionId || !userId) return;
     setBusy("confirm");
     void confirmCheckout({ data: { sessionId } })
       .then((r) => {
         if (r.ok) {
           useAppStore.setState({ isPremium: true, upgradePrompt: null });
-          toast("Family Premium is on this account.");
+          retryEntitlement();
+          toast("GameFinder Premium is on this account.");
           navigate({ to: "/premium", search: { session_id: "" } });
         } else toast("Checkout didn't finish. Try again.");
       })
       .catch((e) => toast(e instanceof Error ? e.message : "Couldn't confirm"))
       .finally(() => setBusy(null));
-  }, [sessionId, user?.id]);
+  }, [sessionId, userId, navigate, retryEntitlement]);
 
   async function pay(tier: BillingTier) {
     if (!user) {
@@ -64,26 +78,15 @@ function PremiumPage() {
         window.location.href = r.url;
         return;
       }
-      toast(r.reason === "not-configured" ? "Stripe isn't connected yet." : r.reason);
+      toast(
+        r.reason === "not-configured"
+          ? "Checkout isn't configured yet."
+          : r.reason === "price-mismatch"
+            ? "Checkout is disabled because the configured Stripe price doesn't match this plan."
+            : r.reason,
+      );
     } catch (e) {
       toast(e instanceof Error ? e.message : "Couldn't start checkout");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function preview() {
-    if (!user) {
-      navigate({ to: "/login", search: { next: "/premium" } });
-      return;
-    }
-    setBusy("preview");
-    try {
-      await grantPreviewPremium();
-      useAppStore.setState({ isPremium: true, upgradePrompt: null });
-      toast("Premium is on this account. Not a charge — billing isn't connected yet.");
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Couldn't preview");
     } finally {
       setBusy(null);
     }
@@ -93,76 +96,95 @@ function PremiumPage() {
     <div className="pb-10">
       <FoxAvatar mood={isPremium ? "celebrate" : "proud"} size="md" />
       <p className="mt-2 text-center text-[11px] font-bold uppercase tracking-[0.16em] text-fox">
-        Family plan
+        GameFinder Premium
       </p>
       <h1 className="mt-2 text-center font-display text-4xl">
-        {isPremium ? "You're on Premium" : "Peace at the table"}
+        {isPremium ? "You're on Premium" : "More room for game night"}
       </h1>
       <p className="mx-auto mt-3 max-w-sm text-center text-sm text-muted-foreground">
-        One family seat. Unlimited vault. No ads during the night. Finn's lessons stay on this
-        account. We don't sell your plays.
+        Keep an unlimited Vault, enjoy an ad-free experience, tune exact scores in Vibe filters,
+        and unlock Scores &amp; Win History. Your plays stay yours.
       </p>
 
-      {isPremium ? (
-        <p className="mt-6 rounded-card bg-card p-4 text-center text-sm shadow-card">
-          Ads are off. The vault has no cap. Advanced filters are unlocked.
+      {access === "error" ? (
+        <p role="alert" className="mt-5 rounded-card bg-muted p-3 text-sm text-muted-foreground">
+          We couldn’t verify this account’s Premium entitlement. Scoring remains locked until it
+          can be verified.
         </p>
-      ) : (
-        <div className="mt-6 space-y-2">
-          {(Object.keys(BILLING) as BillingTier[]).map((id) => {
-            const t = BILLING[id];
-            const featured = id === "yearly";
-            const live = stripe && prices[id];
-            return (
-              <button
-                key={id}
-                type="button"
-                disabled={busy !== null || (stripe === true && !prices[id])}
-                onClick={() => (live ? void pay(id) : undefined)}
-                className={cn(
-                  "flex w-full items-center justify-between rounded-card px-4 py-4 text-left shadow-card",
-                  featured ? "bg-fox text-cream" : "bg-card",
-                )}
-              >
-                <span>
-                  <span className="block font-display text-xl">{t.label}</span>
-                  <span className={cn("text-sm", featured ? "text-cream/80" : "text-muted-foreground")}>
-                    {t.blurb}
-                  </span>
-                </span>
-                <span className="font-display text-2xl">{t.price}</span>
-              </button>
-            );
-          })}
-          {stripe ? (
-            <p className="pt-1 text-center text-xs text-muted-foreground">
-              Checkout is Stripe. We never see your card.
-            </p>
-          ) : (
-            <div className="pt-2">
-              <p className="text-center text-sm text-muted-foreground">
-                Card checkout isn't connected on this site yet. You can preview Premium on a signed-in
-                account so we can test the plan. It is not a charge.
-              </p>
-              <Button
-                className="mt-3 w-full"
-                disabled={busy !== null || isPending}
-                onClick={() => void preview()}
-              >
-                {user ? "Preview Premium on this account" : "Sign in to preview"}
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+      ) : null}
 
-      <ul className="mt-8 space-y-2 text-sm">
-        <li>Unlimited games in the vault — free stops at 50.</li>
-        <li>No banner ads, especially not over Teach or play.</li>
-        <li>Exact-score filters in the wizard.</li>
-        <li>Finn lessons cached on this account's devices.</li>
-        <li>One family. Extra seats later — not tonight.</li>
-      </ul>
+      <section className="mt-6 space-y-2" aria-labelledby="plan-prices">
+        <h2 id="plan-prices" className="font-display text-2xl">
+          Subscription plans
+        </h2>
+        {(Object.keys(BILLING) as BillingTier[]).map((id) => {
+          const plan = BILLING[id];
+          const featured = id === "yearly";
+          const available =
+            subscriptionManagement && stripe === true && prices[id];
+          return (
+            <button
+              key={id}
+              type="button"
+              disabled={busy !== null || !available || access !== "free"}
+              onClick={() => (available && access === "free" ? void pay(id) : undefined)}
+              className={cn(
+                "flex min-h-20 w-full items-center justify-between gap-3 rounded-card px-4 py-4 text-left shadow-card disabled:cursor-not-allowed disabled:opacity-70",
+                featured ? "bg-fox text-cream" : "bg-card",
+              )}
+            >
+              <span className="min-w-0">
+                <span className="block font-display text-xl">{plan.label}</span>
+                <span
+                  className={cn(
+                    "block text-sm",
+                    featured ? "text-cream/80" : "text-muted-foreground",
+                  )}
+                >
+                  {plan.blurb}
+                </span>
+              </span>
+              <span className="shrink-0 font-display text-xl">{plan.price}</span>
+            </button>
+          );
+        })}
+        {!subscriptionManagement ? (
+          <p className="pt-2 text-sm text-muted-foreground">
+            Checkout is disabled until Stripe pricing and subscription management are configured.
+          </p>
+        ) : billingError ? (
+          <p role="alert" className="pt-2 text-sm text-berry">
+            Stripe checkout configuration could not be verified: {billingError}
+          </p>
+        ) : stripe === false ? (
+          <p className="pt-2 text-sm text-muted-foreground">
+            Checkout is not configured yet. Prices are shown for reference; purchasing is disabled.
+          </p>
+        ) : stripe && (!prices.monthly || !prices.yearly) ? (
+          <p className="pt-2 text-sm text-muted-foreground">
+            Checkout is disabled for any plan whose Stripe price is missing or does not match the
+            approved amount and billing interval.
+          </p>
+        ) : stripe === null ? (
+          <p className="pt-2 text-center text-xs text-muted-foreground">
+            Checking Stripe checkout configuration…
+          </p>
+        ) : null}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="font-display text-xl">Current Premium benefits</h2>
+        <ul className="mt-2 space-y-2 text-sm">
+          <li>Unlimited Vault; Free includes up to 50 games.</li>
+          <li>Ad-free experience.</li>
+          <li>Advanced exact-score filters in the Vibe step.</li>
+          <li>Scorecards, winning records, win/loss statistics, and lifetime standings.</li>
+        </ul>
+      </section>
+
+      <p className="mt-6 rounded-card bg-muted p-4 text-sm text-muted-foreground">
+        Future Premium features are not available today and are not included as current benefits.
+      </p>
 
       <Link to="/profile" className="mt-6 inline-block text-sm font-semibold text-sky">
         Back to you

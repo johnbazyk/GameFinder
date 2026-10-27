@@ -111,6 +111,26 @@ async function requireMember(groupId: string, userId: string) {
   return rows[0];
 }
 
+async function hasPremiumPlan(userId: string) {
+  const sql = await getSql();
+  const rows = await sql<{ plan: string }>`
+    select plan from profiles where user_id = ${userId} limit 1
+  `;
+  return rows[0]?.plan === "premium";
+}
+
+async function requirePremiumPlan(userId: string) {
+  if (!(await hasPremiumPlan(userId))) {
+    throw new Error("Scores & Win History requires GameFinder Premium.");
+  }
+}
+
+export const getPremiumEntitlement = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => ({
+    premium: await hasPremiumPlan(context.userId),
+  }));
+
 export const getMyProfile = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
@@ -361,7 +381,7 @@ export const listMyGroups = createServerFn({ method: "GET" })
   });
 
 
-/** Everyone at your family/friends tables, plus accepted friends. For Who's home. */
+/** Everyone at your family/friends tables, plus accepted friends. For Players Tonight. */
 export const listHousehold = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
@@ -633,6 +653,7 @@ export const listGroupPlays = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .validator((input: { groupId: string }) => ({ groupId: String(input?.groupId ?? "") }))
   .handler(async ({ context, data }) => {
+    await requirePremiumPlan(context.userId);
     await requireMember(data.groupId, context.userId);
     const sql = await getSql();
     const plays = await sql<{
@@ -701,6 +722,7 @@ export const logGroupPlay = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ context, data }) => {
+    await requirePremiumPlan(context.userId);
     await requireMember(data.groupId, context.userId);
     if (!data.bggId) throw new Error("Which game?");
     const sql = await getSql();

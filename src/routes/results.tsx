@@ -21,6 +21,11 @@ function ResultsPage() {
   const ownedCount = useAppStore((s) => s.owned.length);
   const recPool = useAppStore((s) => s.recPool);
   const expandOn = useFlag("expand_shelf");
+  const lessonIds = result?.ownedTop.map((g) => g.bggId).join(",") ?? "";
+
+  useEffect(() => {
+    if (lessonIds) prefetchLessons(lessonIds.split(","));
+  }, [lessonIds]);
 
   if (!result) {
     return (
@@ -36,10 +41,6 @@ function ResultsPage() {
 
   const f = result.appliedFilters;
   const noOwned = result.ownedTop.length === 0;
-
-  useEffect(() => {
-    prefetchLessons(result.ownedTop.map((g) => g.bggId));
-  }, [result.ownedTop.map((g) => g.bggId).join(",")]);
 
   if (noOwned && result.unownedTop.length === 0) {
     return (

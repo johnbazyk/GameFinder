@@ -14,7 +14,12 @@ import { useAppStore } from "@/lib/store";
 import type { Game, PlayerScore, TablePlayer } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
-import { listMyGroups, logGroupPlay, type GroupRow } from "@/lib/social";
+import {
+  getPremiumEntitlement,
+  listMyGroups,
+  logGroupPlay,
+  type GroupRow,
+} from "@/lib/social";
 
 export function ScoreSheet({ game }: { game: Game }) {
   const def = getScoreCard(game);
@@ -43,6 +48,7 @@ export function ScoreSheet({ game }: { game: Game }) {
   const [notes, setNotes] = useState("");
   const [groupId, setGroupId] = useState("");
   const [groups, setGroups] = useState<GroupRow[]>([]);
+  const [saving, setSaving] = useState(false);
   const user = useCurrentUser();
 
   useEffect(() => {
@@ -89,7 +95,8 @@ export function ScoreSheet({ game }: { game: Game }) {
     else toast("Give them a name first.");
   }
 
-  function save() {
+  async function save() {
+    if (saving) return;
     if (seatedPlayers.length < 1) {
       toast("Seat at least one player.");
       return;
@@ -102,38 +109,57 @@ export function ScoreSheet({ game }: { game: Game }) {
       toast("Tap the winner — or call it a draw.");
       return;
     }
-    const session = saveSession({
-      bggId: game.bggId,
-      playerIds: seatedPlayers.map((p) => p.id),
-      scores: preview.scores,
-      shared,
-      coopWon: def.kind === "coop" ? coopWon : undefined,
-      winningTeam: winningTeam ?? undefined,
-      draw,
-      notes: notes.trim() || undefined,
-      groupId: groupId || undefined,
-    });
-    if (groupId) {
-      void logGroupPlay({
-        data: {
-          groupId,
-          bggId: game.bggId,
-          notes: notes.trim() || undefined,
-          seats: seatedPlayers.map((p) => ({
-            playerName: p.name,
-            total: fieldTotal(def, preview.scores.find((s) => s.playerId === p.id)?.values ?? {}),
-            won: preview.winners.includes(p.id),
-          })),
-        },
-      }).catch(() => toast("Saved here, but the table didn't get it."));
+    setSaving(true);
+    try {
+      const { premium } = await getPremiumEntitlement();
+      if (!premium) {
+        useAppStore.setState({ isPremium: false });
+        toast("Scores & Win History requires GameFinder Premium.");
+        return;
+      }
+      const session = saveSession({
+        bggId: game.bggId,
+        playerIds: seatedPlayers.map((p) => p.id),
+        scores: preview.scores,
+        shared,
+        coopWon: def.kind === "coop" ? coopWon : undefined,
+        winningTeam: winningTeam ?? undefined,
+        draw,
+        notes: notes.trim() || undefined,
+        groupId: groupId || undefined,
+      });
+      if (groupId) {
+        void logGroupPlay({
+          data: {
+            groupId,
+            bggId: game.bggId,
+            notes: notes.trim() || undefined,
+            seats: seatedPlayers.map((p) => ({
+              playerName: p.name,
+              total: fieldTotal(def, preview.scores.find((s) => s.playerId === p.id)?.values ?? {}),
+              won: preview.winners.includes(p.id),
+            })),
+          },
+        }).catch((error) => {
+          toast(
+            error instanceof Error
+              ? `Saved here, but the table didn't get it: ${error.message}`
+              : "Saved here, but the table didn't get it.",
+          );
+        });
+      }
+      toast(
+        session.draw
+          ? "Logged a draw. The ledger remembers."
+          : preview.winners.length
+            ? "Scored. The ledger remembers forever."
+            : "Logged. Finn filed it.",
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Couldn't verify Premium access.");
+    } finally {
+      setSaving(false);
     }
-    toast(
-      session.draw
-        ? "Logged a draw. The ledger remembers."
-        : preview.winners.length
-          ? "Scored. The ledger remembers forever."
-          : "Logged. Finn filed it.",
-    );
   }
 
   return (
@@ -269,8 +295,13 @@ export function ScoreSheet({ game }: { game: Game }) {
         </label>
       ) : null}
 
-      <Button className="w-full" size="xl" onClick={save} disabled={!seatedPlayers.length}>
-        Save to the ledger
+      <Button
+        className="w-full"
+        size="xl"
+        onClick={() => void save()}
+        disabled={!seatedPlayers.length || saving}
+      >
+        {saving ? "Checking access…" : "Save to the ledger"}
       </Button>
 
       {sessions.length ? (

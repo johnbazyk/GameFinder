@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAppStore } from "@/lib/store";
+import { BILLING } from "@/lib/billing";
 import { Button } from "./ui/button";
 
 export function UpgradeSheet() {
@@ -29,7 +30,8 @@ export function UpgradeSheet() {
         </div>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{prompt}</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          Unlimited vault, no ads, exact-score filters. Yearly is $29.99. Lifetime is $49.99 once.
+          Unlimited Vault, no ads, exact-score filters, and Scores &amp; Win History. Plans:
+          {" "}{BILLING.monthly.price} or {BILLING.yearly.price}.
         </p>
         <Button
           className="mt-5 w-full"

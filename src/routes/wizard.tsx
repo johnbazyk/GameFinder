@@ -140,21 +140,30 @@ function WizardPage() {
           <div className="space-y-4">
             <VibeGrid selected={wizard.vibes} onToggle={toggleVibe} />
             {advancedOn ? (
-            <button
-              type="button"
-              className="text-sm font-semibold text-sky"
-              onClick={() => {
-                if (!isPremium) {
-                  setUpgradePrompt(
-                    "Advanced exact-score filters are part of GameFinder Premium.",
-                  );
-                  return;
-                }
-                setAdvanced((v) => !v);
-              }}
-            >
-              Advanced filters
-            </button>
+              <div>
+                <button
+                  type="button"
+                  className="text-sm font-semibold text-sky"
+                  onClick={() => {
+                    if (!isPremium) {
+                      setUpgradePrompt(
+                        "Premium unlocks advanced exact-score filters for each Vibe.",
+                      );
+                      return;
+                    }
+                    setAdvanced((v) => !v);
+                  }}
+                >
+                  {isPremium
+                    ? "Advanced exact-score filters"
+                    : "Premium · Exact-score filters"}
+                </button>
+                {!isPremium ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Set a precise target score for each game vibe with Premium.
+                  </p>
+                ) : null}
+              </div>
             ) : null}
             {advanced && isPremium ? (
               <div className="space-y-3 rounded-card bg-card p-4 ring-1 ring-border">

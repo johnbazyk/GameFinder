@@ -24,7 +24,6 @@ function VaultPage() {
   const [tab, setTab] = useState<"owned" | "wish">("owned");
   const [q, setQ] = useState("");
   const scanOn = useFlag("scan_games");
-  const paywall = useFlag("premium_paywall");
 
   const games = useMemo(() => {
     const ids = tab === "owned" ? owned : wishlist;
@@ -66,6 +65,7 @@ function VaultPage() {
             Or stock a starter shelf
           </button>
         </div>
+        <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />
         <ScanGames open={scan} onClose={() => setScan(false)} />
         <AddGameDialog open={manual} onClose={() => setManual(false)} />
       </>
@@ -79,7 +79,7 @@ function VaultPage() {
           <h1 className="font-display text-3xl">Vault</h1>
           <p className="text-sm text-muted-foreground">
             {owned.length}
-            {paywall && !isPremium ? ` / ${FREE_VAULT_LIMIT}` : ""} owned · {wishlist.length} wishlisted
+            {!isPremium ? ` / ${FREE_VAULT_LIMIT}` : ""} owned · {wishlist.length} wishlisted
           </p>
         </div>
         {scanOn ? (
@@ -94,6 +94,8 @@ function VaultPage() {
           </Button>
         )}
       </div>
+
+      <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />
 
       <div className="mt-4 flex gap-2">
         <Tab on={tab === "owned"} onClick={() => setTab("owned")}>
@@ -134,6 +136,35 @@ function VaultPage() {
       <AdBanner />
       <ScanGames open={scan} onClose={() => setScan(false)} />
       <AddGameDialog open={manual} onClose={() => setManual(false)} />
+    </div>
+  );
+}
+
+function VaultLimitNotice({
+  isPremium,
+  ownedCount,
+}: {
+  isPremium: boolean;
+  ownedCount: number;
+}) {
+  if (isPremium) return null;
+  const atLimit = ownedCount >= FREE_VAULT_LIMIT;
+  return (
+    <div className="mt-4 rounded-card bg-muted px-4 py-3 text-sm">
+      <p>
+        {atLimit
+          ? "Your free Vault is full. Premium unlocks unlimited games."
+          : `Free Vaults include up to ${FREE_VAULT_LIMIT} games. Premium removes the limit.`}
+      </p>
+      {atLimit ? (
+        <Link
+          to="/premium"
+          search={{ session_id: "" }}
+          className="mt-2 inline-block font-semibold text-sky"
+        >
+          Explore Premium
+        </Link>
+      ) : null}
     </div>
   );
 }

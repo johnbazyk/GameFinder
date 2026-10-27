@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { Camera, Trophy, Users } from "lucide-react";
+import { Camera, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getMyProfile, updateMyProfile } from "@/lib/social";
 import { PieceSwatch } from "@/components/piece-swatch";
+import { BILLING } from "@/lib/billing";
 
 export const Route = createFileRoute("/profile")({ component: ProfilePage });
 
@@ -28,19 +29,21 @@ function ProfilePage() {
   const setPieceColor = useAppStore((s) => s.setPieceColor);
   const enjoyed = plays.filter((p) => p.enjoyed).length;
   const { user, isPending } = useCurrentUserState();
+  const userId = user?.id;
+  const userDisplayName = user?.displayName;
   const [scan, setScan] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const scanOn = useFlag("scan_games");
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     void getMyProfile()
       .then((p) => {
         setDisplayName(p.displayName);
         if (p.pieceColor) setPieceColor(p.pieceColor);
       })
-      .catch(() => setDisplayName(user.displayName ?? ""));
-  }, [user]);
+      .catch(() => setDisplayName(userDisplayName ?? ""));
+  }, [setPieceColor, userDisplayName, userId]);
 
   return (
     <div className="pb-10">
@@ -88,7 +91,7 @@ function ProfilePage() {
             Tables
           </span>
           <span className="mt-1 block text-sm text-muted-foreground">
-            Family, friends, invites, shared scoreboards.
+            Family, friends, shared shelves, and invites.
           </span>
         </span>
         <span className="text-sm font-semibold text-sky">Open</span>
@@ -130,33 +133,17 @@ function ProfilePage() {
         </p>
       </section>
 
-      <Link
-        to="/scoreboard"
-        className="mt-3 flex items-center justify-between rounded-card bg-card px-4 py-4 shadow-card"
-      >
-        <span>
-          <span className="flex items-center gap-2 font-display text-xl">
-            <Trophy className="size-5 text-fox" />
-            Scoreboard
-          </span>
-          <span className="mt-1 block text-sm text-muted-foreground">
-            Named players and a lifetime win table.
-          </span>
-        </span>
-        <span className="text-sm font-semibold text-sky">Open</span>
-      </Link>
-
       <section className="mt-8 rounded-card bg-card p-4 shadow-card">
         <h2 className="font-display text-xl">
           {isPremium ? "You're on Premium" : "GameFinder Premium"}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {isPremium
-            ? "Unlimited vault, no ads during the night, exact-score filters."
-            : `Free vaults hold ${FREE_VAULT_LIMIT} games. Family plan is $3.99/month, $29.99/year, or $49.99 once.`}
+            ? "Unlimited vault, no ads, exact-score Vibe filters, and Scores & Win History."
+            : `Free vaults hold up to ${FREE_VAULT_LIMIT} games. Premium is ${BILLING.monthly.price} or ${BILLING.yearly.price}.`}
         </p>
         <Button className="mt-4 w-full" variant={isPremium ? "secondary" : "primary"} asChild>
-          <Link to="/premium" search={{ session_id: "" }}>{isPremium ? "Manage plan" : "See the family plan"}</Link>
+          <Link to="/premium" search={{ session_id: "" }}>{isPremium ? "View plan" : "See the family plan"}</Link>
         </Button>
       </section>
 
@@ -177,7 +164,9 @@ function ProfilePage() {
       ) : null}
 
       <section className="mt-8 space-y-2">
-        <h2 className="font-display text-xl">Preferences</h2>
+        <h2 id="settings" className="font-display text-xl">
+          Settings
+        </h2>
         <Row
           title={theme === "dark" ? "Night table" : "Day table"}
           hint="Cream or ink. Same fox."
