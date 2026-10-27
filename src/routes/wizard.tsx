@@ -4,7 +4,12 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
 import { VibeGrid } from "@/components/vibe-grid";
-import { AgeBands, PlayerPicker, TimeChips } from "@/components/wizard-controls";
+import {
+  AgeBands,
+  PlayerPicker,
+  TimeChips,
+  WIZARD_QUESTIONS,
+} from "@/components/wizard-controls";
 import { useAppStore } from "@/lib/store";
 import { runWizard } from "@/lib/scoring";
 import type { VibeId } from "@/lib/types";
@@ -13,21 +18,6 @@ import { VIBE_META } from "@/lib/vibes";
 import { useFlag } from "@/lib/flags";
 
 export const Route = createFileRoute("/wizard")({ component: WizardPage });
-
-const STEPS = [
-  { key: "players", title: "How many people are playing?", hint: "Count everyone at the table." },
-  { key: "age", title: "How old is the youngest player?", hint: "Younger-rated games still qualify." },
-  {
-    key: "time",
-    title: "How much time do you want to play?",
-    hint: "We'll match the listed playtime for each game.",
-  },
-  {
-    key: "vibe",
-    title: "What kind of game are you in the mood for?",
-    hint: "Choose as many as you want, or skip this step.",
-  },
-] as const;
 
 function WizardPage() {
   const navigate = useNavigate();
@@ -41,7 +31,7 @@ function WizardPage() {
   const setUpgradePrompt = useAppStore((s) => s.setUpgradePrompt);
   const advancedOn = useFlag("advanced_filters");
 
-  const last = step === STEPS.length - 1;
+  const last = step === WIZARD_QUESTIONS.length - 1;
 
   function finish() {
     setSniffing(true);
@@ -80,7 +70,7 @@ function WizardPage() {
     );
   }
 
-  const current = STEPS[step];
+  const current = WIZARD_QUESTIONS[step];
 
   return (
     <div className="flex min-h-[70dvh] flex-col pb-8">
@@ -94,7 +84,7 @@ function WizardPage() {
           <ArrowLeft className="size-5" />
         </button>
         <div className="flex flex-1 justify-center gap-2">
-          {STEPS.map((_, i) => (
+          {WIZARD_QUESTIONS.map((_, i) => (
             <span
               key={i}
               className={cn(

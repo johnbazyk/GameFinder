@@ -5,6 +5,7 @@ import { MatchCard } from "@/components/match-card";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { AdBanner } from "@/components/ad-banner";
+import { MAX_PLAYER_COUNT } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
 import { VIBE_META, AGE_BANDS } from "@/lib/vibes";
 import { useFlag } from "@/lib/flags";
@@ -84,7 +85,7 @@ function ResultsPage() {
 
       <div className="mt-5 flex flex-wrap gap-2">
         {f.players != null ? (
-          <Chip>{f.players >= 13 ? "13+" : f.players} players</Chip>
+          <Chip>{f.players >= MAX_PLAYER_COUNT ? "13+" : f.players} players</Chip>
         ) : (
           <Chip>Any players</Chip>
         )}

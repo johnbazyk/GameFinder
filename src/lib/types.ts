@@ -116,6 +116,7 @@ export type ScoreSession = {
 export type FeedbackType = "thumbs_up" | "thumbs_down";
 
 export const FREE_VAULT_LIMIT = 50;
+export const MAX_PLAYER_COUNT = 13;
 
 export const PLAYER_COLORS = [
   "#e8642b",

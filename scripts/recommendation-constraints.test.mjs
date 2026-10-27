@@ -7,8 +7,16 @@ let server;
 let constraints;
 let games;
 let runWizard;
+let eligibleGames;
+let discoverGames;
+let recommendationScore;
+let vibePreferenceScore;
 let pickSurprise;
 let defaultUserWeights;
+let wizardOptions;
+let vibeMeta;
+let filterTypes;
+let appStore;
 
 before(async () => {
   server = await createServer({
@@ -19,8 +27,24 @@ before(async () => {
   });
   constraints = await server.ssrLoadModule("/src/lib/vibes.ts");
   ({ GAMES: games } = await server.ssrLoadModule("/src/lib/catalog.ts"));
-  ({ runWizard, pickSurprise } = await server.ssrLoadModule("/src/lib/scoring.ts"));
+  ({
+    runWizard,
+    eligibleGames,
+    discoverGames,
+    recommendationScore,
+    vibePreferenceScore,
+    pickSurprise,
+  } = await server.ssrLoadModule("/src/lib/scoring.ts"));
   ({ DEFAULT_USER_WEIGHTS: defaultUserWeights } = constraints);
+  wizardOptions = await server.ssrLoadModule("/src/lib/wizard-options.ts");
+  vibeMeta = await server.ssrLoadModule("/src/lib/vibes.ts");
+  filterTypes = await server.ssrLoadModule("/src/lib/types.ts");
+  globalThis.localStorage ??= {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  ({ useAppStore: appStore } = await server.ssrLoadModule("/src/lib/store.ts"));
 });
 
 after(async () => {
@@ -153,6 +177,10 @@ test("explicit and curated adult content stays out of non-adult age bands", () =
 
 test("time limits compare the listed maximum playtime to the selected boundary", () => {
   const wingspan = game("266192");
+  const slowAverage = {
+    ...wingspan,
+    playtime: { min: 10, max: 70, avg: 30 },
+  };
   const sixtyMinuteGame = {
     ...wingspan,
     playtime: { min: 40, max: 60, avg: 50 },
@@ -162,6 +190,11 @@ test("time limits compare the listed maximum playtime to the selected boundary",
   assert.equal(
     constraints.passesHardConstraints(wingspan, context({ maxTimeMin: 60 })),
     false,
+  );
+  assert.equal(
+    constraints.passesHardConstraints(slowAverage, context({ maxTimeMin: 60 })),
+    false,
+    "a low average cannot override a listed 70-minute maximum",
   );
   assert.equal(
     constraints.passesHardConstraints(wingspan, context({ timeOver60: true, maxTimeMin: null })),
@@ -189,6 +222,130 @@ test("player count remains a hard constraint", () => {
     true,
   );
   assert.equal(constraints.passesHardConstraints(wingspan, context({ players: 13 })), false);
+  assert.equal(
+    constraints.passesHardConstraints(
+      { ...wingspan, players: { min: 14, max: 20, best: [16] } },
+      context({ players: 13 }),
+    ),
+    false,
+    "13+ requires support for 13, not only larger counts",
+  );
+});
+
+test("Find and Discover use the same hard-filter eligibility decisions", () => {
+  const user = {
+    owned: ["9209", "230802"],
+    wishlist: [],
+    plays: [],
+    vibeWeights: defaultUserWeights,
+  };
+  const scenarios = [
+    context({
+      players: 4,
+      ageBand: "8-10",
+      maxTimeMin: 60,
+      vibes: ["family", "board"],
+    }),
+    context({ players: 13, ageBand: "under6", maxTimeMin: 10 }),
+    context({ players: null, ageBand: "adults", timeOver60: true, maxTimeMin: null }),
+  ];
+
+  for (const filters of scenarios) {
+    const found = runWizard(filters, user);
+    const findIds = [...found.ownedList, ...found.unownedList]
+      .map((candidate) => candidate.bggId)
+      .sort();
+    const sharedEligibleIds = eligibleGames(filters)
+      .map((candidate) => candidate.bggId)
+      .sort();
+    const discoverIds = discoverGames(filters)
+      .map((candidate) => candidate.bggId)
+      .sort();
+
+    assert.deepEqual(sharedEligibleIds, findIds);
+    assert.deepEqual(discoverIds, findIds);
+  }
+});
+
+test("Vibe preferences rank eligible games without excluding low-scoring matches", () => {
+  const lowVibeGame = game("5048");
+  const highVibeGame = game("169786");
+  const filters = context({ players: null, vibes: ["strategy"] });
+  const unfilteredIds = new Set(
+    eligibleGames(context({ players: null })).map((candidate) => candidate.bggId),
+  );
+  const filtered = discoverGames(filters);
+
+  assert.equal(filtered.length, unfilteredIds.size);
+  assert.ok(filtered.some((candidate) => candidate.bggId === lowVibeGame.bggId));
+  assert.ok(filtered.some((candidate) => candidate.bggId === highVibeGame.bggId));
+  assert.ok(
+    recommendationScore(highVibeGame, filters) > recommendationScore(lowVibeGame, filters),
+  );
+});
+
+test("multiple Vibe selections use the same preference scoring in Find and Discover", () => {
+  const filters = context({ players: null, vibes: ["luck", "strategy", "board"] });
+  const user = {
+    owned: [],
+    wishlist: [],
+    plays: [],
+    vibeWeights: defaultUserWeights,
+  };
+  const find = runWizard(filters, user).unownedList;
+  const discover = discoverGames(filters);
+
+  for (const candidate of [game("169786"), game("5048")]) {
+    const expected = candidate.bggRating + vibePreferenceScore(candidate, filters.vibes);
+    assert.equal(recommendationScore(candidate, filters), expected);
+    assert.equal(
+      find.find((result) => result.bggId === candidate.bggId)?.score,
+      expected,
+    );
+    assert.equal(
+      discover.find((result) => result.bggId === candidate.bggId)?.bggId,
+      candidate.bggId,
+    );
+  }
+});
+
+test("Discover filter controls expose the wizard's approved questions and choices", () => {
+  assert.equal(filterTypes.MAX_PLAYER_COUNT, 13);
+  assert.deepEqual(
+    wizardOptions.WIZARD_QUESTIONS.map(({ title }) => title),
+    [
+      "How many people are playing?",
+      "How old is the youngest player?",
+      "How much time do you want to play?",
+      "What kind of game are you in the mood for?",
+    ],
+  );
+  assert.deepEqual(
+    wizardOptions.TIME_OPTIONS.map(({ label, value, over60 }) => [label, value, over60]),
+    [
+      ["10 minutes or less", 10, false],
+      ["15 minutes or less", 15, false],
+      ["30 minutes or less", 30, false],
+      ["45 minutes or less", 45, false],
+      ["60 minutes or less", 60, false],
+      ["More than 60 minutes", null, true],
+    ],
+  );
+  assert.deepEqual(
+    vibeMeta.AGE_BANDS.map(({ id, label }) => [id, label]),
+    [
+      ["under6", "Under 6"],
+      ["6-7", "6–7"],
+      ["8-10", "8–10"],
+      ["11-13", "11–13"],
+      ["14-17", "14–17"],
+      ["adults", "Adults Only"],
+    ],
+  );
+  assert.deepEqual(
+    Object.values(vibeMeta.VIBE_META).map(({ label }) => label),
+    ["Luck", "Strategy", "Dexterity", "Family", "Party", "Board-Based"],
+  );
 });
 
 test("runWizard excludes Wingspan from owned and unowned recommendations for the reported scenario", () => {
@@ -281,6 +438,27 @@ test("rerolls clearly report exhaustion after every matching owned game was show
   assert.equal(next.exhaustedVault, true);
 });
 
+test("Sniff Again rerolls through the shared constraints and avoids games already shown", () => {
+  appStore.setState({
+    wizard: context({ players: null }),
+    owned: ["9209", "266192"],
+    wishlist: [],
+    plays: [],
+    shownIds: [],
+    recPool: null,
+  });
+  const first = appStore.getState().sniffAgain();
+  const firstIds = (first?.ownedTop ?? []).map((candidate) => candidate.bggId);
+  const next = appStore.getState().sniffAgain();
+
+  assert.ok(firstIds.length > 0);
+  assert.equal(
+    next?.ownedTop.some((candidate) => firstIds.includes(candidate.bggId)),
+    false,
+  );
+  assert.deepEqual(next?.appliedFilters, context({ players: null }));
+});
+
 test("Surprise Me randomly selects only an owned catalog game and avoids the previous pick when possible", () => {
   const originalRandom = Math.random;
   try {
@@ -292,4 +470,23 @@ test("Surprise Me randomly selects only an owned catalog game and avoids the pre
   } finally {
     Math.random = originalRandom;
   }
+});
+
+test("Free Vault additions stay available below the limit and capped at 50", () => {
+  appStore.setState({
+    owned: [],
+    wishlist: [],
+    isPremium: false,
+    upgradePrompt: null,
+  });
+  assert.equal(appStore.getState().addOwned("9209"), "ok");
+  assert.equal(appStore.getState().addOwned("266192"), "ok");
+  assert.equal(appStore.getState().addOwned("9209"), "exists");
+
+  appStore.setState({
+    owned: Array.from({ length: 50 }, (_, index) => `vault-${index}`),
+    upgradePrompt: null,
+  });
+  assert.equal(appStore.getState().addOwned("9209"), "limit");
+  assert.ok(appStore.getState().upgradePrompt);
 });

@@ -8,8 +8,8 @@ import type {
   WizardContext,
   WizardResult,
 } from "./types";
-import { DIMENSIONS } from "./types";
-import { GAMES, standaloneGames } from "./catalog";
+import { DIMENSIONS, MAX_PLAYER_COUNT } from "./types";
+import { GAMES, searchGames, standaloneGames } from "./catalog";
 import { explainMatch } from "./explain";
 import { passesHardConstraints, traitScore } from "./vibes";
 
@@ -51,22 +51,34 @@ function exactDistance(game: Game, exact: Partial<Record<VibeId, number>>): numb
   return sum / entries.length;
 }
 
-function rankScore(game: Game, ctx: WizardContext, owned: boolean): number {
+export function vibePreferenceScore(game: Game, vibes: VibeId[]): number {
+  if (!vibes.length) return 0;
+  const scores = vibes.map((v) => traitScore(game, v));
+  const hits3 = scores.filter((s) => s >= 3).length;
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  return hits3 * 12 + avg * 6;
+}
+
+export function recommendationScore(
+  game: Game,
+  ctx: WizardContext,
+  owned = false,
+): number {
   let score = owned ? 18 : 0;
-  if (ctx.players != null && ctx.players < 13 && game.players.best.includes(ctx.players)) score += 8;
+  if (
+    ctx.players != null &&
+    ctx.players < MAX_PLAYER_COUNT &&
+    game.players.best.includes(ctx.players)
+  ) {
+    score += 8;
+  }
   score += game.bggRating;
   if (ctx.exactTraits && Object.keys(ctx.exactTraits).length) {
     const dist = exactDistance(game, ctx.exactTraits);
     score += Math.max(0, 40 - dist * 18);
     return score;
   }
-  if (ctx.vibes.length) {
-    const scores = ctx.vibes.map((v) => traitScore(game, v));
-    const hits3 = scores.filter((s) => s >= 3).length;
-    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-    score += hits3 * 12 + avg * 6;
-  }
-  return score;
+  return score + vibePreferenceScore(game, ctx.vibes);
 }
 
 function toScored(game: Game, ctx: WizardContext, owned: boolean): ScoredGame {
@@ -74,12 +86,22 @@ function toScored(game: Game, ctx: WizardContext, owned: boolean): ScoredGame {
   const { why, topDims } = explainMatch(game, ctx, matchLabel);
   return {
     ...game,
-    score: rankScore(game, ctx, owned),
+    score: recommendationScore(game, ctx, owned),
     matchLabel,
     owned,
     why,
     topDims,
   };
+}
+
+export function eligibleGames(ctx: WizardContext, games = standaloneGames()): Game[] {
+  return games.filter((game) => passesHardConstraints(game, ctx));
+}
+
+export function discoverGames(ctx: WizardContext, query = ""): Game[] {
+  return eligibleGames(ctx, searchGames(query)).sort(
+    (a, b) => recommendationScore(b, ctx) - recommendationScore(a, ctx),
+  );
 }
 
 export function runWizard(
@@ -89,7 +111,7 @@ export function runWizard(
 ): WizardResult {
   const ownedSet = new Set(user.owned);
   const excluded = new Set(excludeIds);
-  const catalog = standaloneGames().filter((g) => passesHardConstraints(g, ctx));
+  const catalog = eligibleGames(ctx);
 
   const ownedEligible = catalog
     .filter((g) => ownedSet.has(g.bggId))

@@ -125,18 +125,16 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 to="/table-setup"
                 onClick={() => setMenuOpen(false)}
-                className="flex min-h-11 items-center justify-between rounded-button px-3 text-sm font-semibold hover:bg-muted"
+                className="flex min-h-11 items-center rounded-button px-3 text-sm font-semibold hover:bg-muted"
               >
-                <span>Players Tonight</span>
-                <span className="text-xs font-medium text-muted-foreground">Free</span>
+                Players Tonight
               </Link>
               <Link
                 to="/recently-played"
                 onClick={() => setMenuOpen(false)}
-                className="flex min-h-11 items-center justify-between rounded-button px-3 text-sm font-semibold hover:bg-muted"
+                className="flex min-h-11 items-center rounded-button px-3 text-sm font-semibold hover:bg-muted"
               >
-                <span>Recently Played</span>
-                <span className="text-xs font-medium text-muted-foreground">Free</span>
+                Recently Played
               </Link>
               <Link
                 to="/scoreboard"
@@ -155,10 +153,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 to="/profile"
                 hash="settings"
                 onClick={() => setMenuOpen(false)}
-                className="flex min-h-11 items-center justify-between rounded-button px-3 text-sm font-semibold hover:bg-muted"
+                className="flex min-h-11 items-center rounded-button px-3 text-sm font-semibold hover:bg-muted"
               >
-                <span>Settings</span>
-                <span className="text-xs font-medium text-muted-foreground">Free</span>
+                Settings
               </Link>
               <Link
                 to="/premium"

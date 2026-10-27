@@ -8,7 +8,7 @@ function TableSetupPage() {
   return (
     <div className="pb-10">
       <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-fox">
-        Free · Game night setup
+        Game night setup
       </p>
       <h1 className="font-display text-3xl">Players Tonight</h1>
       <p className="mt-2 text-sm text-muted-foreground">

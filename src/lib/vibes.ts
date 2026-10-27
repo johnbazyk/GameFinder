@@ -1,10 +1,5 @@
-import type {
-  AgeBand,
-  Game,
-  VibeId,
-  VibeWeights,
-  WizardContext,
-} from "./types";
+import { MAX_PLAYER_COUNT } from "./types";
+import type { AgeBand, Game, VibeId, VibeWeights, WizardContext } from "./types";
 
 export const VIBE_META: Record<
   VibeId,
@@ -114,8 +109,8 @@ export function listedPlaytime(game: Game): number {
 
 export function passesHardConstraints(game: Game, ctx: WizardContext): boolean {
   if (ctx.players != null) {
-    if (ctx.players >= 13) {
-      if (game.players.max < 13 || game.players.min > 13) return false;
+    if (ctx.players >= MAX_PLAYER_COUNT) {
+      if (game.players.max < MAX_PLAYER_COUNT || game.players.min > MAX_PLAYER_COUNT) return false;
     } else if (game.players.min > ctx.players || game.players.max < ctx.players) {
       return false;
     }
