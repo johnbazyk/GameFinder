@@ -6,10 +6,21 @@ play-history, score-session, and cloud-vault records. New catalog records use a
 GameFinder-owned stable ID; provider IDs are separate external identifiers.
 Legacy IDs are not rewritten or automatically merged.
 
+Legacy BGG-keyed references resolve to the internal ID only when the external
+ID is unique. Known conflicts, including `41114`, return an ambiguous result
+and are left unchanged. This crosswalk is read-only and does not migrate Vault,
+play-history, score-session, or other user data.
+
 User-entered games can be stored with incomplete metadata. Unknown player counts,
 publisher age, listed playtime, adult-content status, and GameFinder rubric
 values stay unknown. A missing value cannot satisfy a selected hard filter.
 Missing or unverified fields are not treated as verified facts.
+
+Legacy catalog eligibility and ranking use the same boundaries as Find and
+Discover, including the existing 13+ player rule, age-band cutoffs, playtime
+boundary, adult-content classification, multi-Vibe score, and Premium exact
+trait score. Legacy values retain unverified provenance; the new helpers do not
+invent missing custom-game facts.
 
 The BGG provider is disabled. Its local-only fixtures are fictional test data;
 the adapter contains no HTTP client or scraping behavior. Provider policy leaves
@@ -56,6 +67,12 @@ redistribute the document. Each permission scope defaults to false. Finn's
 current answers are general AI answers, not verified against an authorized
 rulebook. No rulebook ingestion, embeddings, retrieval, or model training is
 implemented.
+
+The catalog, external-ID, and rulebook tables are server-only. RLS is enabled
+without browser-role policies, and direct `PUBLIC`, `anon`, and `authenticated`
+table privileges are revoked. Server functions continue to scope user catalog
+records by the authenticated account. Migration `0006` has not been applied to
+production.
 
 Before enabling any provider or rulebook workflow, obtain and document answers
 to these licensing questions:

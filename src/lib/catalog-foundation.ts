@@ -1,4 +1,5 @@
 import type { Game, Rubric, VibeId, WizardContext } from "./types";
+import { MAX_PLAYER_COUNT } from "./types";
 import { AGE_BANDS, hasAdultContent, traitScore } from "./vibes";
 
 export type CatalogProviderId = "bgg" | "gamefinder" | "user" | "mock";
@@ -40,6 +41,7 @@ export type CatalogGameRecord = {
   publisherMinimumAge: number | null;
   maximumListedPlaytimeMinutes: number | null;
   adultContent: boolean | null;
+  bggRating: number | null;
   categories: string[];
   mechanics: string[];
   rubric: Partial<Rubric>;
@@ -132,6 +134,8 @@ export function catalogRecordFromGame(game: Game): CatalogGameRecord {
     "players",
     "publisherMinimumAge",
     "maximumListedPlaytimeMinutes",
+    "adultContent",
+    "bggRating",
     "categories",
     "mechanics",
     "rubric",
@@ -156,9 +160,10 @@ export function catalogRecordFromGame(game: Game): CatalogGameRecord {
       maximum: game.players.max,
       best: [...game.players.best],
     },
-    publisherMinimumAge: game.age.publisher || null,
-    maximumListedPlaytimeMinutes: game.playtime.max || null,
-    adultContent: game.adultContent ?? (hasAdultContent(game) ? true : null),
+    publisherMinimumAge: game.age.publisher || game.age.community,
+    maximumListedPlaytimeMinutes: game.playtime.max,
+    adultContent: hasAdultContent(game),
+    bggRating: game.bggRating,
     categories: [...game.categories],
     mechanics: [...game.mechanics],
     rubric: { ...game.rubric },
@@ -243,6 +248,7 @@ export function createCustomCatalogGame(
     publisherMinimumAge: null,
     maximumListedPlaytimeMinutes: null,
     adultContent: null,
+    bggRating: null,
     categories: [],
     mechanics: [],
     rubric: {},
@@ -264,6 +270,7 @@ export function createCustomCatalogGame(
       "publisherMinimumAge",
       "maximumListedPlaytimeMinutes",
       "adultContent",
+      "bggRating",
       "categories",
       "mechanics",
       "rubric",
@@ -339,6 +346,7 @@ export function isCustomCatalogGame(value: unknown): value is CatalogGameRecord 
     isNullableNumber(record.publisherMinimumAge, 0, 120) &&
     isNullableNumber(record.maximumListedPlaytimeMinutes, 1, 100_000) &&
     (record.adultContent == null || typeof record.adultContent === "boolean") &&
+    isNullableNumber(record.bggRating, 0, 10) &&
     isTextList(record.categories, 100) &&
     isTextList(record.mechanics, 100) &&
     Boolean(
@@ -372,9 +380,17 @@ export function isCustomCatalogGame(value: unknown): value is CatalogGameRecord 
 
 export function catalogHardEligible(game: CatalogGameRecord, context: WizardContext): boolean {
   if (context.players != null) {
-    if (
-      game.players.minimum == null ||
-      game.players.maximum == null ||
+    if (game.players.minimum == null || game.players.maximum == null) {
+      return false;
+    }
+    if (context.players >= MAX_PLAYER_COUNT) {
+      if (
+        game.players.maximum < MAX_PLAYER_COUNT ||
+        game.players.minimum > MAX_PLAYER_COUNT
+      ) {
+        return false;
+      }
+    } else if (
       context.players < game.players.minimum ||
       context.players > game.players.maximum
     ) {
@@ -423,6 +439,62 @@ export function catalogVibePreferenceScore(
   const hits3 = scores.filter((score) => score >= 3).length;
   const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
   return hits3 * 12 + average * 6;
+}
+
+export function catalogRecommendationScore(
+  game: CatalogGameRecord,
+  context: WizardContext,
+  owned = false,
+): number {
+  let score = owned ? 18 : 0;
+  if (
+    context.players != null &&
+    context.players < MAX_PLAYER_COUNT &&
+    game.players.best.includes(context.players)
+  ) {
+    score += 8;
+  }
+  score += game.bggRating ?? 0;
+  const exactTraits = context.exactTraits
+    ? Object.entries(context.exactTraits).filter(
+        (entry): entry is [VibeId, number] => typeof entry[1] === "number",
+      )
+    : [];
+  if (exactTraits.length) {
+    const scores = exactTraits.map(([vibe]) => game.vibeScores[vibe]);
+    if (scores.every((value): value is number => typeof value === "number")) {
+      const distance =
+        scores.reduce(
+          (sum, value, index) => sum + Math.abs(value - exactTraits[index][1]),
+          0,
+        ) / scores.length;
+      score += Math.max(0, 40 - distance * 18);
+    }
+    return score;
+  }
+  return score + (catalogVibePreferenceScore(game, context.vibes) ?? 0);
+}
+
+export type LegacyGameReference =
+  | { status: "resolved"; legacyBggId: string; catalogGame: CatalogGameRecord }
+  | { status: "ambiguous"; legacyBggId: string; candidates: CatalogGameRecord[] }
+  | { status: "not-found"; legacyBggId: string };
+
+export function resolveLegacyGameReference(
+  records: CatalogGameRecord[],
+  legacyBggId: string,
+  conflictingBggIds: string[],
+): LegacyGameReference {
+  const candidates = records.filter((record) =>
+    record.externalIds.some(
+      (external) => external.provider === "bgg" && external.value === legacyBggId,
+    ),
+  );
+  if (conflictingBggIds.includes(legacyBggId) || candidates.length > 1) {
+    return { status: "ambiguous", legacyBggId, candidates };
+  }
+  if (candidates.length === 0) return { status: "not-found", legacyBggId };
+  return { status: "resolved", legacyBggId, catalogGame: candidates[0] };
 }
 
 export function findExternalIdConflicts(
@@ -508,6 +580,7 @@ function missingMockFields(response: BggMockResponse): string[] {
     "publisherMinimumAge",
     "maximumListedPlaytimeMinutes",
     "adultContent",
+    "bggRating",
     "categories",
     "mechanics",
     "rubric",

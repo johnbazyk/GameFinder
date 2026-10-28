@@ -59,3 +59,26 @@ create table if not exists rulebook_sources (
 );
 create index if not exists rulebook_sources_game_idx
   on rulebook_sources (catalog_game_id, edition);
+
+-- Match the server-only access model from 0004_rls.sql. The application
+-- connects as the table owner; browser-facing PostgREST roles get no access.
+alter table catalog_games enable row level security;
+alter table catalog_external_ids enable row level security;
+alter table rulebook_sources enable row level security;
+
+revoke all privileges on table catalog_games, catalog_external_ids, rulebook_sources from public;
+
+do $$
+declare
+  role_name text;
+begin
+  for role_name in
+    select rolname from pg_roles where rolname in ('anon', 'authenticated')
+  loop
+    execute format(
+      'revoke all privileges on table catalog_games, catalog_external_ids, rulebook_sources from %I',
+      role_name
+    );
+  end loop;
+end
+$$;

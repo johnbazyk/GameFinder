@@ -39,6 +39,8 @@ type AppState = {
   owned: string[];
   wishlist: string[];
   customGames: CatalogGameRecord[];
+  customGamesOwnerId: string | null | "unattributed";
+  unattributedCustomGames: CatalogGameRecord[];
   addCustomGame: (title: string) => CatalogGameRecord;
   addOwned: (id: string) => "ok" | "exists" | "limit";
   removeOwned: (id: string) => void;
@@ -144,6 +146,8 @@ export const useAppStore = create<AppState>()(
       owned: [],
       wishlist: [],
       customGames: [],
+      customGamesOwnerId: null,
+      unattributedCustomGames: [],
       addCustomGame: (title) => {
         const game = createCustomCatalogGame(title);
         set({ customGames: [...get().customGames, game] });
@@ -327,11 +331,14 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "gamefinder-v2",
+      version: 1,
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         owned: s.owned,
         wishlist: s.wishlist,
         customGames: s.customGames,
+        customGamesOwnerId: s.customGamesOwnerId,
+        unattributedCustomGames: s.unattributedCustomGames,
         plays: s.plays,
         vibeWeights: s.vibeWeights,
         theme: s.theme,
@@ -350,6 +357,15 @@ export const useAppStore = create<AppState>()(
         ...currentState,
         ...(persistedState as Partial<AppState>),
         isPremium: false,
+      }),
+      migrate: (persistedState, version) => ({
+        ...(persistedState as Partial<AppState>),
+        customGamesOwnerId:
+          version < 1
+            ? "unattributed"
+            : ((persistedState as Partial<AppState>).customGamesOwnerId ?? "unattributed"),
+        unattributedCustomGames:
+          (persistedState as Partial<AppState>).unattributedCustomGames ?? [],
       }),
       onRehydrateStorage: () => (state) => {
         if (state?.theme === "dark" && typeof document !== "undefined") {
