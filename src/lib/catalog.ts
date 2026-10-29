@@ -2137,7 +2137,8 @@ export function auditCatalogQuality(): CatalogQualityAudit {
   return audit;
 }
 
-export const GAMES: Game[] = RAW.map((raw) => {
+export const AUTHORED_GAMES: Game[] = RAW.map((source) => {
+  let raw = source;
   // Unique names: the second Wonderland's War entry was a placeholder.
   if (raw.bggId === "318184") {
     raw = {
@@ -2156,11 +2157,14 @@ export const GAMES: Game[] = RAW.map((raw) => {
       description: "Explore a map four times. Routes reset; discoveries stay.",
     };
   }
-  const game = g(raw);
-  if (byId.has(game.bggId)) return null;
+  return g(raw);
+});
+
+export const GAMES: Game[] = AUTHORED_GAMES.filter((game) => {
+  if (byId.has(game.bggId)) return false;
   byId.set(game.bggId, game);
-  return game;
-}).filter((g): g is Game => g !== null);
+  return true;
+});
 
 export function searchGames(query: string): Game[] {
   const q = query.trim().toLowerCase();
