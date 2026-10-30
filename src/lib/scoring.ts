@@ -197,12 +197,12 @@ export function pickSurprise(ownedIds: string[], avoidId?: string): Game | undef
   return selectable[Math.floor(Math.random() * selectable.length)];
 }
 
-/** Tonight's constraints first; random vault only if the wizard has no owned hit. */
+/** Returns the highest-ranked owned game that satisfies the selected constraints. */
 export function pickTonight(
   ctx: WizardContext,
   user: UserSignals,
   avoidId?: string,
 ): Game | undefined {
   const result = runWizard(ctx, user, avoidId ? [avoidId] : []);
-  return result.ownedTop[0] ?? pickSurprise(user.owned, avoidId);
+  return result.ownedTop[0];
 }
