@@ -1,6 +1,6 @@
 # Reviewed-facts foundation and Root shadow test
 
-**Checkpoint 05B4A — review-only implementation.** This is an in-memory TypeScript model and pure resolver. It adds no storage, migration, catalog edit, ID assignment, or live recommendation behavior. Shadow comparisons use only GameFinder's static authored catalog, not user Vaults or cloud data.
+**Checkpoint 05B4A — review-only implementation.** This is an in-memory TypeScript model and pure resolver. It adds no storage, migration, catalog edit, or ID assignment. Checkpoint 05B4B wires an empty, code-disabled adapter into the shared recommendation eligibility input; the adapter returns legacy inputs unchanged and has no active corrections. Shadow comparisons use only GameFinder's static authored catalog, not user Vaults or cloud data.
 
 ## Data structure and gates
 

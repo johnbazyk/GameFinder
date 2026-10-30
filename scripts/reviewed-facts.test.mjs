@@ -495,18 +495,15 @@ test("review and shadow evaluation preserve synthetic user references and perfor
 });
 
 test("reviewed facts remain isolated from live recommendation and persistence paths", () => {
-  const runtimeFiles = [
-    "src/lib/catalog.ts",
-    "src/lib/scoring.ts",
-    "src/lib/store.ts",
-    "src/lib/catalog-sync.ts",
-  ];
+  const runtimeFiles = ["src/lib/catalog.ts", "src/lib/store.ts", "src/lib/catalog-sync.ts"];
   for (const file of runtimeFiles) {
     assert.doesNotMatch(
       readFileSync(new URL(`../${file}`, import.meta.url), "utf8"),
       /reviewed-facts/,
     );
   }
+  const scoringSource = readFileSync(new URL("../src/lib/scoring.ts", import.meta.url), "utf8");
+  assert.match(scoringSource, /reviewed-facts-integration/);
   const reviewLayer = readFileSync(
     new URL("../src/lib/reviewed-facts.ts", import.meta.url),
     "utf8",

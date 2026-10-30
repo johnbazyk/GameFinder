@@ -12,6 +12,10 @@ import { DIMENSIONS, MAX_PLAYER_COUNT } from "./types";
 import { GAMES, searchGames, standaloneGames } from "./catalog";
 import { explainMatch } from "./explain";
 import { passesHardConstraints, traitScore } from "./vibes";
+import {
+  applicationReviewedFactsAdapter,
+  type RecommendationCatalogAdapter,
+} from "./reviewed-facts-integration";
 
 export type UserSignals = {
   owned: string[];
@@ -59,11 +63,7 @@ export function vibePreferenceScore(game: Game, vibes: VibeId[]): number {
   return hits3 * 12 + avg * 6;
 }
 
-export function recommendationScore(
-  game: Game,
-  ctx: WizardContext,
-  owned = false,
-): number {
+export function recommendationScore(game: Game, ctx: WizardContext, owned = false): number {
   let score = owned ? 18 : 0;
   if (
     ctx.players != null &&
@@ -94,12 +94,21 @@ function toScored(game: Game, ctx: WizardContext, owned: boolean): ScoredGame {
   };
 }
 
-export function eligibleGames(ctx: WizardContext, games = standaloneGames()): Game[] {
-  return games.filter((game) => passesHardConstraints(game, ctx));
+export function eligibleGames(
+  ctx: WizardContext,
+  games: readonly Game[] = standaloneGames(),
+  catalogAdapter: RecommendationCatalogAdapter = applicationReviewedFactsAdapter,
+): Game[] {
+  return catalogAdapter(games, ctx).filter((game) => passesHardConstraints(game, ctx));
 }
 
-export function discoverGames(ctx: WizardContext, query = ""): Game[] {
-  return eligibleGames(ctx, searchGames(query)).sort(
+export function discoverGames(
+  ctx: WizardContext,
+  query = "",
+  catalogAdapter: RecommendationCatalogAdapter = applicationReviewedFactsAdapter,
+  games: readonly Game[] = searchGames(query),
+): Game[] {
+  return eligibleGames(ctx, games, catalogAdapter).sort(
     (a, b) => recommendationScore(b, ctx) - recommendationScore(a, ctx),
   );
 }
@@ -108,10 +117,12 @@ export function runWizard(
   ctx: WizardContext,
   user: UserSignals,
   excludeIds: string[] = [],
+  catalogAdapter: RecommendationCatalogAdapter = applicationReviewedFactsAdapter,
+  games: readonly Game[] = standaloneGames(),
 ): WizardResult {
   const ownedSet = new Set(user.owned);
   const excluded = new Set(excludeIds);
-  const catalog = eligibleGames(ctx);
+  const catalog = eligibleGames(ctx, games, catalogAdapter);
 
   const ownedEligible = catalog
     .filter((g) => ownedSet.has(g.bggId))
@@ -125,9 +136,7 @@ export function runWizard(
     .filter((g) => !ownedSet.has(g.bggId))
     .map((g) => toScored(g, ctx, false))
     .sort((a, b) => b.score - a.score);
-  const unownedTop = unownedEligible
-    .filter((g) => !excluded.has(g.bggId))
-    .slice(0, 3);
+  const unownedTop = unownedEligible.filter((g) => !excluded.has(g.bggId)).slice(0, 3);
 
   return {
     ownedTop,
@@ -141,14 +150,8 @@ export function runWizard(
   };
 }
 
-export function applyFeedbackDelta(
-  weights: VibeWeights,
-  game: Game,
-  delta: number,
-): VibeWeights {
-  const ranked = DIMENSIONS.map((d) => ({ d, v: game.rubric[d] })).sort(
-    (a, b) => b.v - a.v,
-  );
+export function applyFeedbackDelta(weights: VibeWeights, game: Game, delta: number): VibeWeights {
+  const ranked = DIMENSIONS.map((d) => ({ d, v: game.rubric[d] })).sort((a, b) => b.v - a.v);
   const next = { ...weights };
   for (const { d } of ranked.slice(0, 3)) {
     next[d] = Math.min(1.5, Math.max(0.5, next[d] + delta));
@@ -187,9 +190,7 @@ export function formatAge(game: Game): string {
 }
 
 export function pickSurprise(ownedIds: string[], avoidId?: string): Game | undefined {
-  const pool = ownedIds
-    .map(getGame)
-    .filter((g): g is Game => g != null);
+  const pool = ownedIds.map(getGame).filter((g): g is Game => g != null);
   if (!pool.length) return undefined;
   const alternatives = pool.filter((g) => g.bggId !== avoidId);
   const selectable = alternatives.length ? alternatives : pool;
