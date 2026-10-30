@@ -11,6 +11,7 @@
     "build": "node scripts/with-app-env.mjs vite build",
     "db:migrate": "node scripts/migrate.mjs",
     "audit:catalog": "node scripts/catalog-audit.mjs",
+    "audit:catalog-identity": "node scripts/catalog-identity-dry-run.mjs",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
     "preview": "node scripts/with-app-env.mjs vite preview",
     "typecheck": "tsc --noEmit",
