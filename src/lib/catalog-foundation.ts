@@ -2,7 +2,16 @@ import type { Game, Rubric, VibeId, WizardContext } from "./types";
 import { MAX_PLAYER_COUNT } from "./types";
 import { AGE_BANDS, hasAdultContent, traitScore } from "./vibes";
 
-export type CatalogProviderId = "bgg" | "gamefinder" | "user" | "mock";
+export const CATALOG_PROVIDER_IDS = [
+  "bgg",
+  "gamefinder",
+  "publisher",
+  "open-dataset",
+  "user",
+  "mock",
+  "synthetic",
+] as const;
+export type CatalogProviderId = (typeof CATALOG_PROVIDER_IDS)[number];
 export type CatalogFactStatus = "verified" | "unverified" | "disputed" | "missing";
 export type CatalogSourceClass =
   "independent" | "third-party-licensed" | "user-entered" | "legacy-unknown" | "mock";
@@ -320,7 +329,7 @@ export function isCustomCatalogGame(value: unknown): value is CatalogGameRecord 
         relationship.externalIds.length <= 20 &&
         relationship.externalIds.every(
           (external) =>
-            ["bgg", "gamefinder", "user", "mock"].includes(external.provider) &&
+            CATALOG_PROVIDER_IDS.includes(external.provider) &&
             isText(external.value, 120) &&
             external.value.length > 0,
         ),
@@ -330,7 +339,7 @@ export function isCustomCatalogGame(value: unknown): value is CatalogGameRecord 
     record.externalIds.every(
       (external) =>
         external != null &&
-        ["bgg", "gamefinder", "user", "mock"].includes(external.provider) &&
+        CATALOG_PROVIDER_IDS.includes(external.provider) &&
         isText(external.value, 120) &&
         external.value.length > 0,
     ) &&
@@ -365,7 +374,7 @@ export function isCustomCatalogGame(value: unknown): value is CatalogGameRecord 
       (source) =>
         source != null &&
         isText(source.field) &&
-        ["bgg", "gamefinder", "user", "mock"].includes(source.provider) &&
+        CATALOG_PROVIDER_IDS.includes(source.provider) &&
         ["independent", "third-party-licensed", "user-entered", "legacy-unknown", "mock"].includes(
           source.sourceClass,
         ) &&
