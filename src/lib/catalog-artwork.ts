@@ -62,6 +62,7 @@ export type ArtworkSelection =
         | "missing"
         | "rights-unresolved"
         | "approval-pending"
+        | "approval-rejected"
         | "image-unavailable"
         | "edition-mismatch"
         | "identity-mismatch";
@@ -81,8 +82,8 @@ function scopeMatches(left: ArtworkEditionScope, right: ArtworkEditionScope): bo
 }
 
 function targetsSameGame(left: ArtworkGameIdentity, right: ArtworkGameIdentity): boolean {
-  if (left.gamefinderId && right.gamefinderId) {
-    return left.gamefinderId === right.gamefinderId;
+  if (left.gamefinderId !== null || right.gamefinderId !== null) {
+    return left.gamefinderId !== null && left.gamefinderId === right.gamefinderId;
   }
   return left.stagingId === right.stagingId;
 }
@@ -91,6 +92,7 @@ function rightsAllowCommercialDisplay(artwork: ArtworkCandidate, now: string): b
   return (
     artwork.rights.commercialDisplay === "allowed" &&
     Boolean(artwork.rights.permissionReference?.trim()) &&
+    artwork.rights.attribution.required !== null &&
     (!artwork.rights.attribution.required || Boolean(artwork.rights.attribution.text?.trim())) &&
     artwork.rights.revokedAt === null &&
     (artwork.rights.expiresAt === null || Date.parse(artwork.rights.expiresAt) > Date.parse(now))
@@ -129,7 +131,10 @@ export function selectApprovedArtwork(
   }
   const verifiedAndApproved = matchingEdition.filter(
     (candidate) =>
-      candidate.review.verification === "verified" && candidate.review.approval === "approved",
+      candidate.review.verification === "verified" &&
+      candidate.review.approval === "approved" &&
+      Boolean(candidate.review.reviewerId?.trim()) &&
+      Number.isFinite(Date.parse(candidate.review.reviewedAt ?? "")),
   );
   const displayAuthorized = verifiedAndApproved.filter((candidate) =>
     rightsAllowCommercialDisplay(candidate, now),
@@ -146,13 +151,13 @@ export function selectApprovedArtwork(
       return rightQuality - leftQuality || left.id.localeCompare(right.id);
     });
   if (!available.length) {
-    const status = matchingEdition.some(
-      (candidate) => !rightsAllowCommercialDisplay(candidate, now),
-    )
-      ? "rights-unresolved"
-      : displayAuthorized.length > 0
-        ? "image-unavailable"
-        : "approval-pending";
+    const status = matchingEdition.some((candidate) => candidate.review.approval === "rejected")
+      ? "approval-rejected"
+      : matchingEdition.some((candidate) => !rightsAllowCommercialDisplay(candidate, now))
+        ? "rights-unresolved"
+        : displayAuthorized.length > 0
+          ? "image-unavailable"
+          : "approval-pending";
     return {
       status,
       artwork: null,

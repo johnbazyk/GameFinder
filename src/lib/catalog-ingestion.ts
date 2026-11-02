@@ -126,6 +126,11 @@ export type StagedCatalogCandidate = Omit<ProviderGameCandidate, "facts"> & {
     at: string;
     provider: CatalogProviderId;
     providerRecordReference: string;
+    changes: {
+      field: keyof ProviderCandidateFacts;
+      previousClaims: ProviderFieldClaim<unknown>[];
+      currentClaims: ProviderFieldClaim<unknown>[];
+    }[];
   }[];
 };
 
@@ -209,6 +214,7 @@ export function stageProviderCandidate(
         at: importedAt,
         provider: candidate.provider,
         providerRecordReference: candidate.providerRecordReference,
+        changes: [],
       },
     ],
   };
@@ -232,6 +238,20 @@ export function refreshStagedCandidate(
     );
   }
   const updated = stageProviderCandidate(refreshed, current.timestamps.importedAt);
+  const changes = (Object.keys(refreshed.facts) as (keyof ProviderCandidateFacts)[]).flatMap(
+    (field) => {
+      const previousClaims = current.facts[field].claims;
+      const currentClaims = refreshed.facts[field];
+      if (stableSerialize(previousClaims) === stableSerialize(currentClaims)) return [];
+      return [
+        {
+          field,
+          previousClaims,
+          currentClaims,
+        },
+      ];
+    },
+  );
   return {
     ...updated,
     stagingId: current.stagingId,
@@ -248,6 +268,7 @@ export function refreshStagedCandidate(
         at: refreshedAt,
         provider: refreshed.provider,
         providerRecordReference: refreshed.providerRecordReference,
+        changes,
       },
     ],
   };
@@ -356,13 +377,56 @@ function isValidPublishedPlaytime(value: unknown): value is PublishedPlaytime {
   ) {
     return false;
   }
+  if (playtime.basis === "unknown") return playtime.maximumListedMinutes === null;
+  if (playtime.basis === "advertised-duration") return playtime.maximumListedMinutes === null;
   return (
     typeof playtime.maximumListedMinutes === "number" &&
     (playtime.basis === "explicit-upper-bound" ||
-      (playtime.basis === "published-range" &&
-        typeof playtime.maximumMinutes === "number" &&
+      (typeof playtime.maximumMinutes === "number" &&
         playtime.maximumListedMinutes === playtime.maximumMinutes))
   );
+}
+
+function validRawClaimValue(fieldName: string, value: unknown): boolean {
+  switch (fieldName) {
+    case "title":
+    case "publisher":
+    case "edition":
+    case "printing":
+    case "language":
+    case "market":
+      return typeof value === "string" && value.trim().length > 0 && value.length <= 240;
+    case "yearPublished":
+      return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 9999;
+    case "playersMinimum":
+    case "playersMaximum":
+      return typeof value === "number" && validInteger(value, 1, 100);
+    case "publisherMinimumAge":
+      return typeof value === "number" && validInteger(value, 0, 120);
+    case "publishedPlaytime":
+      return isValidPublishedPlaytime(value);
+    case "mechanics":
+    case "categories":
+      return (
+        Array.isArray(value) &&
+        value.every((item) => typeof item === "string" && item.trim().length > 0)
+      );
+    case "relationship": {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+      const relationship = value as Partial<CandidateRelationship>;
+      return (
+        ["base-game", "expansion", "standalone"].includes(String(relationship.kind)) &&
+        (relationship.kind === "standalone"
+          ? relationship.relatedGame === null
+          : relationship.relatedGame !== null &&
+            typeof relationship.relatedGame === "object" &&
+            typeof relationship.relatedGame.title === "string" &&
+            relationship.relatedGame.title.trim().length > 0)
+      );
+    }
+    default:
+      return false;
+  }
 }
 
 export function validateStagedCandidate(
@@ -441,21 +505,23 @@ export function validateStagedCandidate(
     ["categories", facts.categories],
   ];
   for (const [fieldName, fact] of factsByName) {
-    if (hasConflictingClaims(fact)) reasons.add("conflicting-provider-claims");
     if (
       !Array.isArray(fact.claims) ||
       fact.claims.length === 0 ||
       fact.claims.some(
         (claim) =>
           !claim ||
+          (claim.status !== "reported" && claim.status !== "unknown") ||
           !validProvenance(claim.provenance) ||
           claim.provenance.fieldName !== fieldName ||
           (claim.status === "unknown" && claim.value !== null) ||
           (claim.status === "reported" && claim.value == null) ||
-          !["reported", "unknown"].includes(claim.status),
+          (claim.status === "reported" && !validRawClaimValue(fieldName, claim.value)),
       )
     ) {
       reasons.add("invalid-provider-claim");
+    } else if (hasConflictingClaims(fact)) {
+      reasons.add("conflicting-provider-claims");
     }
   }
   const minimumPlayers = facts.playersMinimum.reviewed.value;
@@ -720,6 +786,92 @@ const SYNTHETIC_RECORDS: readonly ProviderGameCandidate[] = [
   },
   syntheticCandidate("synth-owner-pending", { title: "Synthetic Approval Pending" }),
 ];
+
+export function createSyntheticCatalogBatch(size: number): readonly unknown[] {
+  if (!Number.isInteger(size) || size < 0 || size > 100_000) {
+    throw new CatalogProviderError(
+      "invalid-request",
+      "Synthetic batch size must be an integer from 0 to 100000.",
+    );
+  }
+  return Array.from({ length: size }, (_, index) => {
+    const sequence = index + 1;
+    const providerRecordId = `synth-bulk-${String(sequence).padStart(6, "0")}`;
+    const collisionPair = Math.floor(index / 101);
+    const duplicateExternal = index % 101 < 2;
+    const candidate = syntheticCandidate(providerRecordId, {
+      title: `Synthetic Batch Game ${String(sequence).padStart(6, "0")}`,
+      minimumPlayers: index % 29 === 7 ? 5 : 1 + (index % 4),
+      maximumPlayers: index % 29 === 7 ? 2 : 2 + (index % 5),
+      publisherMinimumAge: index % 17 === 3 ? null : 6 + (index % 13),
+      maximumListedPlaytimeMinutes: index % 19 === 5 ? null : 30 + ((index % 9) + 1) * 15,
+      edition: `Synthetic batch edition ${1 + (index % 3)}`,
+      relationship:
+        index % 31 === 2
+          ? {
+              kind: "expansion",
+              relatedGame: {
+                externalId: {
+                  provider: "synthetic",
+                  value: `synth-bulk-${String(sequence - 1).padStart(6, "0")}`,
+                },
+                gamefinderId: null,
+                title: `Synthetic Batch Game ${String(sequence - 1).padStart(6, "0")}`,
+              },
+            }
+          : { kind: "standalone", relatedGame: null },
+    });
+    if (duplicateExternal) {
+      candidate.externalIds = [
+        {
+          provider: "synthetic",
+          value: `synth-bulk-shared-${String(collisionPair).padStart(4, "0")}`,
+        },
+      ];
+    }
+    if (index % 23 === 11) {
+      candidate.externalIds = [
+        {
+          provider: "synthetic",
+          value: `synth-incorrect-external-${String(sequence).padStart(6, "0")}`,
+        },
+      ];
+    }
+    if (index % 13 === 4) {
+      candidate.facts.publisher = [
+        { status: "unknown", value: null, provenance: provenance(providerRecordId, "publisher") },
+      ];
+    }
+    if (index % 41 === 9) {
+      candidate.facts.playersMinimum = [
+        {
+          status: "reported",
+          value: 0,
+          provenance: provenance(providerRecordId, "playersMinimum"),
+        },
+      ];
+    }
+    if (index % 43 === 10) {
+      candidate.facts.yearPublished = [
+        {
+          status: "reported",
+          value: 2024,
+          provenance: {
+            ...provenance(providerRecordId, "yearPublished"),
+            reference: null,
+            url: null,
+          },
+        },
+      ];
+    }
+    if (index % 47 === 12) {
+      candidate.facts.title = [
+        { status: "reported", value: "", provenance: provenance(providerRecordId, "title") },
+      ];
+    }
+    return candidate;
+  });
+}
 
 export function createSyntheticCatalogProvider(): CatalogIngestionProvider {
   return {
