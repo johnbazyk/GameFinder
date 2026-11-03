@@ -21,6 +21,78 @@ export type ExternalGameId = {
   value: string;
 };
 
+export type CatalogIdentityEvidence = {
+  id: string;
+  kind: "publisher-record" | "licensed-provider-record" | "curator-review" | "historical-source";
+  reference: string;
+  observedAt: string;
+  reviewerId: string | null;
+};
+
+export type CatalogIdentitySourceRecord = {
+  sourceNamespace: string;
+  sourceRecordId: string;
+  recordKey: string;
+  fingerprint: string;
+};
+
+export type CatalogIdentityIdentifierStatus = "unverified" | "verified" | "disputed";
+
+export type CatalogIdentityLegacyAlias = {
+  namespace: "legacy-bgg" | "legacy-internal" | "legacy-user";
+  value: string;
+  status: CatalogIdentityIdentifierStatus;
+  evidenceRef: string | null;
+};
+
+export type CatalogIdentityExternalId = ExternalGameId & {
+  status: CatalogIdentityIdentifierStatus;
+  evidenceRef: string | null;
+};
+
+export type CatalogIdentityRelationship = {
+  relation: "base-game" | "expansion" | "edition";
+  targetIdentityId: string | null;
+  status: "unresolved" | "verified";
+  evidenceRef: string | null;
+  externalReference: ExternalGameId | null;
+};
+
+export type CatalogIdentityEdition = {
+  name: string | null;
+  printing: string | null;
+  language: string | null;
+  regionalMarket: string | null;
+  status: CatalogFactStatus;
+  evidenceRef: string | null;
+};
+
+export type PermanentCatalogIdentity = {
+  readonly id: string;
+  readonly title: string;
+  readonly edition: CatalogIdentityEdition;
+  readonly status: "proposed" | "verified" | "disputed";
+  readonly sourceRecords: readonly CatalogIdentitySourceRecord[];
+  readonly legacyAliases: readonly CatalogIdentityLegacyAlias[];
+  readonly externalIds: readonly CatalogIdentityExternalId[];
+  readonly relationships: readonly CatalogIdentityRelationship[];
+  readonly evidence: readonly CatalogIdentityEvidence[];
+  readonly conflictStatus: "none" | "review-required" | "ambiguous";
+  readonly createdAt: string;
+  readonly revisionHistory: readonly {
+    revision: number;
+    recordedAt: string;
+    changeRef: string;
+  }[];
+};
+
+export type PermanentCatalogIdentityResolution =
+  | { status: "safe-candidate"; identity: PermanentCatalogIdentity; evidenceRef: string }
+  | { status: "requires-identity-review"; candidates: PermanentCatalogIdentity[] }
+  | { status: "ambiguous"; candidates: PermanentCatalogIdentity[] }
+  | { status: "orphaned"; candidates: [] }
+  | { status: "invalid"; candidates: [] };
+
 export type CatalogFactSource = {
   field: string;
   provider: CatalogProviderId;
@@ -134,6 +206,144 @@ export function legacyCatalogId(game: Pick<Game, "bggId" | "name">): string {
 
 export function createCatalogGameId(): string {
   return `gf:${crypto.randomUUID()}`;
+}
+
+const PERMANENT_CATALOG_ID_PATTERN =
+  /^gf:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export function allocatePermanentCatalogIdentityId(): string {
+  return createCatalogGameId();
+}
+
+export function validatePermanentCatalogIdentityRegistry(
+  identities: readonly PermanentCatalogIdentity[],
+): void {
+  const identityIds = new Set<string>();
+  const sourceRecordKeys = new Set<string>();
+  const identityById = new Map(identities.map((identity) => [identity.id, identity]));
+
+  for (const identity of identities) {
+    if (!PERMANENT_CATALOG_ID_PATTERN.test(identity.id) || identityIds.has(identity.id)) {
+      throw new Error(`Invalid or duplicate permanent catalog ID: ${identity.id}`);
+    }
+    identityIds.add(identity.id);
+    if (
+      !identity.title.trim() ||
+      !Array.isArray(identity.sourceRecords) ||
+      !identity.sourceRecords.length
+    ) {
+      throw new Error(`Permanent catalog identity ${identity.id} lacks a source record or title.`);
+    }
+    for (const source of identity.sourceRecords) {
+      const sourceKey = `${source.sourceNamespace}:${source.sourceRecordId}`;
+      if (
+        !source.sourceNamespace.trim() ||
+        !source.sourceRecordId.trim() ||
+        !source.recordKey.trim() ||
+        !/^[0-9a-f]{64}$/.test(source.fingerprint) ||
+        sourceRecordKeys.has(sourceKey)
+      ) {
+        throw new Error(`Invalid or multiply-assigned source record: ${sourceKey}`);
+      }
+      sourceRecordKeys.add(sourceKey);
+    }
+    const evidenceIds = new Set(identity.evidence.map((entry) => entry.id));
+    const editionValues = [
+      identity.edition?.name,
+      identity.edition?.printing,
+      identity.edition?.language,
+      identity.edition?.regionalMarket,
+    ];
+    if (
+      !identity.edition ||
+      !["verified", "unverified", "disputed", "missing"].includes(identity.edition.status) ||
+      editionValues.some(
+        (value) => value !== null && (typeof value !== "string" || !value.trim()),
+      ) ||
+      (identity.edition.status === "missing" && editionValues.some((value) => value !== null)) ||
+      (identity.edition.status === "verified" &&
+        (!identity.edition.evidenceRef || !evidenceIds.has(identity.edition.evidenceRef)))
+    ) {
+      throw new Error(`Invalid or unsupported edition identity on ${identity.id}.`);
+    }
+    if (
+      identity.status === "verified" &&
+      (!identity.evidence.length ||
+        identity.evidence.some(
+          (entry) =>
+            !entry.id.trim() ||
+            !entry.reference.trim() ||
+            !Number.isFinite(Date.parse(entry.observedAt)),
+        ))
+    ) {
+      throw new Error(`Verified catalog identity ${identity.id} requires identity evidence.`);
+    }
+    for (const alias of identity.legacyAliases) {
+      if (
+        !alias.value.trim() ||
+        (alias.status === "verified" && !evidenceIds.has(alias.evidenceRef ?? ""))
+      ) {
+        throw new Error(`Invalid or unsupported legacy alias on ${identity.id}.`);
+      }
+    }
+    for (const external of identity.externalIds) {
+      if (
+        !external.value.trim() ||
+        (external.status === "verified" && !evidenceIds.has(external.evidenceRef ?? ""))
+      ) {
+        throw new Error(`Invalid or unsupported external identifier on ${identity.id}.`);
+      }
+    }
+    for (const relationship of identity.relationships) {
+      if (
+        (relationship.targetIdentityId !== null &&
+          !identityById.has(relationship.targetIdentityId)) ||
+        (relationship.status === "verified" &&
+          (!relationship.targetIdentityId || !evidenceIds.has(relationship.evidenceRef ?? "")))
+      ) {
+        throw new Error(`Invalid or unsupported relationship on ${identity.id}.`);
+      }
+    }
+    if (
+      !Number.isFinite(Date.parse(identity.createdAt)) ||
+      !identity.revisionHistory.length ||
+      identity.revisionHistory.some(
+        (revision, index) =>
+          revision.revision !== index + 1 ||
+          !revision.changeRef.trim() ||
+          !Number.isFinite(Date.parse(revision.recordedAt)),
+      )
+    ) {
+      throw new Error(`Invalid revision history on ${identity.id}.`);
+    }
+  }
+}
+
+export function resolvePermanentCatalogIdentityAlias(
+  identities: readonly PermanentCatalogIdentity[],
+  namespace: CatalogIdentityLegacyAlias["namespace"],
+  value: string,
+): PermanentCatalogIdentityResolution {
+  if (!namespace.trim() || !value.trim()) return { status: "invalid", candidates: [] };
+  validatePermanentCatalogIdentityRegistry(identities);
+  const candidates = identities.filter((identity) =>
+    identity.legacyAliases.some((alias) => alias.namespace === namespace && alias.value === value),
+  );
+  if (candidates.length === 0) return { status: "orphaned", candidates: [] };
+  if (candidates.length > 1) return { status: "ambiguous", candidates: [...candidates] };
+  const [identity] = candidates;
+  const alias = identity.legacyAliases.find(
+    (candidate) => candidate.namespace === namespace && candidate.value === value,
+  );
+  if (
+    identity.status !== "verified" ||
+    alias?.status !== "verified" ||
+    !alias.evidenceRef ||
+    !identity.evidence.some((evidence) => evidence.id === alias.evidenceRef)
+  ) {
+    return { status: "requires-identity-review", candidates: [...candidates] };
+  }
+  return { status: "safe-candidate", identity, evidenceRef: alias.evidenceRef };
 }
 
 export function catalogRecordFromGame(game: Game): CatalogGameRecord {
@@ -393,16 +603,10 @@ export function catalogHardEligible(game: CatalogGameRecord, context: WizardCont
       return false;
     }
     if (context.players >= MAX_PLAYER_COUNT) {
-      if (
-        game.players.maximum < MAX_PLAYER_COUNT ||
-        game.players.minimum > MAX_PLAYER_COUNT
-      ) {
+      if (game.players.maximum < MAX_PLAYER_COUNT || game.players.minimum > MAX_PLAYER_COUNT) {
         return false;
       }
-    } else if (
-      context.players < game.players.minimum ||
-      context.players > game.players.maximum
-    ) {
+    } else if (context.players < game.players.minimum || context.players > game.players.maximum) {
       return false;
     }
   }
@@ -473,10 +677,8 @@ export function catalogRecommendationScore(
     const scores = exactTraits.map(([vibe]) => game.vibeScores[vibe]);
     if (scores.every((value): value is number => typeof value === "number")) {
       const distance =
-        scores.reduce(
-          (sum, value, index) => sum + Math.abs(value - exactTraits[index][1]),
-          0,
-        ) / scores.length;
+        scores.reduce((sum, value, index) => sum + Math.abs(value - exactTraits[index][1]), 0) /
+        scores.length;
       score += Math.max(0, 40 - distance * 18);
     }
     return score;

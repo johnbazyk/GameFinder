@@ -1,13 +1,13 @@
 # Permanent game identity and safe migration plan
 
-**Checkpoint:** 05B1 design and read-only simulation
-**Status:** Proposal only. No catalog IDs, metadata, user records, or database rows were changed. No migration is included.
+**Checkpoint:** 05B1 design, extended by 05E1 registry proposal
+**Status:** The 05E1 registry and mapping ledger are proposal-only. No application IDs, catalog behavior, user records, or database rows were changed. No migration is included.
 
 ## Executive recommendation
 
 Give each curated catalog identity a one-time, immutable GameFinder UUID, independent of title, edition labels, publishers, and provider IDs. Keep `bggId` and other provider identifiers as separately sourced external references. Retain every existing BGG-keyed value as an exact legacy alias until its mapping is evidenced. Resolve an alias automatically only when its mapping is verified and uniquely identifies one permanent record; otherwise quarantine that individual reference for explicit resolution.
 
-Use the existing UUID-style `createCatalogGameId()` (`gf:<UUID>`) for curated identities, recording each generated value once in the registry; preserve existing user-created `gfc_...` IDs. Do not derive permanent IDs from title slugs, BGG IDs, publisher, or edition. This proposal does not assign permanent IDs to the current catalog: inventing a registry now without reviewed identity evidence could bless the same errors we are trying to contain.
+Use the existing UUID-style `createCatalogGameId()` (`gf:<UUID>`) for curated identities, recording each generated value once in the registry; preserve existing user-created `gfc_...` IDs. Do not derive permanent IDs from title slugs, BGG IDs, publisher, or edition. Checkpoint 05E1 saves one-time UUID allocations in a proposal-only ledger, but unresolved rows have no canonical identity assignment and no proposal is activated in the application.
 
 ## Existing identity architecture
 
@@ -39,6 +39,47 @@ No local storage contents, cloud rows, user IDs, Vault exports, or other private
 | Custom user-entered games                  | `CatalogGameRecord.id` is a generated `gfc_...` ID; cloud records are scoped by owner and ID     | Preserve these IDs and ownership; never merge a custom record into a curated identity solely by title or BGG match.                   |
 
 Titles also appear in display snapshots and metadata, but title matching must not be used to reassign user history. Both the external ID and title can be wrong or change independently.
+
+## Checkpoint 05E1: registry contract and complete authored-row proposal
+
+The typed contract in `src/lib/catalog-foundation.ts` separates:
+
+- **Source record:** an immutable namespaced source-record ID, source key, and SHA-256 snapshot fingerprint.
+- **Canonical identity:** a GameFinder-owned `gf:<UUID>` value, independent of title and provider IDs. Identity status is `proposed`, `verified`, or `disputed`; verified identity, alias, external-ID, and relationship claims require recorded evidence.
+- **External identifier:** a provider namespace and value with a separate verification status. BGG IDs remain unverified source claims and never become GameFinder IDs.
+- **Legacy alias:** an exact old key in its own namespace. A unique but unverified alias requires review; multiple candidates are ambiguous; absent candidates are orphaned. The resolver never mutates the source reference.
+- **Revision history:** each proposed identity records revisions; existing alias/reference values remain unchanged so a later migration can be reversed from an explicit mapping history rather than inferred from titles.
+
+The machine-readable inventory is [`proposed-identity-registry.json`](./proposed-identity-registry.json). Its saved UUIDs are generated once; `node scripts/catalog-identity-ledger.mjs` validates the ledger and source fingerprints. The one-time initializer is `node scripts/catalog-identity-ledger.mjs --initialize`; it refuses to overwrite an existing ledger. To revise an approved proposal, make a reviewed, explicit ledger change rather than rerunning allocation.
+
+| Inventory measure                                                            |    Result |
+| ---------------------------------------------------------------------------- | --------: |
+| Authored source records                                                      |       143 |
+| Runtime-visible records                                                      |       142 |
+| Current standalone recommendation pool                                       |       135 |
+| Unique source-record IDs / reserved UUIDs                                    | 143 / 143 |
+| Identity records proposed for review (not canonical, verified, or activated) |       126 |
+| Source records without a proposed identity                                   |        17 |
+| Verified identity claims                                                     |         0 |
+
+Every authored row appears exactly once. The 17 unresolved rows include both records sharing `41114`, the 14 rows implicated in seven numeric-prefix/suffix pairs, and Rhino Hero (`209418`) whose provider identity is unverified. These categories overlap: the two `41114` rows are not counted as prefix-pair records. The seven pairs are `31260`/`31260-revised`, `233078`/`233078-short`, `266810`/`266810-architects`, `266192`/`266192-asia`, `199792`/`199792-bellfaire`, `13`/`13-junior`, and `21790`/`21790-pitch`.
+
+The historical `318184` alias is kept in a separate orphan review queue. The current authored row is The Guild of Merchant Explorers (`367041`); neither title similarity nor the prior transformation justifies mapping historical score references. All source rows carry their original legacy keys, separate external-ID claims, and empty identity evidence. Unknown metadata is not inferred by this identity proposal. Six-Vibe ratings and recommendation logic are not part of the identity mapping.
+
+The dry run covers Vault ownership, wishlist, recently played, play history, score sessions, group play, recommendation history, saved recommendation state, game-detail routes, catalog relationships, and custom games. The synthetic review classifies references as safe candidates, requiring identity review, ambiguous, orphaned, or invalid. No localStorage, cloud rows, user accounts, or production data were read or written. Existing `gfc_...` custom-game IDs remain in their user namespace and are not matched to curated identities by title.
+
+### Provider staging boundary
+
+Provider-imported rows remain source records/candidates. Staging and refresh history do not create or verify canonical identities, external-ID mappings, aliases, facts, or publication status. A candidate may be associated with an existing permanent identity only after independent evidence review; otherwise it remains a distinct unresolved source record. This ledger uses no live BGG lookups or BGG payloads.
+
+### Requirements before a permanent-ID migration
+
+1. Review every proposed identity against authorized identity evidence; resolve all 17 conflicts and the `318184` historical alias without title-only matching.
+2. Approve an identity registry revision and mapping history; preserve every rejected/resolved candidate and old key.
+3. Inventory and test every local/cloud reference surface in an authorized environment without exporting unrelated account data.
+4. Implement additive compatibility reads before considering writes. Ambiguous and orphaned references must remain visible and recoverable.
+5. Back up, validate counts and ownership, and use a reversible transaction with explicit preconditions before any production migration.
+6. Canary-check Vault, wishlist, history, scores, group play, routes, catalog relationships, Find/Discover, and custom-game ownership before enabling migration.
 
 ## Permanent identity model proposal
 

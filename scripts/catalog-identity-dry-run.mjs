@@ -1,6 +1,11 @@
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { collectCurrentCatalogAudit } from "./catalog-audit.mjs";
+import {
+  loadProposedIdentityLedger,
+  validateProposedIdentityLedger,
+  classifyProposedLegacyAlias,
+} from "./catalog-identity-ledger.mjs";
 
 const IDENTITY_ID_PATTERN =
   /^(?:gf:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|gfc_[a-zA-Z0-9-]{8,80})$/;
@@ -11,6 +16,12 @@ const REFERENCE_KINDS = new Set([
   "group-play",
   "recently-played",
   "recommendation",
+  "wishlist",
+  "recommendation-history",
+  "saved-recommendation",
+  "game-detail-route",
+  "catalog-relationship",
+  "custom-game",
 ]);
 const IDENTIFIER_PROVIDERS = new Set(["bgg", "gamefinder", "user", "mock"]);
 const LEGACY_KEY_NAMESPACES = new Set(["legacy-bgg", "legacy-internal", "legacy-user"]);
@@ -26,6 +37,24 @@ function assertUnique(values, label) {
 
 function identityKey(namespace, value) {
   return `${namespace}:${value}`;
+}
+
+function classificationForStatus(status) {
+  switch (status) {
+    case "safe-candidate":
+      return "safe-candidate";
+    case "needs-identity-review":
+    case "explicitly-resolved-in-simulation":
+      return "requires-identity-review";
+    case "ambiguous":
+      return "ambiguous";
+    case "orphan":
+      return "orphaned";
+    case "invalid-reference":
+      return "invalid";
+    default:
+      throw new Error(`Unknown identity migration status: ${status}`);
+  }
 }
 
 export function simulateIdentityMigration(identities, references, explicitResolutions = {}) {
@@ -119,6 +148,7 @@ export function simulateIdentityMigration(identities, references, explicitResolu
         kind: reference?.kind ?? "unknown",
         legacyKey: reference?.legacyKey ?? null,
         status: "invalid-reference",
+        classification: "invalid",
         candidateCatalogGameIds: [],
         proposedCatalogGameId: null,
       };
@@ -141,6 +171,7 @@ export function simulateIdentityMigration(identities, references, explicitResolu
         kind: reference.kind,
         legacyKey: reference.legacyKey,
         status: "explicitly-resolved-in-simulation",
+        classification: "requires-identity-review",
         candidateCatalogGameIds,
         proposedCatalogGameId: explicit.catalogGameId,
         decisionId: explicit.decisionId,
@@ -162,6 +193,7 @@ export function simulateIdentityMigration(identities, references, explicitResolu
       kind: reference.kind,
       legacyKey: reference.legacyKey,
       status,
+      classification: classificationForStatus(status),
       candidateCatalogGameIds,
       proposedCatalogGameId: status === "safe-candidate" ? candidates[0].catalogGameId : null,
     };
@@ -176,12 +208,21 @@ export function simulateIdentityMigration(identities, references, explicitResolu
   const countsByKind = Object.fromEntries(
     [...REFERENCE_KINDS].map((kind) => [kind, plan.filter((entry) => entry.kind === kind).length]),
   );
+  const countsByClassification = Object.fromEntries(
+    ["safe-candidate", "requires-identity-review", "ambiguous", "orphaned", "invalid"].map(
+      (classification) => [
+        classification,
+        plan.filter((entry) => entry.classification === classification).length,
+      ],
+    ),
+  );
 
   return {
     plan,
     summary: {
       referenceCount: plan.length,
       countsByStatus,
+      countsByClassification,
       countsByKind,
       proposedAutomaticMappings: plan.filter((entry) => entry.status === "safe-candidate").length,
       unresolvedCount: plan.filter(
@@ -202,14 +243,28 @@ export function simulateIdentityMigration(identities, references, explicitResolu
 
 export async function collectIdentityDryRun() {
   const audit = await collectCurrentCatalogAudit();
-  const identities = audit.rows.map((row) => ({
-    currentInternalId: row.internalId,
-    title: row.title,
-    legacyBggKey: row.bggId,
-    visible: row.visible,
-    legacyAliasStatus: "unverified",
-    identityIssues: row.identifierCollisionFindings,
-  }));
+  const proposal = loadProposedIdentityLedger();
+  const proposalSummary = validateProposedIdentityLedger(proposal, audit);
+  const proposalBySourceKey = new Map(
+    proposal.authoredRecords.map((record) => [record.sourceRecordKey, record]),
+  );
+  const identities = audit.rows.map((row) => {
+    const proposalRecord = proposalBySourceKey.get(row.internalId);
+    return {
+      currentInternalId: row.internalId,
+      title: row.title,
+      legacyBggKey: row.bggId,
+      visible: row.visible,
+      legacyAliasStatus: "unverified",
+      identityIssues: row.identifierCollisionFindings,
+      sourceRecordId: proposalRecord.sourceRecordId,
+      proposedPermanentId: proposalRecord.proposedIdentityId,
+      reservedPermanentId: proposalRecord.reservedPermanentId,
+      identityProposalStatus: proposalRecord.identityProposalStatus,
+      identityReviewStatus: proposalRecord.identityReviewStatus,
+      reviewReasons: proposalRecord.reviewReasons,
+    };
+  });
   const knownLegacyIds = new Set(identities.map((identity) => identity.legacyBggKey));
   const syntheticReferences = [
     {
@@ -236,6 +291,41 @@ export async function collectIdentityDryRun() {
       id: "fixture-recommendation-1",
       kind: "recommendation",
       legacyKey: { namespace: "legacy-bgg", value: "318184" },
+    },
+    {
+      id: "fixture-recently-played-1",
+      kind: "recently-played",
+      legacyKey: { namespace: "legacy-bgg", value: "41114" },
+    },
+    {
+      id: "fixture-wishlist-1",
+      kind: "wishlist",
+      legacyKey: { namespace: "legacy-bgg", value: "41114" },
+    },
+    {
+      id: "fixture-recommendation-history-1",
+      kind: "recommendation-history",
+      legacyKey: { namespace: "legacy-bgg", value: "41114" },
+    },
+    {
+      id: "fixture-saved-recommendation-1",
+      kind: "saved-recommendation",
+      legacyKey: { namespace: "legacy-bgg", value: "41114" },
+    },
+    {
+      id: "fixture-game-detail-route-1",
+      kind: "game-detail-route",
+      legacyKey: { namespace: "legacy-bgg", value: "41114" },
+    },
+    {
+      id: "fixture-catalog-relationship-1",
+      kind: "catalog-relationship",
+      legacyKey: { namespace: "legacy-bgg", value: "41114" },
+    },
+    {
+      id: "fixture-custom-game-1",
+      kind: "custom-game",
+      legacyKey: { namespace: "legacy-user", value: "custom-game-old-key" },
     },
   ];
   const syntheticIdentities = [
@@ -282,6 +372,17 @@ export async function collectIdentityDryRun() {
         .map((identity) => identity.legacyBggKey),
     ),
   ];
+  const proposedReferenceReview = [
+    { namespace: "legacy-bgg", value: "41114" },
+    { namespace: "legacy-bgg", value: "31260-revised" },
+    { namespace: "legacy-bgg", value: "318184" },
+    { namespace: "legacy-bgg", value: "178900" },
+    { namespace: "legacy-internal", value: identities[0].currentInternalId },
+    { namespace: "legacy-user", value: "custom-game-old-key" },
+  ].map((legacyKey) => ({
+    legacyKey,
+    ...classifyProposedLegacyAlias(proposal, legacyKey.namespace, legacyKey.value),
+  }));
 
   return {
     catalogInventory: {
@@ -292,6 +393,8 @@ export async function collectIdentityDryRun() {
       exactDuplicateBggGroups: audit.summary.duplicateBggGroups,
       possibleNumericPrefixPairs: audit.summary.potentialAliasCollisions,
       affectedPrefixCollisionRecords: audit.summary.potentialAliasCollisionRecords,
+      standaloneRecommendationPoolRecords: proposalSummary.standaloneRecommendationPoolRecords,
+      permanentIdentityProposal: proposalSummary,
       records: identities,
       guildTransformation: {
         sourcePlaceholderKey: "318184",
@@ -302,6 +405,12 @@ export async function collectIdentityDryRun() {
         historicalScorecardKey: "318184",
         disposition: "orphaned historical key; do not map without explicit evidence",
       },
+    },
+    proposedReferenceReview: {
+      disclaimer:
+        "Proposal-only alias classification; no references or user data were read or changed.",
+      plan: proposedReferenceReview,
+      writesPerformed: 0,
     },
     referenceSurfaces: [
       {
@@ -316,6 +425,9 @@ export async function collectIdentityDryRun() {
           "pendingPlayPrompt.bggId",
           "lastSurpriseId",
           "recPool.ids[]",
+          "recently-played history",
+          "recommendation history",
+          "saved recommendation state",
         ],
       },
       { surface: "Cloud Vault", references: ["vault_games.bgg_id", "owned[]", "wishlist[]"] },

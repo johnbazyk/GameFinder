@@ -266,6 +266,13 @@ test("current inventory and reference-surface report reads no user data or netwo
   assert.equal(result.catalogInventory.authoredRecords, 143);
   assert.equal(result.catalogInventory.visibleRecords, 142);
   assert.equal(result.catalogInventory.records.length, 143);
+  assert.equal(result.catalogInventory.standaloneRecommendationPoolRecords, 135);
+  assert.equal(result.catalogInventory.permanentIdentityProposal.proposedIdentityRecords, 126);
+  assert.equal(result.catalogInventory.permanentIdentityProposal.unresolvedSourceRecords, 17);
+  assert.ok(result.catalogInventory.records.every((record) => record.sourceRecordId));
+  assert.ok(
+    result.catalogInventory.records.every((record) => record.identityProposalStatus !== "verified"),
+  );
   assert.equal(result.catalogInventory.exactDuplicateBggGroups.length, 1);
   assert.equal(result.catalogInventory.possibleNumericPrefixPairs.length, 7);
   assert.equal(result.catalogInventory.affectedPrefixCollisionRecords, 14);
@@ -281,15 +288,38 @@ test("current inventory and reference-surface report reads no user data or netwo
   );
   assert.deepEqual(result.syntheticDryRun.summary.countsByStatus, {
     "safe-candidate": 1,
-    ambiguous: 1,
+    ambiguous: 7,
     "needs-identity-review": 1,
-    orphan: 2,
+    orphan: 3,
   });
+  assert.deepEqual(result.syntheticDryRun.summary.countsByClassification, {
+    "safe-candidate": 1,
+    "requires-identity-review": 1,
+    ambiguous: 7,
+    orphaned: 3,
+    invalid: 0,
+  });
+  assert.equal(result.syntheticDryRun.summary.countsByKind["recently-played"], 1);
   assert.equal(
     result.syntheticDryRun.plan.find((entry) => entry.legacyKey?.value === "318184").status,
     "orphan",
   );
   assert.equal(result.syntheticDryRun.summary.writesPerformed, 0);
+  assert.equal(
+    result.proposedReferenceReview.plan.find((entry) => entry.legacyKey.value === "41114")
+      .classification,
+    "ambiguous",
+  );
+  assert.equal(
+    result.proposedReferenceReview.plan.find((entry) => entry.legacyKey.value === "318184")
+      .classification,
+    "orphaned",
+  );
+  assert.equal(
+    result.proposedReferenceReview.plan.find((entry) => entry.legacyKey.value === "178900")
+      .classification,
+    "requires-identity-review",
+  );
   assert.equal(result.writesPerformed, 0);
   assert.equal(result.networkRequests, 0);
   assert.ok(
