@@ -197,3 +197,34 @@ Use publisher packaging/product documentation for publisher, edition, player cou
 - How will permanent curated IDs be distributed and validated across clients, server code, and database environments without making the slug/BGG key primary again?
 
 The proposal protects data by separating permanent identity from editable metadata, keeping historical keys verbatim, requiring evidence before automatic mapping, and making ambiguous user references a stop condition—not a best-effort match.
+
+## Checkpoint 05E2: identity evidence and conflict adjudication
+
+The deterministic, proposal-only report is [`identity-review-queue.json`](./identity-review-queue.json). Regenerate its JSON to standard output with `node scripts/catalog-identity-review.mjs` (also available as `npm run audit:identity-review`); it reads the saved 05E1 ledger and makes no network requests or file/data writes. The report records the ledger SHA-256, schema version, and stable case IDs so a reviewer can detect a stale report. It contains **20 cases**: all 17 unresolved authored records, the separate `318184` historical orphan, and both unresolved expansion relationships (Wingspan / European Expansion and Terraforming Mars / Prelude). There are no supplied real evidence references.
+
+The 17 authored source records retain their 05E1 source IDs, title snapshots, exact keys, and reserved UUIDs for traceability. A reserved UUID is explicitly marked `reserved-only-not-a-canonical-mapping`; the report never upgrades it to a canonical or approved identity. The two `41114` cases cross-reference each other, and each of the 14 suffix/prefix cases links only to its exact paired source record. Rhino Hero (`209418`) remains disputed. All proposals, unresolved assignments, aliases, and legacy user references remain unchanged.
+
+### Evidence record and assertion boundaries
+
+`scripts/catalog-identity-review.mjs` defines a structured evidence record with:
+
+- Evidence reference and source-record IDs; source name and optional publisher/rights-holder attribution; URL or document reference; source classification; and recorded timestamp.
+- The relevant game's exact title and optional publisher, publication year, edition, printing, language, and regional market.
+- A separately namespaced claimed external identifier, which may be absent.
+- Explicit supported assertions: game existence, source-record-to-game identity, external-ID-to-game identity, edition distinction, or base/expansion relationship.
+- An evidence quality classification: independently corroborating, incomplete, disputed, or unusable.
+- Human-review status and rationale. This checkpoint accepts only `simulation-only` status.
+
+The contract separates evidence that a game exists from evidence tying a particular source row to that game, and separates both from evidence tying a particular provider ID to the game. A numeric-looking ID, a title match, or a URL by itself is insufficient. Assertions about identity do not establish age, player counts, playtime, catalog metadata approval, image rights, caching rights, or any other licensing permission.
+
+For 05E2 the adjudicator accepts only invented `synthetic-fixture` evidence, and every result is marked `simulation: true`, `realApproval: false`, with zero ledger and reference writes. The evidence classifications describe future review inputs, but publisher, independent-publication, archive, and licensed-provider materials are not fetched or accepted as real approvals by this module. Any later controlled review must separately verify source provenance, access/use authorization, and the evidence's actual contents; a source described as authoritative by a submitter is not self-authenticating.
+
+### Decision semantics and non-effects
+
+The supported proposal decisions are confirmed identity candidate, external ID disputed/incorrect, distinct edition, distinct game, potential duplicate needing more evidence, insufficient evidence, orphaned historical reference, and reference-specific human decision. Each simulation requires a non-empty rationale. Identity/edition decisions require independent synthetic evidence for every named source record; mismatched or contradictory evidence fails closed. External-ID decisions require a separate ID assertion and cannot resolve game identity. Distinct games and editions remain separate candidates; the simulation has no merge operation.
+
+No adjudication result writes to or revises the 05E1 ledger. No result maps Vault, wishlist, play, score, group-play, recommendation, route, or other user references. In particular, even a hypothetical decision on the correct external IDs for The Resistance and Sleeping Queens does not choose a destination for any historical `41114` reference. Those references require a separate, authorized, reference-specific decision and remain preserved in the meantime. Custom-game identity is likewise outside this authored-catalog queue and cannot be claimed by an imported or other user's record.
+
+Synthetic tests demonstrate a successful single-source candidate and separate-game/edition simulations, plus rejected existence-only, numeric-ID-only, contradictory, mismatched, cross-record, incomplete, non-synthetic, and forged-decision cases. Successful fixtures are demonstrations of control flow—not factual findings about the named catalog rows. Evidence does not change metadata or artwork permissions.
+
+No BGG API/page/image was accessed or used. No database migration, review endpoint, user-data access, or application behavior change is part of 05E2.
