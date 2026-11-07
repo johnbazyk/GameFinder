@@ -1,47 +1,52 @@
 import {
   catalogHardEligible,
   catalogRecommendationScore,
-  type CatalogGameRecord,
+  type CatalogRecommendationRecord,
 } from "./catalog-foundation";
-import { validateStagedCandidate } from "./catalog-ingestion";
-import { selectApprovedArtwork } from "./catalog-artwork";
+import {
+  assertPublishedCatalogSnapshot,
+  hasVerifiedFact,
+  toCatalogVibeScores,
+  type PublishedArtworkDecision,
+  type PublishedCatalogRecord,
+  type PublishedCatalogSnapshot,
+  type PublishedLegacyAlias,
+} from "./catalog-published-view";
 import { AGE_BANDS, VIBE_META } from "./vibes";
 import { MAX_PLAYER_COUNT } from "./types";
 import type { VibeId, WizardContext } from "./types";
-import type { SyntheticCatalogPublicationSnapshot } from "./catalog-recommendation-prototype";
 
-type SnapshotRecord = SyntheticCatalogPublicationSnapshot["records"][number];
-type LegacyAlias = SyntheticCatalogPublicationSnapshot["legacyAliases"][number];
+export type CatalogViewArtwork =
+  | {
+      status: "selected";
+      authenticity: Extract<PublishedArtworkDecision, { status: "selected" }>["authenticity"];
+      reference: string;
+      attribution: { required: boolean; text: string | null };
+    }
+  | {
+      status: "fallback";
+      placeholder: "original-gamefinder-placeholder";
+      reason: Extract<PublishedArtworkDecision, { status: "fallback" }>["reason"];
+      authenticity: "not-an-authentic-game-cover";
+    };
 
 export type CatalogViewEntry = {
   gamefinderId: string;
   title: string;
   edition: string | null;
-  relationship: CatalogGameRecord["relationships"];
+  relationship: PublishedCatalogRecord["relationships"];
   players: { minimum: number | null; maximum: number | null };
   publisherMinimumAge: number | null;
   maximumListedPlaytimeMinutes: number | null;
   adultContent: boolean | null;
-  vibeScores: Partial<Record<VibeId, number>>;
+  vibeScores: Record<VibeId, number | null>;
   ownership: "owned" | "unowned";
   score: number | null;
   matchExplanation: string[];
-  artwork:
-    | {
-        status: "selected";
-        authenticity: "synthetic-test-artwork-not-commercial";
-        reference: string;
-        cachingPermitted: boolean;
-        transformationPermitted: boolean;
-      }
-    | {
-        status: "fallback";
-        placeholder: "original-gamefinder-placeholder";
-        reason: string;
-      };
+  artwork: CatalogViewArtwork;
   legacyCompatibility:
-    | { status: "verified-alias"; namespace: "synthetic-legacy"; key: string }
-    | { status: "no-verified-alias"; namespace: "synthetic-legacy" };
+    | { status: "verified-alias"; namespace: PublishedLegacyAlias["namespace"]; key: string }
+    | { status: "no-verified-alias" };
   eligible: boolean;
   rejectionReasons: string[];
 };
@@ -66,13 +71,13 @@ export type CatalogDiscoverResult = {
 export type LegacyCatalogResolution =
   | {
       status: "resolved";
-      namespace: "synthetic-legacy";
+      namespace: PublishedLegacyAlias["namespace"];
       legacyKey: string;
       gamefinderId: string;
     }
   | {
       status: "ambiguous" | "unverified" | "orphaned";
-      namespace: "synthetic-legacy";
+      namespace: PublishedLegacyAlias["namespace"];
       legacyKey: string;
       candidateGamefinderIds: string[];
     };
@@ -88,126 +93,16 @@ export type ReadOnlyCatalogViewAdapter = {
     query?: string,
     ownedGamefinderIds?: readonly string[],
   ): CatalogDiscoverResult;
-  resolveLegacyReference(key: string): LegacyCatalogResolution;
+  resolveLegacyReference(
+    key: string,
+    namespace?: PublishedLegacyAlias["namespace"],
+  ): LegacyCatalogResolution;
   customGame: {
     id: string;
-    ownerScope: "synthetic-owner-only";
+    ownerScope: "owner-only";
     resolvedAsGlobalGame: false;
   };
 };
-
-const GAMEFINDER_ID = /^gf:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/i;
-const REQUIRED_FACTS = [
-  "title",
-  "playersMinimum",
-  "playersMaximum",
-  "publisherMinimumAge",
-  "publishedPlaytime",
-] as const;
-const REVIEWER = "synthetic-human-reviewer";
-const OWNER = "synthetic-catalog-owner";
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function assertSnapshot(source: unknown): asserts source is SyntheticCatalogPublicationSnapshot {
-  if (
-    !isObject(source) ||
-    source.boundary !== "synthetic-fixture-publication-v1" ||
-    source.simulationOnly !== true ||
-    !Array.isArray(source.identityIds) ||
-    !Array.isArray(source.records) ||
-    !Array.isArray(source.legacyAliases) ||
-    !isObject(source.customGame) ||
-    typeof source.customGame.id !== "string" ||
-    source.customGame.ownerScope !== "synthetic-owner-only"
-  ) {
-    throw new Error("Catalog adapter requires the synthetic validated-publication boundary.");
-  }
-
-  const rows = source.records as unknown[];
-  for (const value of rows) {
-    if (!isObject(value) || !isObject(value.record) || !isObject(value.candidate)) {
-      throw new Error("Synthetic publication snapshot contains a malformed record.");
-    }
-    const row = value as unknown as SnapshotRecord;
-    const candidate = row.candidate;
-    const identity = candidate.identityReview;
-    if (
-      candidate.provider !== "synthetic" ||
-      !candidate.providerRecordReference.startsWith("synthetic-fixture://") ||
-      identity.status !== "verified" ||
-      !identity.gamefinderId ||
-      !GAMEFINDER_ID.test(identity.gamefinderId) ||
-      row.record.id !== identity.gamefinderId ||
-      row.record.externalIds.length !== 0 ||
-      row.record.bggRating !== null ||
-      row.record.origin !== "mock" ||
-      row.record.sources.some(
-        (fact) => fact.provider !== "synthetic" || fact.sourceClass !== "mock",
-      ) ||
-      candidate.metadataRights.licenseReference?.startsWith("synthetic-fixture-") !== true ||
-      candidate.review.humanReview.reviewerId !== REVIEWER ||
-      candidate.review.ownerApproval.reviewerId !== OWNER
-    ) {
-      throw new Error("Synthetic publication record failed its identity or provenance checks.");
-    }
-    for (const factName of REQUIRED_FACTS) {
-      const fact = candidate.facts[factName];
-      if (
-        fact.reviewed.status !== "verified" ||
-        fact.reviewed.value === null ||
-        fact.reviewed.reviewerId !== REVIEWER ||
-        fact.reviewed.approverId !== OWNER ||
-        !fact.reviewed.evidence.some(
-          (evidence) =>
-            evidence.provider === "synthetic" &&
-            evidence.fieldName === factName &&
-            evidence.reference?.startsWith("synthetic-fixture:") === true,
-        )
-      ) {
-        throw new Error(`Synthetic publication fact is not verified: ${factName}.`);
-      }
-    }
-    if (
-      row.adultContentReview.status !== "verified" ||
-      row.adultContentReview.simulation !== "test-data-only" ||
-      typeof row.adultContentReview.value !== "boolean" ||
-      row.adultContentReview.reviewerId !== REVIEWER ||
-      row.adultContentReview.approverId !== OWNER ||
-      row.record.adultContent !== row.adultContentReview.value ||
-      row.artworkScope.edition.status !== "known" ||
-      row.artworkScope.printing.status !== "known" ||
-      row.artworkScope.language.status !== "known" ||
-      row.artworkScope.market.status !== "known" ||
-      !Array.isArray(row.artwork)
-    ) {
-      throw new Error("Synthetic publication record has incomplete review or edition scope.");
-    }
-    const validation = validateStagedCandidate(
-      candidate,
-      rows.map((item) => {
-        if (!isObject(item) || !isObject(item.candidate)) {
-          throw new Error("Synthetic publication snapshot contains a malformed candidate.");
-        }
-        return (item as unknown as SnapshotRecord).candidate;
-      }),
-    );
-    if (validation.status !== "metadata-validated") {
-      throw new Error(
-        `Synthetic publication candidate is not valid: ${validation.reasons.join(", ")}.`,
-      );
-    }
-    if (
-      Object.values(row.record.vibeScores).some(
-        (score) => typeof score !== "number" || !Number.isFinite(score) || score < 0 || score > 5,
-      )
-    ) {
-      throw new Error("Synthetic publication contains an invalid GameFinder Vibe score.");
-    }
-  }
-}
 
 function requestedVibes(context: WizardContext): VibeId[] {
   return [
@@ -228,99 +123,115 @@ function compareEntries(left: CatalogViewEntry, right: CatalogViewEntry): number
   );
 }
 
-function resolveAlias(aliases: readonly LegacyAlias[], key: string): LegacyCatalogResolution {
-  const proposals = aliases.filter((alias) => alias.key === key);
-  const candidateGamefinderIds = [...new Set(proposals.map((alias) => alias.gamefinderId))].sort();
+function resolveAlias(
+  aliases: readonly PublishedLegacyAlias[],
+  key: string,
+  namespace?: PublishedLegacyAlias["namespace"],
+): LegacyCatalogResolution {
+  const proposals = aliases.filter(
+    (alias) => alias.key === key && (namespace === undefined || alias.namespace === namespace),
+  );
+  const resolvedNamespace = namespace ?? proposals[0]?.namespace ?? "legacy-internal";
+  if (
+    namespace === undefined &&
+    new Set(proposals.map((proposal) => proposal.namespace)).size > 1
+  ) {
+    return {
+      status: "ambiguous",
+      namespace: resolvedNamespace,
+      legacyKey: key,
+      candidateGamefinderIds: [
+        ...new Set(
+          proposals.flatMap((alias) => (alias.gamefinderId === null ? [] : [alias.gamefinderId])),
+        ),
+      ].sort(),
+    };
+  }
+  const candidateGamefinderIds = [
+    ...new Set(
+      proposals.flatMap((alias) => (alias.gamefinderId === null ? [] : [alias.gamefinderId])),
+    ),
+  ].sort();
   if (candidateGamefinderIds.length > 1) {
     return {
       status: "ambiguous",
-      namespace: "synthetic-legacy",
+      namespace: resolvedNamespace,
       legacyKey: key,
       candidateGamefinderIds,
     };
   }
-  if (proposals.length === 0) {
+  if (proposals.length === 0 || proposals.every((proposal) => proposal.status === "orphaned")) {
     return {
       status: "orphaned",
-      namespace: "synthetic-legacy",
+      namespace: resolvedNamespace,
       legacyKey: key,
       candidateGamefinderIds: [],
     };
   }
-  if (proposals.some((proposal) => proposal.status !== "verified")) {
+  if (
+    proposals.some((proposal) => proposal.status !== "verified" || proposal.gamefinderId === null)
+  ) {
     return {
       status: "unverified",
-      namespace: "synthetic-legacy",
+      namespace: resolvedNamespace,
       legacyKey: key,
       candidateGamefinderIds,
     };
   }
   return {
     status: "resolved",
-    namespace: "synthetic-legacy",
+    namespace: proposals[0].namespace,
     legacyKey: key,
     gamefinderId: candidateGamefinderIds[0],
   };
 }
 
-function validateLegacyAliases(
-  aliases: readonly LegacyAlias[],
-  identityIds: ReadonlySet<string>,
-  publishedIds: ReadonlySet<string>,
-) {
-  if (
-    aliases.some(
-      (alias) =>
-        !alias.key.trim() ||
-        !GAMEFINDER_ID.test(alias.gamefinderId) ||
-        !identityIds.has(alias.gamefinderId) ||
-        (alias.status === "verified" && !publishedIds.has(alias.gamefinderId)) ||
-        !["verified", "disputed", "unverified"].includes(alias.status),
-    )
-  ) {
-    throw new Error("Synthetic legacy aliases must reference published fixture identities.");
-  }
+function catalogRecord(record: PublishedCatalogRecord): CatalogRecommendationRecord {
+  const players = hasVerifiedFact(record.facts.players) ? record.facts.players.value : null;
+  const age = hasVerifiedFact(record.facts.publisherMinimumAge)
+    ? record.facts.publisherMinimumAge.value
+    : null;
+  const playtime = hasVerifiedFact(record.facts.maximumListedPlaytimeMinutes)
+    ? record.facts.maximumListedPlaytimeMinutes.value
+    : null;
+  const adultContent = hasVerifiedFact(record.facts.adultContent)
+    ? record.facts.adultContent.value
+    : null;
+  return {
+    id: record.gamefinderId,
+    title: record.displayMetadata.title,
+    edition: record.displayMetadata.edition,
+    relationships: record.relationships,
+    players: {
+      minimum: players?.minimum ?? null,
+      maximum: players?.maximum ?? null,
+      best: players?.best ?? [],
+    },
+    publisherMinimumAge: age,
+    maximumListedPlaytimeMinutes: playtime,
+    adultContent,
+    bggRating: null,
+    vibeScores: toCatalogVibeScores(record.vibeScores),
+  };
 }
 
-function artworkView(row: SnapshotRecord, now: string): CatalogViewEntry["artwork"] {
-  const selection = selectApprovedArtwork(
-    { stagingId: row.candidate.stagingId, gamefinderId: row.record.id },
-    row.artworkScope,
-    row.artwork,
-    now,
-  );
-  return selection.status === "selected"
-    ? {
-        status: "selected",
-        authenticity: "synthetic-test-artwork-not-commercial",
-        reference: selection.artwork.source.originalImageReference ?? "",
-        cachingPermitted: selection.cachingPermitted,
-        transformationPermitted: selection.transformationPermitted,
-      }
-    : {
-        status: "fallback",
-        placeholder: "original-gamefinder-placeholder",
-        reason: selection.status,
-      };
-}
-
-function toEntry(
-  row: SnapshotRecord,
+function entryFor(
+  record: PublishedCatalogRecord,
   context: WizardContext,
   owned: ReadonlySet<string>,
-  now: string,
-  aliases: readonly LegacyAlias[],
+  aliases: readonly PublishedLegacyAlias[],
 ): CatalogViewEntry {
   const reasons = new Set<string>();
-  const record = row.record;
-  const isOwned = owned.has(record.id);
+  const isOwned = owned.has(record.gamefinderId);
   const vibes = requestedVibes(context);
-  for (const field of REQUIRED_FACTS) {
-    if (row.candidate.facts[field].reviewed.status !== "verified") {
-      reasons.add(`unverified-${field}`);
-    }
+  if (!hasVerifiedFact(record.facts.players)) reasons.add("unverified-players");
+  if (!hasVerifiedFact(record.facts.publisherMinimumAge)) {
+    reasons.add("unverified-publisherMinimumAge");
   }
-  if (record.adultContent !== false && context.ageBand !== "adults") {
+  if (!hasVerifiedFact(record.facts.maximumListedPlaytimeMinutes)) {
+    reasons.add("unverified-maximumListedPlaytimeMinutes");
+  }
+  if (context.ageBand !== "adults" && !hasVerifiedFact(record.facts.adultContent)) {
     reasons.add("adult-content-unknown-or-present");
   }
   if (
@@ -334,14 +245,16 @@ function toEntry(
   if (record.relationships.some((relationship) => relationship.relation === "expansion")) {
     reasons.add("expansion-not-standalone");
   }
-  if (!catalogHardEligible(record, context)) {
+
+  const game = catalogRecord(record);
+  if (!catalogHardEligible(game, context)) {
     if (
       context.players !== null &&
-      (record.players.minimum === null ||
-        record.players.maximum === null ||
+      (game.players.minimum === null ||
+        game.players.maximum === null ||
         (context.players >= MAX_PLAYER_COUNT
-          ? record.players.maximum < MAX_PLAYER_COUNT || record.players.minimum > MAX_PLAYER_COUNT
-          : context.players < record.players.minimum || context.players > record.players.maximum))
+          ? game.players.maximum < MAX_PLAYER_COUNT || game.players.minimum > MAX_PLAYER_COUNT
+          : context.players < game.players.minimum || context.players > game.players.maximum))
     ) {
       reasons.add("player-count");
     }
@@ -349,96 +262,101 @@ function toEntry(
     if (
       context.ageBand &&
       context.ageBand !== "adults" &&
-      (record.publisherMinimumAge === null ||
-        record.publisherMinimumAge > (ageBand?.youngestAge ?? -1))
+      (game.publisherMinimumAge === null || game.publisherMinimumAge > (ageBand?.youngestAge ?? -1))
     ) {
       reasons.add("publisher-minimum-age");
     }
     if (
       context.timeOver60 &&
-      (record.maximumListedPlaytimeMinutes === null || record.maximumListedPlaytimeMinutes <= 60)
+      (game.maximumListedPlaytimeMinutes === null || game.maximumListedPlaytimeMinutes <= 60)
     ) {
       reasons.add("maximum-listed-playtime");
     } else if (
       !context.timeOver60 &&
       context.maxTimeMin !== null &&
-      (record.maximumListedPlaytimeMinutes === null ||
-        record.maximumListedPlaytimeMinutes > context.maxTimeMin)
+      (game.maximumListedPlaytimeMinutes === null ||
+        game.maximumListedPlaytimeMinutes > context.maxTimeMin)
     ) {
       reasons.add("maximum-listed-playtime");
     }
-    if (context.ageBand && context.ageBand !== "adults" && record.adultContent !== false) {
+    if (context.ageBand && context.ageBand !== "adults" && game.adultContent !== false) {
       reasons.add("adult-content");
     }
     if (reasons.size === 0) reasons.add("catalog-hard-filter");
   }
   const eligible = reasons.size === 0;
-  const score = eligible ? catalogRecommendationScore(record, context, isOwned) : null;
+  const score = eligible ? catalogRecommendationScore(game, context, isOwned) : null;
   const matchExplanation = eligible
     ? [
-        `Fits ${record.players.minimum}–${record.players.maximum} players.`,
-        `Publisher minimum age ${record.publisherMinimumAge}+; maximum listed time ${record.maximumListedPlaytimeMinutes} minutes.`,
+        `Fits ${game.players.minimum}–${game.players.maximum} players.`,
+        `Publisher minimum age ${game.publisherMinimumAge}+; maximum listed time ${game.maximumListedPlaytimeMinutes} minutes.`,
         ...vibes.map(
           (vibe) => `${VIBE_META[vibe].label}: ${record.vibeScores[vibe]?.toFixed(1)}/5`,
         ),
         `GameFinder catalog score; ${isOwned ? "owned" : "unowned"} status.`,
       ]
     : [...reasons].sort().map((reason) => `Not recommended: ${reason}.`);
-  const resolvedAliases = aliases.filter(
+  const aliasesForRecord = aliases.filter(
     (alias) =>
-      alias.gamefinderId === record.id && resolveAlias(aliases, alias.key).status === "resolved",
+      alias.gamefinderId === record.gamefinderId &&
+      alias.status === "verified" &&
+      resolveAlias(aliases, alias.key, alias.namespace).status === "resolved",
   );
-  const uniqueVerifiedAliasKeys = [...new Set(resolvedAliases.map((alias) => alias.key))];
+  const verifiedAliasKeys = [
+    ...new Set(aliasesForRecord.map((alias) => `${alias.namespace}\0${alias.key}`)),
+  ];
+  const uniqueAlias = verifiedAliasKeys[0]?.split("\0");
+  const artwork: CatalogViewArtwork =
+    record.artwork.status === "selected"
+      ? {
+          status: "selected",
+          authenticity: record.artwork.authenticity,
+          reference: record.artwork.reference,
+          attribution: { ...record.artwork.attribution },
+        }
+      : { ...record.artwork };
   return {
-    gamefinderId: record.id,
-    title: record.title,
-    edition: record.edition,
+    gamefinderId: record.gamefinderId,
+    title: record.displayMetadata.title,
+    edition: record.displayMetadata.edition,
     relationship: record.relationships.map((relationship) => ({ ...relationship })),
-    players: { ...record.players },
-    publisherMinimumAge: record.publisherMinimumAge,
-    maximumListedPlaytimeMinutes: record.maximumListedPlaytimeMinutes,
-    adultContent: record.adultContent,
+    players: { minimum: game.players.minimum, maximum: game.players.maximum },
+    publisherMinimumAge: game.publisherMinimumAge,
+    maximumListedPlaytimeMinutes: game.maximumListedPlaytimeMinutes,
+    adultContent: game.adultContent,
     vibeScores: { ...record.vibeScores },
     ownership: isOwned ? "owned" : "unowned",
     score,
     matchExplanation,
-    artwork: artworkView(row, now),
+    artwork,
     legacyCompatibility:
-      uniqueVerifiedAliasKeys.length === 1
+      uniqueAlias && verifiedAliasKeys.length === 1
         ? {
             status: "verified-alias",
-            namespace: "synthetic-legacy",
-            key: uniqueVerifiedAliasKeys[0],
+            namespace: uniqueAlias[0] as PublishedLegacyAlias["namespace"],
+            key: uniqueAlias[1],
           }
-        : { status: "no-verified-alias", namespace: "synthetic-legacy" },
+        : { status: "no-verified-alias" },
     eligible,
     rejectionReasons: [...reasons].sort(),
   };
 }
 
 export function createReadOnlyCatalogViewAdapter(
-  source: SyntheticCatalogPublicationSnapshot,
+  source: PublishedCatalogSnapshot,
   now = "2026-01-15T12:00:00.000Z",
 ): ReadOnlyCatalogViewAdapter {
-  assertSnapshot(source);
   if (!Number.isFinite(Date.parse(now))) {
     throw new Error("A valid fixed timestamp is required for catalog artwork evaluation.");
   }
+  assertPublishedCatalogSnapshot(source, now);
   const snapshot = structuredClone(source);
-  const identities = new Set(snapshot.identityIds);
-  const publishedIds = new Set(snapshot.records.map(({ record }) => record.id));
-  if (
-    identities.size !== snapshot.identityIds.length ||
-    snapshot.records.some(({ record }) => !identities.has(record.id))
-  ) {
-    throw new Error("Synthetic publication snapshot has duplicate or undeclared identities.");
-  }
-  validateLegacyAliases(snapshot.legacyAliases, identities, publishedIds);
+  const recordById = new Map(snapshot.records.map((record) => [record.gamefinderId, record]));
 
   function entriesFor(context: WizardContext, ownedIds: readonly string[]): CatalogViewEntry[] {
     const owned = new Set(ownedIds);
     return snapshot.records
-      .map((row) => toEntry(row, context, owned, now, snapshot.legacyAliases))
+      .map((record) => entryFor(record, context, owned, snapshot.legacyAliases))
       .sort(compareEntries);
   }
 
@@ -446,10 +364,10 @@ export function createReadOnlyCatalogViewAdapter(
     find(context, ownedGamefinderIds = [], excludedGamefinderIds = []) {
       const excluded = new Set(excludedGamefinderIds);
       const allEntries = entriesFor(context, ownedGamefinderIds);
-      const allEligible = allEntries.filter((entry) => entry.eligible);
-      const fresh = allEligible.filter((entry) => !excluded.has(entry.gamefinderId));
-      const ownedEligible = allEligible.filter((entry) => entry.ownership === "owned");
-      const unownedEligible = allEligible.filter((entry) => entry.ownership === "unowned");
+      const eligible = allEntries.filter((entry) => entry.eligible);
+      const fresh = eligible.filter((entry) => !excluded.has(entry.gamefinderId));
+      const ownedEligible = eligible.filter((entry) => entry.ownership === "owned");
+      const unownedEligible = eligible.filter((entry) => entry.ownership === "unowned");
       return {
         entries: allEntries,
         rejectedEntries: allEntries.filter((entry) => !entry.eligible),
@@ -467,10 +385,10 @@ export function createReadOnlyCatalogViewAdapter(
       const allEntries = entriesFor(context, ownedGamefinderIds);
       const matching = normalizedQuery
         ? allEntries.filter((entry) => {
-            const row = snapshot.records.find((item) => item.record.id === entry.gamefinderId);
+            const record = recordById.get(entry.gamefinderId);
             return (
               entry.title.toLocaleLowerCase().includes(normalizedQuery) ||
-              row?.record.alternateTitles.some((title) =>
+              record?.displayMetadata.alternateTitles.some((title) =>
                 title.toLocaleLowerCase().includes(normalizedQuery),
               ) === true
             );
@@ -484,12 +402,12 @@ export function createReadOnlyCatalogViewAdapter(
         eligibleCount: entries.length,
       };
     },
-    resolveLegacyReference(key) {
-      return resolveAlias(snapshot.legacyAliases, key);
+    resolveLegacyReference(key, namespace) {
+      return resolveAlias(snapshot.legacyAliases, key, namespace);
     },
     customGame: Object.freeze({
       id: snapshot.customGame.id,
-      ownerScope: "synthetic-owner-only" as const,
+      ownerScope: "owner-only" as const,
       resolvedAsGlobalGame: false as const,
     }),
   });

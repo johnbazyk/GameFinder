@@ -46,7 +46,7 @@ function context(overrides = {}) {
   return { ...DEFAULT_CONTEXT, ...overrides };
 }
 
-function makeAdapter(snapshot = prototype.createSyntheticCatalogPublicationSnapshot()) {
+function makeAdapter(snapshot = prototype.createSyntheticPublishedCatalogSnapshot()) {
   return adapterModule.createReadOnlyCatalogViewAdapter(snapshot);
 }
 
@@ -59,20 +59,27 @@ function hashFile(path) {
 }
 
 test("the adapter accepts only validated synthetic publication records with permanent IDs", () => {
-  const source = prototype.createSyntheticCatalogPublicationSnapshot();
+  const fixtureGate = prototype.createSyntheticCatalogPublicationSnapshot();
+  const source = prototype.createSyntheticPublishedCatalogSnapshot();
   const adapter = makeAdapter(source);
   const preview = adapter.find(context(), prototype.SYNTHETIC_RECOMMENDATION_DEFAULT_OWNED_IDS);
 
-  assert.equal(source.boundary, "synthetic-fixture-publication-v1");
-  assert.equal(source.simulationOnly, true);
+  assert.equal(fixtureGate.boundary, "synthetic-fixture-publication-v1");
+  assert.equal(fixtureGate.simulationOnly, true);
   assert.equal(source.records.length, 9);
   assert.ok(
-    source.records.every(({ record }) =>
-      /^gf:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.id),
+    source.records.every(({ gamefinderId }) =>
+      /^gf:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/i.test(gamefinderId),
     ),
   );
-  assert.ok(source.records.every(({ record }) => record.externalIds.length === 0));
-  assert.ok(source.records.every(({ record }) => record.bggRating === null));
+  assert.ok(
+    source.records.every(
+      ({ identityStatus, revision, sourceIdentity }) =>
+        identityStatus === "verified" &&
+        revision === source.source.revision &&
+        sourceIdentity.namespace === "synthetic",
+    ),
+  );
   assert.equal(preview.entries.length, 9);
   assert.ok(preview.entries.every((entry) => !("bggId" in entry)));
 });
@@ -202,10 +209,9 @@ test("exact Vibe targets use complete explicit scores and shared catalog scoring
   const owned = prototype.SYNTHETIC_RECOMMENDATION_DEFAULT_OWNED_IDS;
   const find = adapter.find(filters, owned);
   const discover = adapter.discover(filters, "", owned);
+  const rawRecords = prototype.createSyntheticCatalogPublicationSnapshot().records;
   const expected = discover.entries.map((entry) => {
-    const { record } = prototype
-      .createSyntheticCatalogPublicationSnapshot()
-      .records.find((row) => row.record.id === entry.gamefinderId);
+    const record = rawRecords.find((row) => row.record.id === entry.gamefinderId).record;
     return [
       entry.gamefinderId,
       foundation.catalogRecommendationScore(record, filters, entry.ownership === "owned"),
@@ -222,9 +228,9 @@ test("exact Vibe targets use complete explicit scores and shared catalog scoring
       .map(({ gamefinderId, score }) => [gamefinderId, score]),
     expected,
   );
-  const source = prototype.createSyntheticCatalogPublicationSnapshot();
+  const source = prototype.createSyntheticPublishedCatalogSnapshot();
   const missingExactVibe = ["luck", "strategy", "dexterity", "family", "party", "board"].find(
-    (vibe) => source.records.some(({ record }) => typeof record.vibeScores[vibe] !== "number"),
+    (vibe) => source.records.some(({ vibeScores }) => typeof vibeScores[vibe] !== "number"),
   );
   assert.ok(missingExactVibe);
   assert.ok(
@@ -300,27 +306,35 @@ test("legacy aliases resolve only when unique and independently verified", () =>
   assert.equal(adapter.resolveLegacyReference("41114").status, "ambiguous");
   assert.equal(adapter.resolveLegacyReference("demo-key-unverified").status, "unverified");
   assert.equal(adapter.resolveLegacyReference("demo-orphan-key").status, "orphaned");
-  assert.equal(adapter.customGame.ownerScope, "synthetic-owner-only");
+  assert.equal(adapter.customGame.ownerScope, "owner-only");
   assert.equal(adapter.customGame.resolvedAsGlobalGame, false);
 });
 
 test("edition artwork requires exact scope and rights; missing or unauthorized art falls back", () => {
-  const source = prototype.createSyntheticCatalogPublicationSnapshot();
+  const source = prototype.createSyntheticPublishedCatalogSnapshot();
   const adapter = makeAdapter(source);
   const result = adapter.discover(context(), "skyline foundry");
   const first = byTitle(result.entries, "Skyline Foundry", "First Edition");
   const second = byTitle(result.entries, "Skyline Foundry", "Second Edition");
 
   assert.equal(first.artwork.status, "selected");
-  assert.equal(first.artwork.cachingPermitted, true);
+  assert.equal("cachingPermitted" in first.artwork, false);
+  assert.equal("permissionReference" in first.artwork, false);
   assert.equal(second.artwork.status, "fallback");
   assert.equal(second.artwork.reason, "rights-unresolved");
 
   const rightsDenied = structuredClone(source);
   const firstFixture = rightsDenied.records.find(
-    (row) => row.record.edition === "First Edition" && row.record.title === "Glow Orchard",
+    (row) =>
+      row.displayMetadata.edition === "First Edition" &&
+      row.displayMetadata.title === "Glow Orchard",
   );
-  firstFixture.artwork[0].rights.commercialDisplay = "denied";
+  firstFixture.artwork = {
+    status: "fallback",
+    placeholder: "original-gamefinder-placeholder",
+    reason: "rights-unresolved",
+    authenticity: "not-an-authentic-game-cover",
+  };
   assert.equal(
     byTitle(makeAdapter(rightsDenied).discover(context(), "glow orchard").entries, "Glow Orchard")
       .artwork.status,
@@ -328,41 +342,37 @@ test("edition artwork requires exact scope and rights; missing or unauthorized a
   );
 
   const expired = structuredClone(source);
-  const glow = expired.records.find((row) => row.record.title === "Glow Orchard");
-  glow.artwork[0].rights.expiresAt = "2025-01-01T00:00:00.000Z";
-  assert.equal(
-    byTitle(makeAdapter(expired).discover(context(), "glow orchard").entries, "Glow Orchard")
-      .artwork.status,
-    "fallback",
-  );
+  const glow = expired.records.find((row) => row.displayMetadata.title === "Glow Orchard");
+  glow.artwork.expiresAt = "2025-01-01T00:00:00.000Z";
+  assert.throws(() => makeAdapter(expired), /invalid identity, facts, metadata, or artwork/);
 });
 
 test("unverified facts and forged approval-shaped objects cannot cross the source boundary", () => {
-  const source = prototype.createSyntheticCatalogPublicationSnapshot();
+  const source = prototype.createSyntheticPublishedCatalogSnapshot();
   const unverified = structuredClone(source);
-  unverified.records[0].candidate.facts.playersMinimum.reviewed.status = "unverified";
-  assert.throws(() => makeAdapter(unverified), /not verified|not valid/);
+  unverified.records[0].facts.players = { status: "unverified", value: null };
+  const unverifiedEntry = byTitle(makeAdapter(unverified).find(context()).entries, "Glow Orchard");
+  assert.equal(unverifiedEntry.eligible, false);
+  assert.ok(unverifiedEntry.rejectionReasons.includes("unverified-players"));
 
-  const forgedApproval = structuredClone(source);
+  const rawFixture = prototype.createSyntheticCatalogPublicationSnapshot();
+  const forgedApproval = structuredClone(rawFixture);
   forgedApproval.records[0].candidate.review.ownerApproval.reviewerId = "client";
-  assert.throws(() => makeAdapter(forgedApproval), /provenance checks|not valid/);
+  assert.throws(() => makeAdapter(forgedApproval), /invalid source or structure/);
 
   assert.throws(
     () =>
       makeAdapter({
-        boundary: "synthetic-fixture-publication-v1",
-        simulationOnly: true,
-        identityIds: [],
-        records: [{ approved: true, gamefinderId: "gf:1a000001-1111-4111-8111-000000000001" }],
-        legacyAliases: [],
-        customGame: { id: "client-game", ownerScope: "synthetic-owner-only" },
+        approved: true,
+        published: true,
+        rights: "allowed",
       }),
-    /malformed record/,
+    /invalid source or structure/,
   );
 });
 
 test("the source and catalogs remain immutable and do not alter identity snapshots", () => {
-  const source = prototype.createSyntheticCatalogPublicationSnapshot();
+  const source = prototype.createSyntheticPublishedCatalogSnapshot();
   const sourceBefore = JSON.stringify(source);
   const ledgerBefore = hashFile(ledgerPath);
   const queueBefore = hashFile(queuePath);

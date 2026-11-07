@@ -3,6 +3,11 @@ import {
   catalogRecommendationScore,
   type CatalogGameRecord,
 } from "./catalog-foundation";
+import type {
+  PublishedCatalogSnapshot,
+  PublishedEditionScope,
+  PublishedFact,
+} from "./catalog-published-view";
 import {
   stageProviderCandidate,
   validateStagedCandidate,
@@ -25,7 +30,7 @@ import {
   type ScopedValue,
 } from "./catalog-artwork";
 import { AGE_BANDS, VIBE_META } from "./vibes";
-import { MAX_PLAYER_COUNT } from "./types";
+import { MAX_PLAYER_COUNT, VIBE_IDS } from "./types";
 import type { VibeId, WizardContext } from "./types";
 
 type FixtureIdentityStatus = "verified" | "disputed" | "unreviewed";
@@ -1370,6 +1375,188 @@ export function createSyntheticCatalogPublicationSnapshot(): SyntheticCatalogPub
       customGame: {
         id: "gfc_synthetic_owner_game_0001",
         ownerScope: "synthetic-owner-only" as const,
+      },
+    }),
+  );
+}
+
+function publishedFact<T>(status: string, value: T | null): PublishedFact<T> {
+  if (status === "verified" && value !== null) return { status: "verified", value };
+  const safeStatus = ["unverified", "disputed", "missing"].includes(status)
+    ? (status as "unverified" | "disputed" | "missing")
+    : "missing";
+  return { status: safeStatus, value: null };
+}
+
+function publishedArtwork(
+  fixture: SyntheticFixture,
+  now: string,
+): PublishedCatalogSnapshot["records"][number]["artwork"] {
+  const identity = {
+    stagingId: fixture.candidate.stagingId,
+    gamefinderId: fixture.definition.id,
+  };
+  const scope = editionScope(fixture.definition);
+  const selection = selectApprovedArtwork(
+    identity,
+    scope,
+    ARTWORK_FIXTURES.filter((artwork) => artwork.game.gamefinderId === fixture.definition.id),
+    now,
+  );
+  if (selection.status !== "selected") {
+    return {
+      status: "fallback",
+      placeholder: "original-gamefinder-placeholder",
+      reason: selection.status,
+      authenticity: "not-an-authentic-game-cover",
+    };
+  }
+  const artwork = selection.artwork;
+  const publishedScope: PublishedEditionScope = {
+    edition: scope.edition.value,
+    printing: scope.printing.value,
+    language: scope.language.value,
+    market: scope.market.value,
+  };
+  return {
+    status: "selected",
+    authenticity: "synthetic-test-artwork-not-commercial",
+    gamefinderId: fixture.definition.id,
+    scope: publishedScope,
+    sourceId: artwork.id,
+    reference: artwork.source.originalImageReference ?? "",
+    humanReviewed: true,
+    reviewedAt: artwork.review.reviewedAt ?? "",
+    commercialDisplay: "allowed",
+    permissionReference: artwork.rights.permissionReference ?? "",
+    attribution: {
+      required: artwork.rights.attribution.required ?? false,
+      text: artwork.rights.attribution.text,
+    },
+    expiresAt: artwork.rights.expiresAt,
+    revokedAt: null,
+    cachingPermitted: selection.cachingPermitted,
+    transformationPermitted: selection.transformationPermitted,
+  };
+}
+
+export function createSyntheticPublishedCatalogSnapshot(
+  now = SYNTHETIC_REVIEW_AT,
+): PublishedCatalogSnapshot {
+  if (!Number.isFinite(Date.parse(now))) {
+    throw new Error("A valid fixed timestamp is required for synthetic publication evaluation.");
+  }
+  const published = FIXTURES.filter(
+    (fixture) => publicationReasons(fixture, CANDIDATES).length === 0,
+  );
+  const revision = "synthetic-fixture-revision-1";
+  return deepFreeze(
+    structuredClone({
+      source: {
+        sourceId: "synthetic-fixture-source",
+        namespace: "synthetic",
+        publicationId: "synthetic-fixture-publication",
+        revision,
+        publishedAt: now,
+      },
+      records: published.map((fixture) => {
+        const record = toCatalogRecord(fixture);
+        const candidate = fixture.candidate;
+        const players = candidate.facts.playersMinimum.reviewed;
+        const maxPlayers = candidate.facts.playersMaximum.reviewed;
+        const playerFact: PublishedFact<{
+          minimum: number;
+          maximum: number;
+          best: number[];
+        }> =
+          players.status === "verified" &&
+          maxPlayers.status === "verified" &&
+          typeof players.value === "number" &&
+          typeof maxPlayers.value === "number"
+            ? {
+                status: "verified",
+                value: {
+                  minimum: players.value,
+                  maximum: maxPlayers.value,
+                  best: [...record.players.best],
+                },
+              }
+            : { status: "missing", value: null };
+        const playtime = candidate.facts.publishedPlaytime.reviewed;
+        return {
+          gamefinderId: record.id,
+          identityStatus: "verified" as const,
+          publicationId: "synthetic-fixture-publication",
+          revision,
+          sourceIdentity: {
+            namespace: candidate.provider,
+            recordId: candidate.providerRecordReference,
+          },
+          displayMetadata: {
+            status: "approved" as const,
+            title: record.title,
+            alternateTitles: [...record.alternateTitles],
+            publisher: record.publisher,
+            yearPublished: record.yearPublished,
+            edition: record.edition,
+            printing: fixture.definition.printing,
+            language: fixture.definition.language,
+            market: fixture.definition.market,
+            categories: [...record.categories],
+            mechanics: [...record.mechanics],
+          },
+          metadataPermissions: {
+            display: "allowed" as const,
+            permissionReference: candidate.metadataRights.licenseReference ?? "",
+            expiresAt: candidate.metadataRights.expiresAt,
+            revokedAt: null,
+          },
+          relationships: record.relationships.map((relationship) => ({
+            relation: relationship.relation,
+            status: relationship.catalogGameId ? ("verified" as const) : ("unresolved" as const),
+            targetGamefinderId: relationship.catalogGameId,
+            targetTitle: relationship.title,
+          })),
+          facts: {
+            players: playerFact,
+            publisherMinimumAge: publishedFact(
+              candidate.facts.publisherMinimumAge.reviewed.status,
+              candidate.facts.publisherMinimumAge.reviewed.value,
+            ),
+            maximumListedPlaytimeMinutes: publishedFact(
+              playtime.status,
+              playtime.value?.maximumListedMinutes ?? null,
+            ),
+            adultContent: publishedFact(
+              fixture.adultContentReview.status,
+              fixture.adultContentReview.value,
+            ),
+          },
+          vibeScores: Object.fromEntries(
+            VIBE_IDS.map((vibe) => [vibe, record.vibeScores[vibe] ?? null]),
+          ) as Record<VibeId, number | null>,
+          artwork: publishedArtwork(fixture, now),
+        };
+      }),
+      knownIdentityIds: DEFINITIONS.map(({ id }) => id),
+      legacyAliases: [
+        ...LEGACY_ALIAS_PROPOSALS.map((alias) => ({
+          namespace: "synthetic-legacy" as const,
+          key: alias.key,
+          gamefinderId: alias.id,
+          status: alias.status,
+        })),
+        {
+          namespace: "synthetic-legacy" as const,
+          key: "demo-orphan-key",
+          gamefinderId: null,
+          status: "orphaned" as const,
+        },
+      ],
+      customGame: {
+        id: "gfc_synthetic_owner_game_0001",
+        ownerScope: "owner-only" as const,
+        resolvedAsGlobalGame: false as const,
       },
     }),
   );

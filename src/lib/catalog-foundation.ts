@@ -133,6 +133,24 @@ export type CatalogGameRecord = {
   origin: "legacy-catalog" | "user-entered" | "independent-research" | "licensed-provider" | "mock";
 };
 
+export type CatalogRecommendationRecord = Omit<
+  Pick<
+    CatalogGameRecord,
+    | "id"
+    | "title"
+    | "edition"
+    | "players"
+    | "publisherMinimumAge"
+    | "maximumListedPlaytimeMinutes"
+    | "adultContent"
+    | "bggRating"
+    | "vibeScores"
+  >,
+  "relationships"
+> & {
+  relationships: { relation: CatalogRelationship["relation"] }[];
+};
+
 export type RulebookPermissionScope = {
   storage: boolean;
   parsing: boolean;
@@ -597,7 +615,10 @@ export function isCustomCatalogGame(value: unknown): value is CatalogGameRecord 
   );
 }
 
-export function catalogHardEligible(game: CatalogGameRecord, context: WizardContext): boolean {
+export function catalogHardEligible(
+  game: CatalogRecommendationRecord,
+  context: WizardContext,
+): boolean {
   if (context.players != null) {
     if (game.players.minimum == null || game.players.maximum == null) {
       return false;
@@ -641,7 +662,7 @@ export function catalogHardEligible(game: CatalogGameRecord, context: WizardCont
 }
 
 export function catalogVibePreferenceScore(
-  game: CatalogGameRecord,
+  game: CatalogRecommendationRecord,
   vibes: VibeId[],
 ): number | null {
   const scores = vibes.flatMap((vibe) => {
@@ -655,7 +676,7 @@ export function catalogVibePreferenceScore(
 }
 
 export function catalogRecommendationScore(
-  game: CatalogGameRecord,
+  game: CatalogRecommendationRecord,
   context: WizardContext,
   owned = false,
 ): number {

@@ -1,39 +1,19 @@
 # Read-only catalog view adapter
 
-`src/lib/catalog-view-adapter.ts` maps the synthetic publication snapshot to UI-ready
-Find and Discover results. Both methods use the same entry conversion, hard eligibility,
-Vibe-score completeness checks, catalog scoring function, deterministic ordering, and
-artwork matcher. Find splits eligible results by ownership and applies exclusions by
-permanent GameFinder ID; Discover adds title search without changing eligibility or score.
-Neither method substitutes rejected or excluded games. Rejection reasons and exhausted
-recommendation pools are returned explicitly.
+`src/lib/catalog-view-adapter.ts` consumes the provider-neutral snapshot defined in
+[`published-catalog-view-contract.md`](./published-catalog-view-contract.md). Find and
+Discover share the same record mapping, hard-filter eligibility, missing-Vibe handling,
+catalog scoring, deterministic ordering, and artwork decision. Find adds ownership
+separation and permanent-ID reroll exclusions; Discover adds read-only title search.
 
-The view uses `gf:<UUID>` as its sole catalog identity. Edition remains a distinct
-display attribute. Legacy identifiers are represented only as a separate compatibility
-status: only a unique verified alias resolves, while ambiguous, unverified, and absent
-references remain unresolved. The adapter does not migrate or read Vault, scores, or
-play history.
+The adapter consumes sanitized published-view records, not staged candidates or
+provider payloads. Runtime validation checks identity shape, snapshot/record revision
+consistency, required structure, explicit fact states, Vibe ranges, relationships,
+legacy aliases, and artwork identity/scope/rights fields. These checks are defensive
+consistency checks—not proof of authorization. Only a future authenticated,
+server-side publication reader can supply real published records.
 
-The input accepted today is specifically the fixture-only snapshot emitted by
-`createSyntheticCatalogPublicationSnapshot()`. The adapter clones and validates its
-synthetic provenance, explicit review records, required facts, staging validation,
-identity references, and edition-scoped artwork. Artwork is selected only through
-`selectApprovedArtwork`; when its identity, edition scope, rights, permission dates,
-or other required checks fail, the result contains the original GameFinder placeholder.
-These synthetic permissions are not commercial or production authorizations.
-
-## Trust and production boundary
-
-This checkpoint has no publication API, server authorization, database source, route,
-feature flag, or application import. Its boundary is a development/test fixture contract,
-not a security mechanism: static fixture markers and client-side validation cannot
-authenticate a caller or make client-supplied approvals authoritative. Do not pass
-arbitrary provider data to this adapter or use it to authorize production records.
-
-A future server-published catalog source must enforce publication authorization
-server-side; return only independently reviewed, complete, non-conflicting facts under
-permanent GameFinder IDs; keep legacy-reference resolution separate from publication;
-and include edition-specific artwork scope with explicit, current rights and attribution
-requirements. Find and Discover should consume that one published source through the
-same adapter rather than independently interpreting provider records. Production
-integration, persistence, real identity activation, and live artwork are out of scope.
+The sole source used here is the fixed synthetic fixture gate. It emits fictional
+records, simulation-only artwork decisions, and `gf:<UUID>` identities; it is not
+connected to the application, user data, a production catalog, or BGG. See the contract
+document for server-source requirements and remaining integration boundaries.
