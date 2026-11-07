@@ -162,6 +162,28 @@ export type SyntheticCatalogRecommendationPreview = {
   };
 };
 
+export type SyntheticCatalogPublicationSnapshot = {
+  boundary: "synthetic-fixture-publication-v1";
+  simulationOnly: true;
+  identityIds: string[];
+  records: {
+    record: CatalogGameRecord;
+    candidate: StagedCatalogCandidate;
+    artworkScope: ArtworkEditionScope;
+    artwork: ArtworkCandidate[];
+    adultContentReview: SyntheticFixture["adultContentReview"];
+  }[];
+  legacyAliases: {
+    key: string;
+    gamefinderId: string;
+    status: "verified" | "disputed" | "unverified";
+  }[];
+  customGame: {
+    id: string;
+    ownerScope: "synthetic-owner-only";
+  };
+};
+
 const SYNTHETIC_REVIEW_AT = "2026-01-15T12:00:00.000Z";
 const SIMULATED_REVIEWER = "synthetic-human-reviewer";
 const SIMULATED_OWNER = "synthetic-catalog-owner";
@@ -1309,4 +1331,46 @@ export function syntheticFixtureIdentityIds(): readonly string[] {
 
 export function syntheticFixtureDefinition(id: string): Readonly<FixtureDefinition> | undefined {
   return DEFINITIONS_BY_ID.get(id);
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const nested of Object.values(value)) deepFreeze(nested);
+  }
+  return value;
+}
+
+export function createSyntheticCatalogPublicationSnapshot(): SyntheticCatalogPublicationSnapshot {
+  const records = FIXTURES.flatMap((fixture) => {
+    if (publicationReasons(fixture, CANDIDATES).length > 0) return [];
+    return [
+      {
+        record: toCatalogRecord(fixture),
+        candidate: fixture.candidate,
+        artworkScope: editionScope(fixture.definition),
+        artwork: ARTWORK_FIXTURES.filter(
+          (artwork) => artwork.game.gamefinderId === fixture.definition.id,
+        ),
+        adultContentReview: fixture.adultContentReview,
+      },
+    ];
+  });
+  return deepFreeze(
+    structuredClone({
+      boundary: "synthetic-fixture-publication-v1" as const,
+      simulationOnly: true as const,
+      identityIds: DEFINITIONS.map(({ id }) => id),
+      records,
+      legacyAliases: LEGACY_ALIAS_PROPOSALS.map((alias) => ({
+        key: alias.key,
+        gamefinderId: alias.id,
+        status: alias.status,
+      })),
+      customGame: {
+        id: "gfc_synthetic_owner_game_0001",
+        ownerScope: "synthetic-owner-only" as const,
+      },
+    }),
+  );
 }
