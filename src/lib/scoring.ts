@@ -8,9 +8,10 @@ import type {
   WizardContext,
   WizardResult,
 } from "./types";
-import { DIMENSIONS, MAX_PLAYER_COUNT } from "./types";
+import { DIMENSIONS } from "./types";
 import { GAMES, searchGames, standaloneGames } from "./catalog";
 import { explainMatch } from "./explain";
+import { scoreLegacyGameWithCatalogFoundation } from "./catalog-legacy-bridge";
 import { passesHardConstraints, traitScore } from "./vibes";
 import {
   applicationReviewedFactsAdapter,
@@ -64,21 +65,7 @@ export function vibePreferenceScore(game: Game, vibes: VibeId[]): number {
 }
 
 export function recommendationScore(game: Game, ctx: WizardContext, owned = false): number {
-  let score = owned ? 18 : 0;
-  if (
-    ctx.players != null &&
-    ctx.players < MAX_PLAYER_COUNT &&
-    game.players.best.includes(ctx.players)
-  ) {
-    score += 8;
-  }
-  score += game.bggRating;
-  if (ctx.exactTraits && Object.keys(ctx.exactTraits).length) {
-    const dist = exactDistance(game, ctx.exactTraits);
-    score += Math.max(0, 40 - dist * 18);
-    return score;
-  }
-  return score + vibePreferenceScore(game, ctx.vibes);
+  return scoreLegacyGameWithCatalogFoundation(game, ctx, owned);
 }
 
 function toScored(game: Game, ctx: WizardContext, owned: boolean): ScoredGame {

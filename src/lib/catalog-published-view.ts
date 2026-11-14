@@ -1,4 +1,5 @@
 import { VIBE_IDS, type VibeId } from "./types";
+import type { CompleteRatingAssessment } from "./rating-standards";
 import type { CatalogRelationship } from "./catalog-foundation";
 
 export type PublishedFact<T> =
@@ -88,6 +89,17 @@ export type PublishedCatalogRecord = {
     adultContent: PublishedFact<boolean>;
   };
   vibeScores: Record<VibeId, number | null>;
+
+  /**
+   * Versioned 13-rating assessment package.
+   *
+   * Optional only for compatibility with older published-view fixtures.
+   * Mandatory for the scored publication contract below.
+   *
+   * The original seven dimensions and six Vibes remain separate.
+   */
+  ratingAssessment?: CompleteRatingAssessment;
+
   artwork: PublishedArtworkDecision;
 };
 
@@ -114,6 +126,20 @@ export type PublishedCatalogSnapshot = {
     ownerScope: "owner-only";
     resolvedAsGlobalGame: false;
   };
+};
+
+/**
+ * Future production-rated catalog contract.
+ *
+ * Unlike the compatibility PublishedCatalogRecord, every record
+ * under this contract must carry its complete 13-rating assessment.
+ */
+export type ScoredPublishedCatalogRecord = PublishedCatalogRecord & {
+  ratingAssessment: CompleteRatingAssessment;
+};
+
+export type ScoredPublishedCatalogSnapshot = Omit<PublishedCatalogSnapshot, "records"> & {
+  records: ScoredPublishedCatalogRecord[];
 };
 
 export const GAMEFINDER_ID_PATTERN =

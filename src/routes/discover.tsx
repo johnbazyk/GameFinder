@@ -4,12 +4,7 @@ import { Search, X } from "lucide-react";
 import { GameCover } from "@/components/game-cover";
 import { AdBanner } from "@/components/ad-banner";
 import { VibeGrid } from "@/components/vibe-grid";
-import {
-  AgeBands,
-  PlayerPicker,
-  TimeChips,
-  WIZARD_QUESTIONS,
-} from "@/components/wizard-controls";
+import { AgeBands, PlayerPicker, TimeChips, WIZARD_QUESTIONS } from "@/components/wizard-controls";
 import { STARTER_SHELF_IDS, standaloneGames } from "@/lib/catalog";
 import { discoverGames, formatPlaytime, formatPlayers, getGame } from "@/lib/scoring";
 import { useAppStore } from "@/lib/store";
@@ -88,7 +83,12 @@ function DiscoverPage() {
           autoCorrect="off"
         />
         {q ? (
-          <button type="button" className="grid size-11 place-items-center text-muted-foreground" onClick={() => setQ("")} aria-label="Clear search">
+          <button
+            type="button"
+            className="grid size-11 place-items-center text-muted-foreground"
+            onClick={() => setQ("")}
+            aria-label="Clear search"
+          >
             <X className="size-4" />
           </button>
         ) : null}
@@ -181,11 +181,7 @@ function DiscoverPage() {
               : "Popular to start"}
         </p>
         {filtered ? (
-          <button
-            type="button"
-            className="min-h-11 text-sm font-semibold text-sky"
-            onClick={clear}
-          >
+          <button type="button" className="min-h-11 text-sm font-semibold text-sky" onClick={clear}>
             Clear
           </button>
         ) : (
@@ -229,11 +225,7 @@ function DiscoverPage() {
         <div className="mt-6 rounded-card bg-card p-5 text-center shadow-card">
           <p className="font-display text-xl">Nothing with those knobs</p>
           <p className="mt-1 text-sm text-muted-foreground">Clear a filter or search a name.</p>
-          <button
-            type="button"
-            className="mt-3 min-h-11 font-semibold text-fox"
-            onClick={clear}
-          >
+          <button type="button" className="mt-3 min-h-11 font-semibold text-fox" onClick={clear}>
             Start over
           </button>
         </div>
