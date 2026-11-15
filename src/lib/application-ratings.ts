@@ -1,4 +1,4 @@
-import type { Game, WizardContext, VibeId } from "./types";
+import type { Game, WizardContext } from "./types";
 import { RATING_PILOT } from "./rating-pilot";
 import {
   APPLICATION_RATING_MODE,
@@ -41,13 +41,10 @@ export function compareRatedGames(a: Game, b: Game, ctx: WizardContext) {
 }
 export function ratingExplanation(game: Game, ctx: WizardContext): string {
   const targets = selectedTargets(ctx);
-  const values = Object.keys(targets ?? {}).map((key) => {
-    const r = gameRating(game, key as VibeId, ctx);
-    const name = key === "board" ? "Spatial Play" : key[0].toUpperCase() + key.slice(1);
-    return `${name} ${r.value ?? "not assessed"}/5 (${r.label.toLowerCase()})`;
-  });
-  const record = ratingRecord(game);
-  return values.length
-    ? `Meets your selected filters: ${values.join("; ")}. Assessed for ${record?.edition}, ${ctx.players} players${ctx.ageBand ? `; age context ${ctx.ageBand}` : ""}.`
-    : "Matches your player, age and time selections. No vibe rating was required.";
+  const names = Object.keys(targets ?? {}).map((key) =>
+    key === "board" ? "Spatial Play" : key[0].toUpperCase() + key.slice(1),
+  );
+  return names.length
+    ? `Fits your player, age and time selections, plus your ${names.join(" and ")} preferences.`
+    : "Fits your player, age and time selections.";
 }

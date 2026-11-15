@@ -64,7 +64,14 @@ export type ScoredGame = Game & {
   topDims: Dimension[];
 };
 
+export type MatchCoverage = {
+  hardExcluded: number;
+  missingRatings: number;
+  ratingMismatch: number;
+};
+
 export type WizardResult = {
+  coverage?: { owned: MatchCoverage; unowned: MatchCoverage };
   ownedTop: ScoredGame[];
   unownedTop: ScoredGame[];
   ownedList: ScoredGame[];

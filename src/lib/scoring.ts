@@ -1,9 +1,11 @@
 import {
+  gameRating,
   ratingMode,
   gameMatchesRatings,
   compareRatedGames,
   ratingExplanation,
 } from "./application-ratings";
+import { selectedTargets, type RatingKey } from "./rating-policy";
 import type {
   Game,
   MatchLabel,
@@ -130,7 +132,28 @@ export function runWizard(
 ): WizardResult {
   const ownedSet = new Set(user.owned);
   const excluded = new Set(excludeIds);
-  const catalog = eligibleGames(ctx, games, catalogAdapter);
+  const adapted = catalogAdapter(games, ctx);
+  const hardEligible = adapted.filter((game) => passesHardConstraints(game, ctx));
+  const catalog = hardEligible.filter((game) => gameMatchesRatings(game, ctx));
+  const coverage = {
+    owned: { hardExcluded: 0, missingRatings: 0, ratingMismatch: 0 },
+    unowned: { hardExcluded: 0, missingRatings: 0, ratingMismatch: 0 },
+  };
+  const hardIds = new Set(hardEligible.map((game) => game.bggId));
+  const eligibleIds = new Set(catalog.map((game) => game.bggId));
+  const targets = Object.keys(selectedTargets(ctx) ?? {}) as RatingKey[];
+  for (const game of games) {
+    const group = ownedSet.has(game.bggId) ? coverage.owned : coverage.unowned;
+    if (!hardIds.has(game.bggId)) group.hardExcluded++;
+    else if (!eligibleIds.has(game.bggId)) {
+      if (
+        ratingMode(ctx) !== "legacy" &&
+        targets.some((key) => gameRating(game, key, ctx).value === null)
+      )
+        group.missingRatings++;
+      else group.ratingMismatch++;
+    }
+  }
 
   const ownedEligible = catalog
     .filter((g) => ownedSet.has(g.bggId))
@@ -151,6 +174,7 @@ export function runWizard(
   const unownedTop = unownedEligible.filter((g) => !excluded.has(g.bggId)).slice(0, 3);
 
   return {
+    coverage,
     ownedTop,
     unownedTop,
     ownedList: ownedEligible,

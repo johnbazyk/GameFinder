@@ -28,15 +28,15 @@ test("profile renders canonical values and scope evidence without a fabricated i
     const html = renderToStaticMarkup(
       React.createElement(RatingProfile, { game, initialContext: ctx }),
     );
-    assert.match(html, /Strategy: 4 \/ 5 · Provisional/);
-    assert.match(html, /Family: 3.5 \/ 5 · Provisional/);
+    assert.match(html, /Strategy: 4 out of 5/);
+    assert.doesNotMatch(html, /Seven dimensions|Six vibes|Family: 3.5 \/ 5/);
+    assert.match(html, /Provisional profile/);
     assert.match(html, /scale 1 to 5/);
     assert.match(html, /Hasbro classic drop-only/);
     const missing = renderToStaticMarkup(
       React.createElement(RatingProfile, { game, initialContext: { ...ctx, players: 4 } }),
     );
-    assert.match(missing, /Not assessed/);
-    assert.match(missing, /Incomplete profile/);
+    assert.match(missing, /Profile not yet available/);
     assert.doesNotMatch(missing, /<polygon/);
   } finally {
     await server.close();

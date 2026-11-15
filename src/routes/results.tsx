@@ -6,10 +6,10 @@ import { MatchCard } from "@/components/match-card";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { AdBanner } from "@/components/ad-banner";
-import { MAX_PLAYER_COUNT } from "@/lib/types";
+import { MAX_PLAYER_COUNT, type MatchCoverage } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
 import { VIBE_META, AGE_BANDS } from "@/lib/vibes";
-import { useFlag } from "@/lib/flags";
+
 import { cn } from "@/lib/utils";
 import { prefetchLessons } from "@/lib/lesson-cache";
 
@@ -22,7 +22,7 @@ function ResultsPage() {
   const startOver = useAppStore((s) => s.startOver);
   const ownedCount = useAppStore((s) => s.owned.length);
   const recPool = useAppStore((s) => s.recPool);
-  const expandOn = useFlag("expand_shelf");
+
   const lessonIds = result?.ownedTop.map((g) => g.bggId).join(",") ?? "";
 
   useEffect(() => {
@@ -50,30 +50,6 @@ function ResultsPage() {
   const f = result.appliedFilters;
   const noOwned = result.ownedTop.length === 0;
 
-  if (noOwned && result.unownedTop.length === 0) {
-    return (
-      <div className="pb-10">
-        <EmptyState
-          mood="shrug"
-          title="No exact match found in your vault."
-          body="A filter may have no qualifying or applicable rating. Family needs an assessed age context. Adjust your filters to broaden the search."
-          cta="Adjust filters"
-          onCta={() => navigate({ to: "/wizard" })}
-        />
-        <Button
-          variant="ghost"
-          className="mx-auto mt-2 flex"
-          onClick={() => {
-            startOver();
-            navigate({ to: "/wizard" });
-          }}
-        >
-          Start over
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="pb-10">
       <div className="flex flex-col items-center text-center">
@@ -83,10 +59,10 @@ function ResultsPage() {
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {recPool
-            ? `${recPool.ids.length} games on the shared shelf fit tonight`
+            ? `${result.ownedCount} games on the shared shelf match your filters`
             : result.ownedCount
               ? `${result.ownedCount} in your vault fit tonight`
-              : "Nothing in the vault fit — here are games you might like"}
+              : "Let’s see what matches your selections"}
         </p>
       </div>
 
@@ -109,37 +85,45 @@ function ResultsPage() {
         ))}
       </div>
 
-      {result.exhaustedVault ? (
-        <p className="mt-6 rounded-card bg-card p-4 text-sm shadow-card">
-          You've seen all matching games in your vault. Adjust your filters or start over.
+      <section className="mt-6">
+        <h2 className="font-display text-xl">
+          {recPool ? "From Your Shared Shelf" : "From Your Vault"}
+        </h2>
+        <p className="mb-3 text-sm text-muted-foreground">
+          {result.ownedTop.length} of 3 suggestions
         </p>
-      ) : noOwned ? (
-        <p className="mt-6 rounded-card bg-card p-4 text-sm shadow-card">
-          {ownedCount
-            ? "No exact match found in your vault. Finn kept your filters honest."
-            : "Your vault is empty — scan your shelf, then this top 3 will come from games you own."}
-        </p>
-      ) : (
-        <div className="mt-6 space-y-4">
+        {noOwned && !ownedCount && !recPool ? (
+          <p className="mb-3 text-sm">
+            Your vault is empty. Add games to get suggestions from your collection.
+          </p>
+        ) : null}
+        <MatchAvailability
+          shown={result.ownedTop.length}
+          total={result.ownedCount}
+          coverage={result.coverage?.owned}
+        />
+        <div className="space-y-4">
           {result.ownedTop.map((g) => (
             <MatchCard key={g.bggId} game={g} />
           ))}
         </div>
-      )}
-
-      {expandOn && result.unownedTop.length ? (
-        <section className="mt-10">
-          <h2 className="font-display text-xl">Expand Your Shelf</h2>
-          <p className="mb-3 text-sm text-muted-foreground">
-            Games you don't own that still fit tonight.
-          </p>
-          <div className="space-y-4">
-            {result.unownedTop.map((g) => (
-              <MatchCard key={g.bggId} game={g} discover />
-            ))}
-          </div>
-        </section>
-      ) : null}
+      </section>
+      <section className="mt-10">
+        <h2 className="font-display text-xl">Expand Your Shelf</h2>
+        <p className="mb-3 text-sm text-muted-foreground">
+          {result.unownedTop.length} of 3 suggestions · Games you don’t own
+        </p>
+        <MatchAvailability
+          shown={result.unownedTop.length}
+          total={result.unownedCount}
+          coverage={result.coverage?.unowned}
+        />
+        <div className="space-y-4">
+          {result.unownedTop.map((g) => (
+            <MatchCard key={g.bggId} game={g} discover />
+          ))}
+        </div>
+      </section>
 
       <div className="mt-8 space-y-2">
         <Button
@@ -181,5 +165,45 @@ function Chip({ children }: { children: React.ReactNode }) {
     >
       {children}
     </span>
+  );
+}
+
+function MatchAvailability({
+  shown,
+  total,
+  coverage,
+}: {
+  shown: number;
+  total: number;
+  coverage?: MatchCoverage;
+}) {
+  if (shown >= 3) return null;
+  return (
+    <div className="mb-4 space-y-2 rounded-card bg-card p-4 text-sm shadow-card">
+      <p>
+        {total > shown
+          ? `Only ${shown} unseen ${shown === 1 ? "match remains" : "matches remain"}. You’ve already seen the other matching games. Start over to see them again.`
+          : `Only ${total} ${total === 1 ? "game matches" : "games match"} all your selected filters in this group.`}
+      </p>
+      {!!coverage?.hardExcluded && (
+        <p>
+          {coverage.hardExcluded} excluded by player, age, time, content, or catalog eligibility
+          rules.
+        </p>
+      )}
+      {!!coverage?.ratingMismatch && (
+        <p>{coverage.ratingMismatch} did not meet your selected vibe or rating preferences.</p>
+      )}
+      {!!coverage?.missingRatings && (
+        <p>
+          {coverage.missingRatings} could not be checked against your selected vibes because
+          applicable ratings are not available yet. This is a coverage gap, not a confirmed
+          mismatch.
+        </p>
+      )}
+      <p className="text-muted-foreground">
+        We keep your filters in place rather than fill the remaining spots with mismatches.
+      </p>
+    </div>
   );
 }

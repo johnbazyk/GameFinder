@@ -167,7 +167,8 @@ test("Find, Discover and tonight enforce same beta conditions without touching o
     result.ownedTop.map((g) => g.bggId),
     ["3931"],
   );
-  assert.match(result.ownedTop[0].why, /Strategy 4\/5 \(provisional\)/);
+  assert.match(result.ownedTop[0].why, /Strategy and Spatial Play preferences/);
+  assert.doesNotMatch(result.ownedTop[0].why, /\d\/5/);
   assert.equal(result.ownedTop[0].ratingContext.ratingMode, "beta");
   assert.deepEqual(
     scoring.discoverGames(ctx, "", identity, catalog.GAMES).map((g) => g.bggId),
@@ -207,4 +208,67 @@ test("beta ranking is seeded and unaffected by popularity or ownership bonus", (
   );
   assert.equal(p.seededOrder("a", "s"), p.seededOrder("a", "s"));
   assert.notEqual(p.seededOrder("a", "s"), p.seededOrder("a", "other"));
+});
+
+test("results fill both groups to three without duplicates and explain reroll scarcity", () => {
+  const games = Array.from({ length: 8 }, (_, i) => ({
+    ...game(),
+    bggId: `test-${i}`,
+    name: `Test ${i}`,
+  }));
+  const signals = { ...user, owned: games.slice(0, 4).map((g) => g.bggId) };
+  const first = scoring.runWizard(context(), signals, [], identity, games);
+  assert.equal(first.ownedTop.length, 3);
+  assert.equal(first.unownedTop.length, 3);
+  assert.equal(new Set([...first.ownedTop, ...first.unownedTop].map((g) => g.bggId)).size, 6);
+  const next = scoring.runWizard(
+    context(),
+    signals,
+    [...first.ownedTop, ...first.unownedTop].map((g) => g.bggId),
+    identity,
+    games,
+  );
+  assert.equal(next.ownedTop.length, 1);
+  assert.equal(next.unownedTop.length, 1);
+  assert.equal(next.ownedCount, 4);
+  const exhausted = scoring.runWizard(
+    context(),
+    signals,
+    games.map((g) => g.bggId),
+    identity,
+    games,
+  );
+  assert.equal(exhausted.ownedTop.length, 0);
+  assert.equal(exhausted.unownedTop.length, 0);
+  assert.equal(exhausted.exhaustedVault, true);
+});
+
+test("scarcity separates hard exclusions, missing ratings and known vibe mismatches", () => {
+  const unknown = { ...game(), bggId: "unknown-test", name: "Unknown test" };
+  const tooMany = { ...game(), bggId: "hard-test", players: { min: 4, max: 6, best: [4] } };
+  const games = [game(), unknown, tooMany];
+  const result = scoring.runWizard(
+    context({ vibes: ["strategy"] }),
+    { ...user, owned: games.map((g) => g.bggId) },
+    [],
+    identity,
+    games,
+  );
+  assert.equal(result.ownedTop.length, 1);
+  assert.deepEqual(result.coverage.owned, {
+    hardExcluded: 1,
+    missingRatings: 1,
+    ratingMismatch: 0,
+  });
+  const mismatch = scoring.runWizard(context({ vibes: ["party"] }), user, [], identity, [game()]);
+  assert.equal(mismatch.coverage.owned.ratingMismatch, 1);
+  assert.equal(mismatch.coverage.owned.missingRatings, 0);
+  const unowned = scoring.runWizard(
+    context({ vibes: ["strategy"] }),
+    { ...user, owned: [] },
+    [],
+    identity,
+    games,
+  );
+  assert.deepEqual(unowned.coverage.unowned, result.coverage.owned);
 });

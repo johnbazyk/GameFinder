@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { DIMENSIONS, VIBE_IDS, type Game, type WizardContext, type AgeBand } from "@/lib/types";
 import { VIBE_META } from "@/lib/vibes";
 import { gameRating, ratingRecord } from "@/lib/application-ratings";
@@ -20,6 +20,7 @@ export function RatingProfile({
   initialContext: WizardContext;
 }) {
   const [ctx, setCtx] = useState(initialContext);
+  const chartId = useId();
   const record = ratingRecord(game);
   const values = DIMENSIONS.map((k) => gameRating(game, k, ctx));
   const complete = values.every((r) => r.value !== null);
@@ -33,7 +34,7 @@ export function RatingProfile({
   const [characteristic, setCharacteristic] = useState<RatingKey>("party");
   const point = (i: number, v: number) => {
     const a = -Math.PI / 2 + (i * 2 * Math.PI) / 7;
-    return `${130 + Math.cos(a) * v * 17},${120 + Math.sin(a) * v * 17}`;
+    return `${200 + Math.cos(a) * v * 21},${164 + Math.sin(a) * v * 21}`;
   };
   function saveFeedback() {
     if (
@@ -102,127 +103,188 @@ export function RatingProfile({
   }
   return (
     <section className="mt-8 space-y-4 rounded-card bg-card p-4 shadow-card">
-      <h2 className="font-display text-xl">How it plays · standard {STANDARD_VERSION}</h2>
-      <p className="text-sm">
-        {record
-          ? `Assessed edition: ${record.edition}; ${record.mode}. Confirm this matches your game. Proposed ratings are rules-based, not observed play.`
-          : "This game has not been assessed under the new standard. Your collection is unchanged."}
+      <h2 className="font-display text-xl">How it plays</h2>
+      <p className="text-sm text-muted-foreground">
+        A quick picture of the game’s character—not an overall quality score.
       </p>
-      <label className="block">
-        Players{" "}
-        <input
-          aria-label="Rating player count"
-          className="w-16"
-          type="number"
-          min="1"
-          max="13"
-          value={ctx.players ?? ""}
-          onChange={(e) =>
-            setCtx({ ...ctx, players: e.target.value ? e.target.valueAsNumber : null })
-          }
-        />
-      </label>
-      <label className="block">
-        Family age context{" "}
-        <select
-          value={ctx.ageBand ?? ""}
-          onChange={(e) => setCtx({ ...ctx, ageBand: (e.target.value as AgeBand) || null })}
-        >
-          <option value="">Choose context</option>
-          {["under6", "6-7", "8-10", "11-13", "14-17", "adults"].map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-      </label>
-      <p className="text-xs">
-        Changing this profile context does not change your saved search filters. High ratings
-        describe more of a characteristic, not overall quality.
-      </p>
+      {values.some((r) => r.label === "Provisional") && (
+        <span className="inline-block rounded-full bg-muted px-3 py-1 text-xs font-semibold">
+          Provisional profile
+        </span>
+      )}
+      <details className="text-sm text-muted-foreground">
+        <summary className="cursor-pointer">Edition and player context</summary>
+        <div className="mt-3 space-y-3">
+          <p className="text-sm">
+            {record
+              ? `Assessed edition: ${record.edition}; ${record.mode}. Confirm this matches your game. Proposed ratings are rules-based, not observed play.`
+              : "This game has not been assessed under the new standard. Your collection is unchanged."}
+          </p>
+          <label className="block">
+            Players{" "}
+            <input
+              aria-label="Rating player count"
+              className="w-16"
+              type="number"
+              min="1"
+              max="13"
+              value={ctx.players ?? ""}
+              onChange={(e) =>
+                setCtx({ ...ctx, players: e.target.value ? e.target.valueAsNumber : null })
+              }
+            />
+          </label>
+          <label className="block">
+            Family age context{" "}
+            <select
+              value={ctx.ageBand ?? ""}
+              onChange={(e) => setCtx({ ...ctx, ageBand: (e.target.value as AgeBand) || null })}
+            >
+              <option value="">Choose context</option>
+              {["under6", "6-7", "8-10", "11-13", "14-17", "adults"].map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs">
+            Changing this profile context does not change your saved search filters. High ratings
+            describe more of a characteristic, not overall quality.
+          </p>
+        </div>
+      </details>
       {complete ? (
         <svg
           role="img"
-          aria-label="Seven dimension ratings, scale 1 to 5"
-          viewBox="0 0 260 250"
-          className="mx-auto max-w-80"
+          aria-labelledby={`${chartId}-title ${chartId}-description`}
+          viewBox="0 0 400 340"
+          className="mx-auto w-full max-w-lg"
         >
+          <title id={`${chartId}-title`}>Game character · scale 1 to 5</title>
+          <desc id={`${chartId}-description`}>
+            {DIMENSIONS.map((k, i) => `${labels[k]}: ${values[i].value} out of 5`).join("; ")}.
+            Higher means more of a characteristic, not a better game.
+          </desc>
           {[1, 2, 3, 4, 5].map((n) => (
-            <g key={n}>
-              <polygon
-                points={DIMENSIONS.map((_, i) => point(i, n)).join(" ")}
-                fill="none"
-                stroke="#aaa"
-              />
-              <text x="133" y={120 - n * 17} fontSize="10">
-                {n}
-              </text>
-            </g>
+            <polygon
+              key={n}
+              points={DIMENSIONS.map((_, i) => point(i, n)).join(" ")}
+              fill={n === 1 ? "var(--color-cream)" : "none"}
+              stroke="var(--color-night)"
+              strokeOpacity={n === 5 ? 0.2 : 0.09}
+              strokeWidth="1"
+            />
           ))}
+          {DIMENSIONS.map((k, i) => {
+            const [x, y] = point(i, 5).split(",");
+            return (
+              <line
+                key={k}
+                x1="200"
+                y1="164"
+                x2={x}
+                y2={y}
+                stroke="var(--color-night)"
+                strokeOpacity=".08"
+              />
+            );
+          })}
           <polygon
             points={values.map((v, i) => point(i, v.value!)).join(" ")}
-            fill="#e8642b55"
-            stroke="#e8642b"
+            fill="var(--color-fox)"
+            fillOpacity=".18"
+            stroke="var(--color-fox)"
+            strokeWidth="2.5"
+            strokeLinejoin="round"
           />
-          {DIMENSIONS.map((k, i) => {
-            const [x, y] = point(i, 6).split(",");
+          {values.map((v, i) => {
+            const [x, y] = point(i, v.value!).split(",");
             return (
-              <text key={k} x={x} y={y} textAnchor="middle" fontSize="9">
-                {labels[k].replace(" management", "").replace(" interaction", "")}
+              <circle
+                key={DIMENSIONS[i]}
+                cx={x}
+                cy={y}
+                r="3.5"
+                fill="var(--color-fox)"
+                stroke="var(--color-card)"
+                strokeWidth="1.5"
+              >
+                <title>
+                  {labels[DIMENSIONS[i]]}: {v.value} / 5
+                </title>
+              </circle>
+            );
+          })}
+          {[1, 3, 5].map((n) => (
+            <text key={n} x="206" y={164 - n * 21 - 4} fontSize="10" fill="var(--color-ink-muted)">
+              {n}
+            </text>
+          ))}
+          {DIMENSIONS.map((k, i) => {
+            const [x, y] = point(i, 6.25).split(",");
+            const words =
+              k === "resourceMgmt"
+                ? ["Resource", "management"]
+                : k === "social"
+                  ? ["Social", "interaction"]
+                  : [labels[k]];
+            return (
+              <text
+                key={k}
+                x={x}
+                y={y}
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight="600"
+                fill="var(--color-night)"
+              >
+                {words.map((word, j) => (
+                  <tspan key={word} x={x} dy={j ? 13 : 0}>
+                    {word}
+                  </tspan>
+                ))}
               </text>
             );
           })}
         </svg>
       ) : (
-        <p>Incomplete profile: missing ratings are not plotted as zero.</p>
+        <p className="rounded-xl bg-muted p-4 text-sm">
+          Profile not yet available for this player context. Unassessed characteristics are never
+          shown as zero.
+        </p>
       )}
-      <h3 className="font-semibold">Seven dimensions</h3>
-      <ul>
-        {DIMENSIONS.map((k) => (
-          <li key={k}>
-            {labels[k]}: {gameRating(game, k, ctx).value ?? "Not assessed"}
-            {gameRating(game, k, ctx).value !== null
-              ? ` / 5 · ${gameRating(game, k, ctx).label}`
-              : ""}
-          </li>
-        ))}
-      </ul>
-      <p className="text-xs">
-        Replayability means renewed gameplay challenges, not a prediction of repeat enjoyment.
-      </p>
-      <h3 className="font-semibold">Six vibes</h3>
-      <ul>
-        {VIBE_IDS.map((k) => {
-          const r = gameRating(game, k, ctx);
-          return (
-            <li key={k} className="my-2">
-              <span>
-                {VIBE_META[k].label}: {r.value ?? "Not assessed"}
-                {r.value !== null ? ` / 5 · ${r.label}` : ""}
-              </span>
-              {r.assessment ? (
-                <details>
-                  <summary>How this was rated</summary>
-                  <p>{r.assessment.rationale}</p>
-                  {r.assessment.sources.map((s) => (
-                    <a
-                      key={s.url}
-                      className="block underline"
-                      href={s.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Rules source
-                    </a>
-                  ))}
-                </details>
-              ) : (
-                <p className="text-xs">{r.blockers.join("; ")}</p>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      <details className="text-sm text-muted-foreground">
+        <summary className="cursor-pointer">About this profile</summary>
+        <p className="mt-3">
+          Standard {STANDARD_VERSION}. Provisional profiles are based on rules and await play
+          feedback. Replayability describes renewed gameplay challenges, not guaranteed enjoyment.
+        </p>
+        {record &&
+          [...DIMENSIONS, "dexterity", "family", "party", "board"].map((k) => {
+            const r = gameRating(game, k as RatingKey, ctx);
+            if (!r.assessment) return null;
+            return (
+              <details key={k} className="mt-3">
+                <summary className="cursor-pointer">
+                  {labels[k] ?? VIBE_META[k as keyof typeof VIBE_META]?.label}
+                </summary>
+                <p className="mt-2">{r.assessment.rationale}</p>
+                {r.assessment.sources.map((source) => (
+                  <a
+                    key={source.url}
+                    className="block underline"
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Rules source
+                  </a>
+                ))}
+              </details>
+            );
+          })}
+      </details>
       <details>
         <summary>After playing: did this match the vibe?</summary>
         <div className="mt-3 space-y-3">
