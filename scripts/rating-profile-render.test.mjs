@@ -33,6 +33,11 @@ test("profile renders canonical values and scope evidence without a fabricated i
     assert.match(html, /Provisional profile/);
     assert.match(html, /scale 1 to 5/);
     assert.match(html, /Hasbro classic drop-only/);
+    assert.doesNotMatch(
+      html,
+      /<details|<select|<input|About this profile|Edition and player context|After playing/,
+    );
+    for (const n of [1, 2, 3, 4, 5]) assert.match(html, new RegExp(`data-scale-tick="${n}"`));
     const missing = renderToStaticMarkup(
       React.createElement(RatingProfile, { game, initialContext: { ...ctx, players: 4 } }),
     );

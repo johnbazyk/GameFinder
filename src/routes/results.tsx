@@ -97,11 +97,13 @@ function ResultsPage() {
             Your vault is empty. Add games to get suggestions from your collection.
           </p>
         ) : null}
-        <MatchAvailability
-          shown={result.ownedTop.length}
-          total={result.ownedCount}
-          coverage={result.coverage?.owned}
-        />
+        {(ownedCount > 0 || recPool) && (
+          <MatchAvailability
+            shown={result.ownedTop.length}
+            total={result.ownedCount}
+            coverage={result.coverage?.owned}
+          />
+        )}
         <div className="space-y-4">
           {result.ownedTop.map((g) => (
             <MatchCard key={g.bggId} game={g} />
@@ -178,32 +180,17 @@ function MatchAvailability({
   coverage?: MatchCoverage;
 }) {
   if (shown >= 3) return null;
-  return (
-    <div className="mb-4 space-y-2 rounded-card bg-card p-4 text-sm shadow-card">
-      <p>
-        {total > shown
-          ? `Only ${shown} unseen ${shown === 1 ? "match remains" : "matches remain"}. You’ve already seen the other matching games. Start over to see them again.`
-          : `Only ${total} ${total === 1 ? "game matches" : "games match"} all your selected filters in this group.`}
-      </p>
-      {!!coverage?.hardExcluded && (
-        <p>
-          {coverage.hardExcluded} excluded by player, age, time, content, or catalog eligibility
-          rules.
-        </p>
-      )}
-      {!!coverage?.ratingMismatch && (
-        <p>{coverage.ratingMismatch} did not meet your selected vibe or rating preferences.</p>
-      )}
-      {!!coverage?.missingRatings && (
-        <p>
-          {coverage.missingRatings} could not be checked against your selected vibes because
-          applicable ratings are not available yet. This is a coverage gap, not a confirmed
-          mismatch.
-        </p>
-      )}
-      <p className="text-muted-foreground">
-        We keep your filters in place rather than fill the remaining spots with mismatches.
-      </p>
-    </div>
-  );
+  const message =
+    total > shown
+      ? shown === 0
+        ? "You’ve seen all matching games. Start over to see them again."
+        : `Only ${shown} new ${shown === 1 ? "match" : "matches"} left.`
+      : coverage?.missingRatings
+        ? shown === 0
+          ? "No matches yet—some games still need ratings."
+          : `Only ${shown} ${shown === 1 ? "match" : "matches"} so far—some games still need ratings.`
+        : shown === 0
+          ? "No games match these filters."
+          : `Only ${shown} ${shown === 1 ? "game matches" : "games match"} these filters.`;
+  return <p className="mb-4 text-sm text-muted-foreground">{message}</p>;
 }
