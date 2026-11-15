@@ -38,6 +38,24 @@ test("profile renders canonical values and scope evidence without a fabricated i
       /<details|<select|<input|About this profile|Edition and player context|After playing/,
     );
     for (const n of [1, 2, 3, 4, 5]) assert.match(html, new RegExp(`data-scale-tick="${n}"`));
+    for (const mode of [undefined, "legacy", "beta"]) {
+      const restored = renderToStaticMarkup(
+        React.createElement(RatingProfile, {
+          game,
+          initialContext: { ...ctx, ratingMode: mode },
+        }),
+      );
+      assert.match(restored, /Strategy: 4 out of 5/);
+      assert.doesNotMatch(restored, /legacy estimates|>Engine<|>Weight</);
+    }
+    const unassessed = renderToStaticMarkup(
+      React.createElement(RatingProfile, {
+        game: GAMES.find((g) => g.bggId === "230802"),
+        initialContext: ctx,
+      }),
+    );
+    assert.match(unassessed, /Profile not yet available/);
+    assert.doesNotMatch(unassessed, /<polygon|legacy estimates/);
     const missing = renderToStaticMarkup(
       React.createElement(RatingProfile, { game, initialContext: { ...ctx, players: 4 } }),
     );

@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { DIMENSIONS, type Game, type WizardContext } from "@/lib/types";
+import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { gameRating, ratingRecord } from "@/lib/application-ratings";
 const labels: Record<string, string> = {
   luck: "Luck",
@@ -17,7 +18,14 @@ export function RatingProfile({
   game: Game;
   initialContext: WizardContext;
 }) {
-  const ctx = initialContext;
+  // Display one canonical profile even when an older search context is restored.
+  const ctx: WizardContext = {
+    ...initialContext,
+    ratingMode:
+      APPLICATION_RATING_MODE === "reviewed" || initialContext.ratingMode === "reviewed"
+        ? "reviewed"
+        : "beta",
+  };
   const chartId = useId();
   const record = ratingRecord(game);
   const values = DIMENSIONS.map((k) => gameRating(game, k, ctx));
