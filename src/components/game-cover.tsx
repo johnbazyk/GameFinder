@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import type { Game } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const ACCENTS = ["#b74d28", "#49664b", "#476b82", "#79617d"];
+const ACCENTS = ["var(--color-fox)", "var(--color-moss)", "var(--color-sky)"];
 
 /** Original, decorative placeholder. Colors do not encode game ratings or types. */
 export function GameCover({
@@ -41,12 +41,19 @@ export function GameCover({
             width="43"
             height="55"
             rx="8"
-            fill="#fffaf2"
+            fill="var(--color-cream)"
             stroke="currentColor"
             strokeWidth="2"
           />
           <path d="M52 25 64 39 52 53 40 39Z" fill="currentColor" opacity=".85" />
-          <circle cx="72" cy="62" r="12" fill="#fffaf2" stroke="currentColor" strokeWidth="2" />
+          <circle
+            cx="72"
+            cy="62"
+            r="12"
+            fill="var(--color-cream)"
+            stroke="currentColor"
+            strokeWidth="2"
+          />
           <circle cx="72" cy="62" r="6" stroke="currentColor" strokeWidth="1.5" />
         </svg>
         <span className="game-cover-title">{game.name}</span>
