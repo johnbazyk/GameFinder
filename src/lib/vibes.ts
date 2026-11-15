@@ -14,7 +14,7 @@ export const VIBE_META: Record<
   dexterity: { label: "Dexterity", tagline: "Hands, reflexes, stacking", icon: "hand" },
   family: { label: "Family", tagline: "Works across ages", icon: "home" },
   party: { label: "Party", tagline: "Loud, social, groups", icon: "party" },
-  board: { label: "Board-Based", tagline: "A board, map, or tiles", icon: "layout" },
+  board: { label: "Spatial Play", tagline: "Position, paths, or placement", icon: "layout" },
 };
 
 export const AGE_BANDS: {
@@ -69,9 +69,10 @@ export function traitScore(game: Game, vibe: VibeId): number {
     case "strategy":
       return clamp5(game.rubric.strategy / 20);
     case "dexterity": {
-      const physical = /dexterity|stack|flick|real.?time|physical|balancing|action \/ dexterity|coordination/i.test(
-        hay(game),
-      );
+      const physical =
+        /dexterity|stack|flick|real.?time|physical|balancing|action \/ dexterity|coordination/i.test(
+          hay(game),
+        );
       if (physical) return clamp5(Math.max(3.6, game.rubric.skill / 18));
       return clamp5(game.rubric.skill / 40);
     }

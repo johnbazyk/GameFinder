@@ -284,7 +284,9 @@ test("the six independent Vibes score known facts and missing requested scores n
     );
     assert.ok(
       eligible.every((entry) =>
-        entry.matchExplanation.some((line) => line.toLowerCase().includes(vibe)),
+        entry.matchExplanation.some((line) =>
+          line.toLowerCase().includes(vibe === "board" ? "spatial play" : vibe),
+        ),
       ),
     );
   }

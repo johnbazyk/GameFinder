@@ -73,14 +73,8 @@ test("8–10 requires suitability for an eight-year-old; younger-rated games rem
   const wingspan = game("266192");
   const ticketToRide = game("9209");
 
-  assert.equal(
-    constraints.passesHardConstraints(wingspan, context({ ageBand: "8-10" })),
-    false,
-  );
-  assert.equal(
-    constraints.passesHardConstraints(ticketToRide, context({ ageBand: "8-10" })),
-    true,
-  );
+  assert.equal(constraints.passesHardConstraints(wingspan, context({ ageBand: "8-10" })), false);
+  assert.equal(constraints.passesHardConstraints(ticketToRide, context({ ageBand: "8-10" })), true);
 });
 
 test("age bands use their lower bound, while Adults Only has no minimum-age cutoff", () => {
@@ -161,18 +155,9 @@ test("explicit and curated adult content stays out of non-adult age bands", () =
   const explicit = { ...wingspan, adultContent: true };
   const curated = { ...wingspan, bggId: "188834" };
 
-  assert.equal(
-    constraints.passesHardConstraints(explicit, context({ ageBand: "8-10" })),
-    false,
-  );
-  assert.equal(
-    constraints.passesHardConstraints(curated, context({ ageBand: "8-10" })),
-    false,
-  );
-  assert.equal(
-    constraints.passesHardConstraints(explicit, context({ ageBand: "adults" })),
-    true,
-  );
+  assert.equal(constraints.passesHardConstraints(explicit, context({ ageBand: "8-10" })), false);
+  assert.equal(constraints.passesHardConstraints(curated, context({ ageBand: "8-10" })), false);
+  assert.equal(constraints.passesHardConstraints(explicit, context({ ageBand: "adults" })), true);
 });
 
 test("time limits compare the listed maximum playtime to the selected boundary", () => {
@@ -187,10 +172,7 @@ test("time limits compare the listed maximum playtime to the selected boundary",
   };
 
   assert.equal(constraints.listedPlaytime(wingspan), 70);
-  assert.equal(
-    constraints.passesHardConstraints(wingspan, context({ maxTimeMin: 60 })),
-    false,
-  );
+  assert.equal(constraints.passesHardConstraints(wingspan, context({ maxTimeMin: 60 })), false);
   assert.equal(
     constraints.passesHardConstraints(slowAverage, context({ maxTimeMin: 60 })),
     false,
@@ -279,9 +261,7 @@ test("Vibe preferences rank eligible games without excluding low-scoring matches
   assert.equal(filtered.length, unfilteredIds.size);
   assert.ok(filtered.some((candidate) => candidate.bggId === lowVibeGame.bggId));
   assert.ok(filtered.some((candidate) => candidate.bggId === highVibeGame.bggId));
-  assert.ok(
-    recommendationScore(highVibeGame, filters) > recommendationScore(lowVibeGame, filters),
-  );
+  assert.ok(recommendationScore(highVibeGame, filters) > recommendationScore(lowVibeGame, filters));
 });
 
 test("multiple Vibe selections use the same preference scoring in Find and Discover", () => {
@@ -298,10 +278,7 @@ test("multiple Vibe selections use the same preference scoring in Find and Disco
   for (const candidate of [game("169786"), game("5048")]) {
     const expected = candidate.bggRating + vibePreferenceScore(candidate, filters.vibes);
     assert.equal(recommendationScore(candidate, filters), expected);
-    assert.equal(
-      find.find((result) => result.bggId === candidate.bggId)?.score,
-      expected,
-    );
+    assert.equal(find.find((result) => result.bggId === candidate.bggId)?.score, expected);
     assert.equal(
       discover.find((result) => result.bggId === candidate.bggId)?.bggId,
       candidate.bggId,
@@ -344,7 +321,7 @@ test("Discover filter controls expose the wizard's approved questions and choice
   );
   assert.deepEqual(
     Object.values(vibeMeta.VIBE_META).map(({ label }) => label),
-    ["Luck", "Strategy", "Dexterity", "Family", "Party", "Board-Based"],
+    ["Luck", "Strategy", "Dexterity", "Family", "Party", "Spatial Play"],
   );
 });
 
@@ -366,8 +343,14 @@ test("runWizard excludes Wingspan from owned and unowned recommendations for the
   const result = runWizard(scenario, user);
 
   assert.ok(user.owned.includes("266192"), "Wingspan is in the vault");
-  assert.equal(result.ownedList.some((candidate) => candidate.bggId === "266192"), false);
-  assert.equal(result.ownedTop.some((candidate) => candidate.bggId === "266192"), false);
+  assert.equal(
+    result.ownedList.some((candidate) => candidate.bggId === "266192"),
+    false,
+  );
+  assert.equal(
+    result.ownedTop.some((candidate) => candidate.bggId === "266192"),
+    false,
+  );
 
   const unownedWingspanResult = runWizard(scenario, {
     ...user,
@@ -402,10 +385,9 @@ test("rerolls show at most three new owned recommendations and exclude prior uno
     vibeWeights: defaultUserWeights,
   };
   const first = runWizard(scenario, user);
-  const previouslyShown = [
-    ...first.ownedTop,
-    ...first.unownedTop,
-  ].map((candidate) => candidate.bggId);
+  const previouslyShown = [...first.ownedTop, ...first.unownedTop].map(
+    (candidate) => candidate.bggId,
+  );
   const next = runWizard(scenario, user, previouslyShown);
 
   assert.ok(first.ownedTop.length <= 3);

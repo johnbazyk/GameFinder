@@ -1,3 +1,4 @@
+import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { FoxAvatar } from "@/components/fox-avatar";
@@ -28,7 +29,13 @@ function ResultsPage() {
     if (lessonIds) prefetchLessons(lessonIds.split(","));
   }, [lessonIds]);
 
-  if (!result) {
+  const staleRatings =
+    result &&
+    APPLICATION_RATING_MODE !== "legacy" &&
+    [...result.ownedTop, ...result.unownedTop].some(
+      (g) => g.ratingContext?.ratingMode !== APPLICATION_RATING_MODE,
+    );
+  if (!result || staleRatings) {
     return (
       <EmptyState
         mood="sniffing"
@@ -49,7 +56,7 @@ function ResultsPage() {
         <EmptyState
           mood="shrug"
           title="No exact match found in your vault."
-          body="Try adjusting your player count, age, or time filter."
+          body="A filter may have no qualifying or applicable rating. Family needs an assessed age context. Adjust your filters to broaden the search."
           cta="Adjust filters"
           onCta={() => navigate({ to: "/wizard" })}
         />
@@ -96,9 +103,7 @@ function ResultsPage() {
         ) : (
           <Chip>Any time</Chip>
         )}
-        {f.ageBand ? (
-          <Chip>{AGE_BANDS.find((b) => b.id === f.ageBand)?.label}</Chip>
-        ) : null}
+        {f.ageBand ? <Chip>{AGE_BANDS.find((b) => b.id === f.ageBand)?.label}</Chip> : null}
         {f.vibes.map((v) => (
           <Chip key={v}>{VIBE_META[v].label}</Chip>
         ))}
@@ -150,11 +155,7 @@ function ResultsPage() {
         >
           Sniff again
         </Button>
-        <Button
-          className="w-full"
-          variant="secondary"
-          onClick={() => navigate({ to: "/wizard" })}
-        >
+        <Button className="w-full" variant="secondary" onClick={() => navigate({ to: "/wizard" })}>
           Adjust filters
         </Button>
         <button
@@ -176,9 +177,7 @@ function ResultsPage() {
 function Chip({ children }: { children: React.ReactNode }) {
   return (
     <span
-      className={cn(
-        "rounded-full bg-card px-3 py-1.5 text-sm font-semibold ring-1 ring-border",
-      )}
+      className={cn("rounded-full bg-card px-3 py-1.5 text-sm font-semibold ring-1 ring-border")}
     >
       {children}
     </span>

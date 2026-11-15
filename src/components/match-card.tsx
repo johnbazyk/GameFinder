@@ -49,7 +49,16 @@ export function MatchCard({
       <Link to="/game/$id" params={{ id: game.bggId }} className="flex gap-4 text-left">
         <GameCover game={game} className="aspect-[5/7] w-24 shrink-0" />
         <div className="min-w-0 flex-1">
-          {showMatch ? <MatchLabelChip label={game.matchLabel} /> : null}
+          {showMatch ? (
+            game.ratingContext ? (
+              <span className="text-xs font-semibold">
+                Matches selected filters ·{" "}
+                {game.ratingContext.ratingMode === "reviewed" ? "Reviewed" : "Beta"}
+              </span>
+            ) : (
+              <MatchLabelChip label={game.matchLabel} />
+            )
+          ) : null}
           <h3 className="mt-1 font-display text-xl leading-tight">{game.name}</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {formatPlayers(game)} players · {formatPlaytime(game)} · {formatAge(game)}
@@ -94,13 +103,7 @@ export function MatchCard({
   );
 }
 
-export function GameRow({
-  game,
-  owned,
-}: {
-  game: Game;
-  owned?: boolean;
-}) {
+export function GameRow({ game, owned }: { game: Game; owned?: boolean }) {
   return (
     <Link
       to="/game/$id"

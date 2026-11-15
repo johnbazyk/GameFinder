@@ -1,3 +1,4 @@
+import type { RatingMode, RatingTarget } from "./rating-policy";
 export const DIMENSIONS = [
   "luck",
   "strategy",
@@ -10,14 +11,7 @@ export const DIMENSIONS = [
 
 export type Dimension = (typeof DIMENSIONS)[number];
 
-export const VIBE_IDS = [
-  "luck",
-  "strategy",
-  "dexterity",
-  "family",
-  "party",
-  "board",
-] as const;
+export const VIBE_IDS = ["luck", "strategy", "dexterity", "family", "party", "board"] as const;
 
 export type VibeId = (typeof VIBE_IDS)[number];
 
@@ -48,6 +42,11 @@ export type Game = {
 };
 
 export type WizardContext = {
+  ratingMode?: RatingMode;
+  ratingTargets?: Partial<Record<VibeId, RatingTarget>>;
+  ratingEdition?: string;
+  ratingPlayMode?: string;
+  ratingSeed?: string;
   players: number | null;
   ageBand: AgeBand | null;
   maxTimeMin: number | null;
@@ -57,6 +56,7 @@ export type WizardContext = {
 };
 
 export type ScoredGame = Game & {
+  ratingContext?: WizardContext;
   score: number;
   matchLabel: MatchLabel;
   owned: boolean;

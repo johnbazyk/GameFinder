@@ -1,3 +1,5 @@
+import { RatingProfile } from "@/components/rating-profile";
+import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ExternalLink, Heart, Library, Mic, Play, Trophy } from "lucide-react";
@@ -20,6 +22,7 @@ export const Route = createFileRoute("/game/$id/")({ component: GamePage });
 function GamePage() {
   const { id } = Route.useParams();
   const game = getGame(id);
+  const wizardContext = useAppStore((s) => s.wizard);
   const customGame = useAppStore((s) => s.customGames.find((entry) => entry.id === id));
   const owned = useAppStore((s) => s.owned.includes(id));
   const wish = useAppStore((s) => s.wishlist.includes(id));
@@ -115,7 +118,7 @@ function GamePage() {
           </p>
           <p className="mt-2 text-sm font-semibold">BGG Rating: {game.bggRating.toFixed(1)} / 10</p>
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {game.vibes.map((v) => (
+            {(APPLICATION_RATING_MODE === "legacy" ? game.vibes : []).map((v) => (
               <span key={v} className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold">
                 {VIBE_META[v].label}
               </span>
@@ -182,27 +185,40 @@ function GamePage() {
       </Button>
       <FinnCoach game={game} />
 
-      <section className="mt-8 rounded-card bg-card p-4 shadow-card">
-        <h2 className="font-display text-xl">How it plays</h2>
-        <ul className="mt-3 space-y-2">
-          {(Object.keys(VIBE_META) as VibeId[]).map((v) => (
-            <li key={v} className="flex items-center gap-3 text-sm">
-              <span className="w-28 shrink-0 text-muted-foreground">{VIBE_META[v].label}</span>
-              <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                <span
-                  className="block h-full rounded-full bg-fox"
-                  style={{ width: `${(traitScore(game, v) / 5) * 100}%` }}
-                />
-              </span>
-              <span className="w-8 text-right tabular-nums">{traitScore(game, v).toFixed(1)}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-2 text-xs text-muted-foreground">Scores are 1–5 for each vibe trait.</p>
-        <div className="mt-4">
-          <RubricRadar rubric={game.rubric} />
-        </div>
-      </section>
+      {APPLICATION_RATING_MODE !== "legacy" ? (
+        <RatingProfile
+          key={game.bggId}
+          game={game}
+          initialContext={match?.ratingContext ?? wizardContext}
+        />
+      ) : (
+        <section className="mt-8 rounded-card bg-card p-4 shadow-card">
+          <h2 className="font-display text-xl">How it plays · legacy estimates</h2>
+          <ul className="mt-3 space-y-2">
+            {(Object.keys(VIBE_META) as VibeId[]).map((v) => (
+              <li key={v} className="flex items-center gap-3 text-sm">
+                <span className="w-28 shrink-0 text-muted-foreground">{VIBE_META[v].label}</span>
+                <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="block h-full rounded-full bg-fox"
+                    style={{ width: `${(traitScore(game, v) / 5) * 100}%` }}
+                  />
+                </span>
+                <span className="w-8 text-right tabular-nums">
+                  {traitScore(game, v).toFixed(1)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Legacy formula estimates; not assessed under standard 0.3. Dimension chart remains on
+            its original 0–100 scale.
+          </p>
+          <div className="mt-4">
+            <RubricRadar rubric={game.rubric} />
+          </div>
+        </section>
+      )}
 
       <section className="mt-6 rounded-card bg-card p-4 shadow-card">
         <h2 className="font-display text-xl">Scorecard</h2>

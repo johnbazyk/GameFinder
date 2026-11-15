@@ -20,7 +20,10 @@
     "check:auth": "node scripts/check-auth-invariant.mjs",
     "test": "node --test 'scripts/**/*.test.mjs'",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "dev:ratings:beta": "VITE_GAMEFINDER_RATINGS_MODE=beta npm run dev",
+    "build:ratings:beta": "VITE_GAMEFINDER_RATINGS_MODE=beta npm run build",
+    "test:ratings": "node --test scripts/rating-policy-03.test.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

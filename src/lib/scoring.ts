@@ -1,3 +1,9 @@
+import {
+  ratingMode,
+  gameMatchesRatings,
+  compareRatedGames,
+  ratingExplanation,
+} from "./application-ratings";
 import type {
   Game,
   MatchLabel,
@@ -65,10 +71,21 @@ export function vibePreferenceScore(game: Game, vibes: VibeId[]): number {
 }
 
 export function recommendationScore(game: Game, ctx: WizardContext, owned = false): number {
+  if (ratingMode(ctx) !== "legacy") return 0; // Descriptive ratings are not a summed ranking score.
   return scoreLegacyGameWithCatalogFoundation(game, ctx, owned);
 }
 
 function toScored(game: Game, ctx: WizardContext, owned: boolean): ScoredGame {
+  if (ratingMode(ctx) !== "legacy")
+    return {
+      ...game,
+      score: 0,
+      matchLabel: "good",
+      owned,
+      why: ratingExplanation(game, ctx),
+      topDims: [],
+      ratingContext: { ...ctx, ratingMode: ratingMode(ctx) },
+    };
   const matchLabel = labelFor(game, ctx, owned);
   const { why, topDims } = explainMatch(game, ctx, matchLabel);
   return {
@@ -86,7 +103,9 @@ export function eligibleGames(
   games: readonly Game[] = standaloneGames(),
   catalogAdapter: RecommendationCatalogAdapter = applicationReviewedFactsAdapter,
 ): Game[] {
-  return catalogAdapter(games, ctx).filter((game) => passesHardConstraints(game, ctx));
+  return catalogAdapter(games, ctx).filter(
+    (game) => passesHardConstraints(game, ctx) && gameMatchesRatings(game, ctx),
+  );
 }
 
 export function discoverGames(
@@ -95,8 +114,10 @@ export function discoverGames(
   catalogAdapter: RecommendationCatalogAdapter = applicationReviewedFactsAdapter,
   games: readonly Game[] = searchGames(query),
 ): Game[] {
-  return eligibleGames(ctx, games, catalogAdapter).sort(
-    (a, b) => recommendationScore(b, ctx) - recommendationScore(a, ctx),
+  return eligibleGames(ctx, games, catalogAdapter).sort((a, b) =>
+    ratingMode(ctx) === "legacy"
+      ? recommendationScore(b, ctx) - recommendationScore(a, ctx)
+      : compareRatedGames(a, b, ctx),
   );
 }
 
@@ -114,7 +135,9 @@ export function runWizard(
   const ownedEligible = catalog
     .filter((g) => ownedSet.has(g.bggId))
     .map((g) => toScored(g, ctx, true))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) =>
+      ratingMode(ctx) === "legacy" ? b.score - a.score : compareRatedGames(a, b, ctx),
+    );
 
   const ownedFresh = ownedEligible.filter((g) => !excluded.has(g.bggId));
   const ownedTop = ownedFresh.slice(0, 3);
@@ -122,7 +145,9 @@ export function runWizard(
   const unownedEligible = catalog
     .filter((g) => !ownedSet.has(g.bggId))
     .map((g) => toScored(g, ctx, false))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) =>
+      ratingMode(ctx) === "legacy" ? b.score - a.score : compareRatedGames(a, b, ctx),
+    );
   const unownedTop = unownedEligible.filter((g) => !excluded.has(g.bggId)).slice(0, 3);
 
   return {

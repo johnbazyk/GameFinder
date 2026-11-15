@@ -1,15 +1,12 @@
+import { RatingNotice, RatingTargets } from "@/components/rating-controls";
+import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
 import { VibeGrid } from "@/components/vibe-grid";
-import {
-  AgeBands,
-  PlayerPicker,
-  TimeChips,
-  WIZARD_QUESTIONS,
-} from "@/components/wizard-controls";
+import { AgeBands, PlayerPicker, TimeChips, WIZARD_QUESTIONS } from "@/components/wizard-controls";
 import { useAppStore } from "@/lib/store";
 import { runWizard } from "@/lib/scoring";
 import type { VibeId } from "@/lib/types";
@@ -36,11 +33,14 @@ function WizardPage() {
   function finish() {
     setSniffing(true);
     useAppStore.setState({ shownIds: [] });
+    setWizard({ ratingSeed: crypto.randomUUID() });
     const { owned, wishlist, plays, vibeWeights, wizard: ctx, recPool } = useAppStore.getState();
-    const result = runWizard(
-      ctx,
-      { owned: recPool?.ids.length ? recPool.ids : owned, wishlist, plays, vibeWeights },
-    );
+    const result = runWizard(ctx, {
+      owned: recPool?.ids.length ? recPool.ids : owned,
+      wishlist,
+      plays,
+      vibeWeights,
+    });
     setResults(result);
     window.setTimeout(() => navigate({ to: "/results" }), 900);
   }
@@ -49,7 +49,7 @@ function WizardPage() {
     if (step === 0) setWizard({ players: null });
     if (step === 1) setWizard({ ageBand: null });
     if (step === 2) setWizard({ maxTimeMin: null, timeOver60: false });
-    if (step === 3) setWizard({ vibes: [], exactTraits: null });
+    if (step === 3) setWizard({ vibes: [], exactTraits: null, ratingTargets: {} });
     if (last) finish();
     else setStep((s) => s + 1);
   }
@@ -94,30 +94,21 @@ function WizardPage() {
             />
           ))}
         </div>
-        <button
-          type="button"
-          onClick={skip}
-          className="h-11 px-2 text-sm font-semibold text-sky"
-        >
+        <button type="button" onClick={skip} className="h-11 px-2 text-sm font-semibold text-sky">
           Skip
         </button>
       </div>
 
+      <RatingNotice />
       <h1 className="mt-2 font-display text-3xl">{current.title}</h1>
       <p className="mt-1 text-muted-foreground">{current.hint}</p>
 
       <div className="mt-8 flex-1">
         {step === 0 && (
-          <PlayerPicker
-            value={wizard.players}
-            onChange={(players) => setWizard({ players })}
-          />
+          <PlayerPicker value={wizard.players} onChange={(players) => setWizard({ players })} />
         )}
         {step === 1 && (
-          <AgeBands
-            value={wizard.ageBand}
-            onChange={(ageBand) => setWizard({ ageBand })}
-          />
+          <AgeBands value={wizard.ageBand} onChange={(ageBand) => setWizard({ ageBand })} />
         )}
         {step === 2 && (
           <TimeChips
@@ -144,9 +135,7 @@ function WizardPage() {
                     setAdvanced((v) => !v);
                   }}
                 >
-                  {isPremium
-                    ? "Advanced exact-score filters"
-                    : "Premium · Exact-score filters"}
+                  {isPremium ? "Advanced exact-score filters" : "Premium · Exact-score filters"}
                 </button>
                 {!isPremium ? (
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -155,7 +144,9 @@ function WizardPage() {
                 ) : null}
               </div>
             ) : null}
-            {advanced && isPremium ? (
+            {advanced && isPremium && APPLICATION_RATING_MODE !== "legacy" ? (
+              <RatingTargets context={wizard} onChange={setWizard} />
+            ) : advanced && isPremium ? (
               <div className="space-y-3 rounded-card bg-card p-4 ring-1 ring-border">
                 <p className="text-sm text-muted-foreground">
                   Target a score from 1–5. Exact matches rank first.
@@ -182,11 +173,7 @@ function WizardPage() {
                     <span className="w-8 tabular-nums">{wizard.exactTraits?.[id] ?? "—"}</span>
                   </label>
                 ))}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setWizard({ exactTraits: null })}
-                >
+                <Button size="sm" variant="ghost" onClick={() => setWizard({ exactTraits: null })}>
                   Clear exact scores
                 </Button>
               </div>
@@ -196,7 +183,11 @@ function WizardPage() {
       </div>
 
       <div className="sticky bottom-4 mt-8">
-        <Button size="xl" className="w-full" onClick={() => (last ? finish() : setStep((s) => s + 1))}>
+        <Button
+          size="xl"
+          className="w-full"
+          onClick={() => (last ? finish() : setStep((s) => s + 1))}
+        >
           {last ? "Sniff it out" : "Next"}
           <ArrowRight className="size-5" />
         </Button>

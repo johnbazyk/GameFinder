@@ -1,3 +1,5 @@
+import { RatingNotice } from "@/components/rating-controls";
+import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Search, X } from "lucide-react";
@@ -69,6 +71,7 @@ function DiscoverPage() {
     <div className="pb-8">
       <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-fox">Find a game</p>
       <h1 className="font-display text-3xl">What are you looking for?</h1>
+      <RatingNotice />
 
       <label className="mt-4 flex min-h-12 items-center gap-2 rounded-card bg-card px-3 shadow-card">
         <Search className="size-5 shrink-0 text-fox" />
@@ -212,6 +215,13 @@ function DiscoverPage() {
                 <GameCover game={g} className="h-16 w-12 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-display text-lg leading-tight">{g.name}</p>
+                  {APPLICATION_RATING_MODE !== "legacy" && filters.vibes.length > 0 ? (
+                    <p className="text-xs">
+                      {APPLICATION_RATING_MODE === "beta"
+                        ? "Provisional beta filter match"
+                        : "Reviewed filter match"}
+                    </p>
+                  ) : null}
                   <p className="mt-0.5 text-sm text-muted-foreground">
                     {formatPlayers(g)} players · {formatPlaytime(g)}
                     {owned.includes(g.bggId) ? " · In vault" : ""}
@@ -224,7 +234,10 @@ function DiscoverPage() {
       ) : (
         <div className="mt-6 rounded-card bg-card p-5 text-center shadow-card">
           <p className="font-display text-xl">Nothing with those knobs</p>
-          <p className="mt-1 text-sm text-muted-foreground">Clear a filter or search a name.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            A selected vibe may lack an applicable assessment. Family needs an assessed age context.
+            Adjust filters explicitly or search a name.
+          </p>
           <button type="button" className="mt-3 min-h-11 font-semibold text-fox" onClick={clear}>
             Start over
           </button>

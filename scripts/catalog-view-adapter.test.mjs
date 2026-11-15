@@ -168,7 +168,7 @@ test("each of the six GameFinder Vibes uses explicit fixture scores", () => {
     assert.ok(
       discover.entries.every((entry) =>
         entry.matchExplanation.some((explanation) =>
-          explanation.toLocaleLowerCase().includes(vibe),
+          explanation.toLocaleLowerCase().includes(vibe === "board" ? "spatial play" : vibe),
         ),
       ),
     );
