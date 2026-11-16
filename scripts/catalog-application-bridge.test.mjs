@@ -86,13 +86,13 @@ function previousScore(game, context, owned) {
   return score + qualifying * 12 + average * 6;
 }
 
-test("all existing game recommendations retain their scoring", () => {
+test("legacy compatibility bridge retains its historical scoring independently of the active rating policy", () => {
   assert.ok(games.GAMES.length > 0);
 
   for (const game of games.GAMES) {
     for (const context of scenarios) {
       for (const owned of [false, true]) {
-                const actual = scoring.recommendationScore(game, context, owned);
+        const actual = bridge.scoreLegacyGameWithCatalogFoundation(game, context, owned);
         const expected = previousScore(game, context, owned);
 
         assert.ok(

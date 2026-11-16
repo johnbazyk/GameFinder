@@ -249,39 +249,33 @@ test("Find and Discover use the same hard-filter eligibility decisions", () => {
   }
 });
 
-test("Vibe preferences rank eligible games without excluding low-scoring matches", () => {
-  const lowVibeGame = game("5048");
-  const highVibeGame = game("169786");
+test("selected Strategy excludes low-strategy designs and retains qualifying designs", () => {
   const filters = context({ players: null, vibes: ["strategy"] });
-  const unfilteredIds = new Set(
-    eligibleGames(context({ players: null })).map((candidate) => candidate.bggId),
-  );
   const filtered = discoverGames(filters);
-
-  assert.equal(filtered.length, unfilteredIds.size);
-  assert.ok(filtered.some((candidate) => candidate.bggId === lowVibeGame.bggId));
-  assert.ok(filtered.some((candidate) => candidate.bggId === highVibeGame.bggId));
-  assert.ok(recommendationScore(highVibeGame, filters) > recommendationScore(lowVibeGame, filters));
+  assert.ok(!filtered.some((candidate) => candidate.bggId === "5048"));
+  assert.ok(filtered.some((candidate) => candidate.bggId === "169786"));
+  assert.ok(filtered.length < eligibleGames(context({ players: null })).length);
 });
 
-test("multiple Vibe selections use the same preference scoring in Find and Discover", () => {
+test("multiple Vibe selections use the same design ratings and ordering in Find and Discover", async () => {
+  const { gameRating } = await server.ssrLoadModule("/src/lib/application-ratings.ts");
   const filters = context({ players: null, vibes: ["luck", "strategy", "board"] });
-  const user = {
-    owned: [],
-    wishlist: [],
-    plays: [],
-    vibeWeights: defaultUserWeights,
-  };
+  const user = { owned: [], wishlist: [], plays: [], vibeWeights: defaultUserWeights };
   const find = runWizard(filters, user).unownedList;
   const discover = discoverGames(filters);
-
-  for (const candidate of [game("169786"), game("5048")]) {
-    const expected = candidate.bggRating + vibePreferenceScore(candidate, filters.vibes);
-    assert.equal(recommendationScore(candidate, filters), expected);
-    assert.equal(find.find((result) => result.bggId === candidate.bggId)?.score, expected);
+  assert.ok(find.length > 0);
+  assert.deepEqual(
+    find.map((g) => g.bggId),
+    discover.map((g) => g.bggId),
+  );
+  for (const candidate of find) {
+    for (const vibe of filters.vibes) {
+      assert.ok(gameRating(candidate, vibe, filters).value >= 3, `${candidate.name}: ${vibe}`);
+    }
     assert.equal(
-      discover.find((result) => result.bggId === candidate.bggId)?.bggId,
-      candidate.bggId,
+      candidate.score,
+      0,
+      "design characteristics are not a popularity or quality total",
     );
   }
 });

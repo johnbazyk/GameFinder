@@ -54,7 +54,7 @@ export function RatingProfile({
             {DIMENSIONS.map((k, i) => `${labels[k]}: ${values[i].value} out of 5`).join("; ")}.
             Higher means more of a characteristic, not a better game.
             {record
-              ? ` Assessed for ${record.edition}, ${record.mode}, ${ctx.players} players.`
+              ? ` Assessed for ${record.edition}, ${record.mode}${ctx.players === null ? "" : `, ${ctx.players} players`}.`
               : ""}
           </desc>
           {[1, 2, 3, 4, 5].map((n) => (

@@ -170,10 +170,10 @@ test("Find, Discover and tonight enforce same beta conditions without touching o
   assert.match(result.ownedTop[0].why, /Strategy and Spatial Play preferences/);
   assert.doesNotMatch(result.ownedTop[0].why, /\d\/5/);
   assert.equal(result.ownedTop[0].ratingContext.ratingMode, "beta");
-  assert.deepEqual(
-    scoring.discoverGames(ctx, "", identity, catalog.GAMES).map((g) => g.bggId),
-    ["3931"],
-  );
+  const discovered = scoring.discoverGames(ctx, "", identity, catalog.GAMES);
+  assert.ok(discovered.some((g) => g.bggId === "3931"));
+  assert.ok(discovered.length > 3);
+  assert.ok(discovered.every((g) => app.gameMatchesRatings(g, ctx)));
   assert.equal(scoring.pickTonight(ctx, user).bggId, "3931");
   assert.equal(JSON.stringify(catalog.GAMES), before);
 });

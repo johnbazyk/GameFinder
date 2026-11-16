@@ -6,16 +6,12 @@ import {
   type VibeId,
   type WizardContext,
 } from "./types";
-import { STANDARD_VERSION } from "./rating-anchors-03";
+import { STANDARD_VERSION } from "./rating-anchors-design";
 export { STANDARD_VERSION };
 export type RatingKey = Dimension | Exclude<VibeId, "luck" | "strategy">;
 export type RatingMode = "legacy" | "reviewed" | "beta";
 export const APPLICATION_RATING_MODE: RatingMode =
-  import.meta.env.VITE_GAMEFINDER_RATINGS_MODE === "beta"
-    ? "beta"
-    : import.meta.env.VITE_GAMEFINDER_RATINGS_MODE === "reviewed"
-      ? "reviewed"
-      : "legacy";
+  import.meta.env.VITE_GAMEFINDER_RATINGS_MODE === "reviewed" ? "reviewed" : "beta";
 export const RATING_KEYS = [...new Set([...DIMENSIONS, ...VIBE_IDS])] as RatingKey[];
 export function validRating(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 5 && Number.isInteger(v * 2);
@@ -45,6 +41,7 @@ export type RatingRecord = {
   edition: string;
   mode: string;
   playerCounts: number[];
+  scope?: "design-baseline";
   ratings: Partial<Record<RatingKey, Assessment>>;
   family: Partial<
     Record<
@@ -75,7 +72,11 @@ const text = (v: unknown): v is string => typeof v === "string" && v.trim().leng
 const date = (v: unknown) => text(v) && Number.isFinite(Date.parse(v));
 const obj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
-export function assessmentBlockers(a: unknown, mode: RatingMode): string[] {
+export function assessmentBlockers(
+  a: unknown,
+  mode: RatingMode,
+  version: string = STANDARD_VERSION,
+): string[] {
   if (!obj(a)) return ["Missing assessment"];
   const b: string[] = [];
   if (!validRating(a.value)) b.push("Missing or invalid rating");
@@ -101,7 +102,7 @@ export function assessmentBlockers(a: unknown, mode: RatingMode): string[] {
     if (
       !obj(a.beta) ||
       a.beta.eligible !== true ||
-      a.beta.version !== STANDARD_VERSION ||
+      a.beta.version !== version ||
       !text(a.beta.reason) ||
       !date(a.beta.at)
     )
@@ -126,18 +127,22 @@ export function resolveRating(
     label: "Not assessed",
     blockers,
   });
-  if (!record || record.version !== STANDARD_VERSION)
+  if (
+    !record ||
+    (record.version !== STANDARD_VERSION && !(record.version === "0.3" && !record.scope))
+  )
     return missing(["Missing or stale assessment package"]);
   if (
     record.edition !== context.edition ||
     record.mode !== context.mode ||
-    context.players === null ||
     !Array.isArray(record.playerCounts) ||
-    !record.playerCounts.includes(context.players)
+    (context.players === null
+      ? record.scope !== "design-baseline"
+      : !record.playerCounts.includes(context.players))
   )
     return missing(["Choose an assessed edition, mode and player count"]);
   let a = record.ratings?.[key];
-  if (key === "family") {
+  if (key === "family" && record.scope !== "design-baseline") {
     const range = context.ageBand ? ages[context.ageBand] : undefined;
     const family = context.ageBand ? record.family?.[context.ageBand] : undefined;
     if (
@@ -156,7 +161,7 @@ export function resolveRating(
       return missing(["Family needs a supported age context and participation evidence"]);
     a = family;
   }
-  const blockers = assessmentBlockers(a, mode);
+  const blockers = assessmentBlockers(a, mode, record.version);
   if (blockers.length || !a) return missing(blockers);
   return {
     value: a.value,

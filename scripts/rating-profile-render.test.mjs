@@ -32,7 +32,7 @@ test("profile renders canonical values and scope evidence without a fabricated i
     assert.doesNotMatch(html, /Seven dimensions|Six vibes|Family: 3.5 \/ 5/);
     assert.match(html, /Provisional profile/);
     assert.match(html, /scale 1 to 5/);
-    assert.match(html, /Hasbro classic drop-only/);
+    assert.match(html, /Classic drop-only Connect Four/);
     assert.doesNotMatch(
       html,
       /<details|<select|<input|About this profile|Edition and player context|After playing/,
@@ -48,9 +48,25 @@ test("profile renders canonical values and scope evidence without a fabricated i
       assert.match(restored, /Strategy: 4 out of 5/);
       assert.doesNotMatch(restored, /legacy estimates|>Engine<|>Weight</);
     }
+    // Browsing a game without a saved player selection must show its baseline.
+    for (const catalogGame of GAMES) {
+      const baseline = renderToStaticMarkup(
+        React.createElement(RatingProfile, {
+          game: catalogGame,
+          initialContext: { ...ctx, players: null, ageBand: null },
+        }),
+      );
+      assert.match(baseline, /<polygon/, catalogGame.name);
+      assert.match(baseline, /Provisional profile/, catalogGame.name);
+      assert.doesNotMatch(
+        baseline,
+        /Profile not yet available|null players|legacy estimates/,
+        catalogGame.name,
+      );
+    }
     const unassessed = renderToStaticMarkup(
       React.createElement(RatingProfile, {
-        game: GAMES.find((g) => g.bggId === "230802"),
+        game: { ...game, bggId: "unassessed", name: "Unassessed" },
         initialContext: ctx,
       }),
     );

@@ -1,5 +1,5 @@
 import type { Game, WizardContext } from "./types";
-import { RATING_PILOT } from "./rating-pilot";
+import { DESIGN_CATALOG } from "./ratings/design-catalog";
 import {
   APPLICATION_RATING_MODE,
   matchesRatings,
@@ -11,10 +11,11 @@ import {
   type RatingContext,
 } from "./rating-policy";
 export function ratingMode(ctx?: WizardContext): RatingMode {
-  return ctx?.ratingMode ?? APPLICATION_RATING_MODE;
+  // Old saved searches must not silently restore legacy formula ratings.
+  return ctx?.ratingMode === "reviewed" ? "reviewed" : APPLICATION_RATING_MODE;
 }
 export function ratingRecord(game: Game) {
-  return RATING_PILOT.find((r) => r.legacyId === game.bggId && r.expectedTitle === game.name);
+  return DESIGN_CATALOG.find((r) => r.legacyId === game.bggId && r.expectedTitle === game.name);
 }
 export function ratingScope(game: Game, ctx: WizardContext): RatingContext {
   const record = ratingRecord(game);

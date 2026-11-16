@@ -11,7 +11,7 @@ let catalog;
 let foundation;
 let types;
 let store;
-let scoring;
+let bridge;
 let vibes;
 let catalogSync;
 
@@ -30,7 +30,7 @@ before(async () => {
   catalog = await server.ssrLoadModule("/src/lib/catalog.ts");
   foundation = await server.ssrLoadModule("/src/lib/catalog-foundation.ts");
   types = await server.ssrLoadModule("/src/lib/types.ts");
-  scoring = await server.ssrLoadModule("/src/lib/scoring.ts");
+  bridge = await server.ssrLoadModule("/src/lib/catalog-legacy-bridge.ts");
   vibes = await server.ssrLoadModule("/src/lib/vibes.ts");
   catalogSync = await server.ssrLoadModule("/src/lib/catalog-sync.ts");
   ({ useAppStore: store } = await server.ssrLoadModule("/src/lib/store.ts"));
@@ -235,7 +235,7 @@ test("catalog hard filters preserve the Find and Discover boundary behavior", ()
   }
 });
 
-test("catalog ranking preserves multi-Vibe and Premium exactTraits scores", () => {
+test("legacy catalog ranking preserves historical multi-Vibe and exactTraits scores", () => {
   const rankingContexts = [
     context({ players: 4, vibes: ["strategy", "party"] }),
     context({
@@ -252,7 +252,7 @@ test("catalog ranking preserves multi-Vibe and Premium exactTraits scores", () =
       for (const owned of [false, true]) {
         assert.equal(
           foundation.catalogRecommendationScore(record, rankingContext, owned),
-          scoring.recommendationScore(game, rankingContext, owned),
+          bridge.scoreLegacyGameWithCatalogFoundation(game, rankingContext, owned),
           `${game.name} ranking should match for ${JSON.stringify(rankingContext)} owned=${owned}`,
         );
       }
