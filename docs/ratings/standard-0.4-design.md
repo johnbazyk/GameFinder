@@ -28,7 +28,7 @@ Sleeping Queens and The Resistance share legacy ID 41114 in the authored catalog
 
 Provisional design profiles are the default. Old saved `legacy` modes cannot restore a second rating display. The explicit reviewed-only mode still requires review evidence and excludes these provisional assessments.
 
-Selected vibes require at least 3; exact/range targets retain their explicit semantics. Find and Discover use the same eligibility policy. Recommendations return up to three owned and three unowned qualifying games, retaining hard constraints and reroll exclusions. There is no summed quality score or BGG popularity ranking; qualifying games use stable seeded variety. Missing assessments do not satisfy selected rating targets. With no rating target, ordinary catalog hard constraints still govern eligibility.
+Find applies player, youngest age, time, content and explicit advanced rating targets first. Within each shelf, it shows up to three games. Ordinary vibes prioritize games meeting every selected vibe at level 3, then the smallest total shortfall. Unrated alternatives come last. Reviewed-only searches require reviewed evidence for selected vibes. Ties use stable seeded variety. Rerolls exclude previously shown games. Discover retains its explicit vibe threshold.
 
 The UI retains one seven-axis graph, integer ticks 1–5, half-point plotting, and a short provisional label. Evidence stays in the data rather than expanding the consumer interface. Personal rating overrides are not implemented by this patch.
 

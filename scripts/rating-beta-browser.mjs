@@ -10,6 +10,7 @@ const child = spawn(
     "dev",
     "--host",
     "127.0.0.1",
+    "--strictPort",
     "--port",
     "8080",
   ],
@@ -32,7 +33,7 @@ try {
     try {
       const r = await fetch("http://127.0.0.1:8080/wizard");
       if (r.ok) break;
-    } catch {}
+    } catch { /* Vite is starting. */ }
     await new Promise((r) => setTimeout(r, 500));
   }
   browser = await chromium.launch({
@@ -44,26 +45,31 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("http://127.0.0.1:8080/game/3931");
-  await page.getByText("How it plays · standard 0.3").waitFor();
-  await page.getByLabel("Rating player count").fill("2");
-  await page.getByText("Family age context").locator("select").selectOption("8-10");
-  assert.match(await page.locator("body").innerText(), /Strategy: 4 \/ 5 · Provisional/);
-  await page.getByText("After playing: did this match the vibe?").click();
-  await page.getByLabel("We played this edition and mode").check();
-  await page.getByText("Save feedback on this device", { exact: true }).click();
-  await page.getByText("Saved on this device.", { exact: false }).waitFor();
-  const feedback = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("gamefinder-rating-feedback-03")),
-  );
-  assert.equal(feedback.length, 1);
-  assert.equal(feedback[0].standardVersion, "0.3");
+  await page.getByRole("img", { name: /Game character/ }).waitFor();
+  await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("gamefinder-v2") ?? '{"state":{}}');
+    data.version = 1;
+    data.state.owned = ["3931"];
+    data.state.lastResults = { ownedTop: [], unownedTop: [] };
+    localStorage.setItem("gamefinder-v2", JSON.stringify(data));
+  });
+  await page.goto("http://127.0.0.1:8080/wizard");
+  for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "Skip" }).click();
+  await page.getByRole("button", { name: /Party/ }).first().click();
+  await page.getByRole("button", { name: "Sniff it out" }).click();
+  const vault = page.locator("section").filter({ has: page.getByRole("heading", { name: "From Your Vault" }) });
+  await vault.getByRole("heading", { name: "Connect Four" }).waitFor();
+  await vault.getByText(/Closest available/).waitFor();
+  assert.equal(await page.locator("article").count(), 4);
+  await page.reload();
+  await vault.getByRole("heading", { name: "Connect Four" }).waitFor();
+  await page.getByRole("button", { name: "Sniff again" }).click();
+  await vault.getByText(/seen all matching games/).waitFor();
   await page.goto("http://127.0.0.1:8080/discover");
-  await page.getByText("Beta: ratings are provisional", { exact: false }).waitFor();
+  await page.getByRole("heading", { name: "What are you looking for?" }).first().waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
-  console.log(
-    "Browser smoke passed: mobile profile, scoped scores, local feedback, Discover disclosure, no page exceptions.",
-  );
+  console.log("Mobile profile, saved Vault, Find fallback, refresh, reroll and Discover passed.");
 } finally {
   await browser?.close();
   child.kill("SIGTERM");

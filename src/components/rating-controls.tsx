@@ -8,8 +8,7 @@ export function RatingNotice() {
       {APPLICATION_RATING_MODE === "beta"
         ? "Beta: ratings are provisional rules-based assessments, not playtest results."
         : "Only human-reviewed ratings qualify."}{" "}
-      Coverage is limited. Family needs a supported age context; selected vibes also need an
-      assessed player count.
+
     </p>
   );
 }

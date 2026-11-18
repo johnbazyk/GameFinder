@@ -244,8 +244,9 @@ test("Find and Discover use the same hard-filter eligibility decisions", () => {
       .map((candidate) => candidate.bggId)
       .sort();
 
-    assert.deepEqual(sharedEligibleIds, findIds);
-    assert.deepEqual(discoverIds, findIds);
+    assert.deepEqual(discoverIds, sharedEligibleIds);
+    const hardIds = eligibleGames({ ...filters, vibes: [] }).map((g) => g.bggId).sort();
+    assert.deepEqual(findIds, hardIds);
   }
 });
 
@@ -257,7 +258,7 @@ test("selected Strategy excludes low-strategy designs and retains qualifying des
   assert.ok(filtered.length < eligibleGames(context({ players: null })).length);
 });
 
-test("multiple Vibe selections use the same design ratings and ordering in Find and Discover", async () => {
+test("Find puts strict Discover matches before multi-vibe fallback choices", async () => {
   const { gameRating } = await server.ssrLoadModule("/src/lib/application-ratings.ts");
   const filters = context({ players: null, vibes: ["luck", "strategy", "board"] });
   const user = { owned: [], wishlist: [], plays: [], vibeWeights: defaultUserWeights };
@@ -265,10 +266,11 @@ test("multiple Vibe selections use the same design ratings and ordering in Find 
   const discover = discoverGames(filters);
   assert.ok(find.length > 0);
   assert.deepEqual(
-    find.map((g) => g.bggId),
+    find.slice(0, discover.length).map((g) => g.bggId),
     discover.map((g) => g.bggId),
   );
-  for (const candidate of find) {
+  assert.ok(find.length > discover.length);
+  for (const candidate of find.slice(0, discover.length)) {
     for (const vibe of filters.vibes) {
       assert.ok(gameRating(candidate, vibe, filters).value >= 3, `${candidate.name}: ${vibe}`);
     }

@@ -82,7 +82,7 @@ function toScored(game: Game, ctx: WizardContext, owned: boolean): ScoredGame {
     return {
       ...game,
       score: 0,
-      matchLabel: "good",
+      matchLabel: gameMatchesRatings(game, ctx) ? "good" : "closest",
       owned,
       why: ratingExplanation(game, ctx),
       topDims: [],
@@ -134,21 +134,41 @@ export function runWizard(
   const excluded = new Set(excludeIds);
   const adapted = catalogAdapter(games, ctx);
   const hardEligible = adapted.filter((game) => passesHardConstraints(game, ctx));
-  const catalog = hardEligible.filter((game) => gameMatchesRatings(game, ctx));
+  const targets = selectedTargets(ctx);
+  const advanced = { ...ctx, vibes: [] };
+  const softVibes = [...new Set(ctx.vibes)].filter(
+    (vibe) => ctx.ratingTargets?.[vibe] === undefined && ctx.exactTraits?.[vibe] === undefined,
+  );
+  const distance = new Map<string, number>();
+  const catalog = hardEligible.filter((game) => {
+    if (!targets || !gameMatchesRatings(game, advanced)) return false;
+    let gap = 0;
+    for (const vibe of softVibes) {
+      const value = gameRating(game, vibe, ctx).value;
+      if (value === null && ratingMode(ctx) === "reviewed") return false;
+      // Unknown preferences sort after any fully assessed alternative.
+      gap += value === null ? 1 + 2 * softVibes.length : Math.max(0, 3 - value);
+    }
+    distance.set(game.bggId, gap);
+    return true;
+  });
+  function compareFindGames(a: ScoredGame, b: ScoredGame) {
+    return distance.get(a.bggId)! - distance.get(b.bggId)! || compareRatedGames(a, b, ctx);
+  }
   const coverage = {
     owned: { hardExcluded: 0, missingRatings: 0, ratingMismatch: 0 },
     unowned: { hardExcluded: 0, missingRatings: 0, ratingMismatch: 0 },
   };
   const hardIds = new Set(hardEligible.map((game) => game.bggId));
   const eligibleIds = new Set(catalog.map((game) => game.bggId));
-  const targets = Object.keys(selectedTargets(ctx) ?? {}) as RatingKey[];
+  const keys = Object.keys(targets ?? {}) as RatingKey[];
   for (const game of games) {
     const group = ownedSet.has(game.bggId) ? coverage.owned : coverage.unowned;
     if (!hardIds.has(game.bggId)) group.hardExcluded++;
     else if (!eligibleIds.has(game.bggId)) {
       if (
         ratingMode(ctx) !== "legacy" &&
-        targets.some((key) => gameRating(game, key, ctx).value === null)
+        keys.some((key) => gameRating(game, key, ctx).value === null)
       )
         group.missingRatings++;
       else group.ratingMismatch++;
@@ -158,9 +178,7 @@ export function runWizard(
   const ownedEligible = catalog
     .filter((g) => ownedSet.has(g.bggId))
     .map((g) => toScored(g, ctx, true))
-    .sort((a, b) =>
-      ratingMode(ctx) === "legacy" ? b.score - a.score : compareRatedGames(a, b, ctx),
-    );
+    .sort(compareFindGames);
 
   const ownedFresh = ownedEligible.filter((g) => !excluded.has(g.bggId));
   const ownedTop = ownedFresh.slice(0, 3);
@@ -168,9 +186,7 @@ export function runWizard(
   const unownedEligible = catalog
     .filter((g) => !ownedSet.has(g.bggId))
     .map((g) => toScored(g, ctx, false))
-    .sort((a, b) =>
-      ratingMode(ctx) === "legacy" ? b.score - a.score : compareRatedGames(a, b, ctx),
-    );
+    .sort(compareFindGames);
   const unownedTop = unownedEligible.filter((g) => !excluded.has(g.bggId)).slice(0, 3);
 
   return {

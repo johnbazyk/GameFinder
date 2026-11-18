@@ -52,7 +52,7 @@ export function MatchCard({
           {showMatch ? (
             game.ratingContext ? (
               <span className="text-xs font-semibold">
-                Matches selected filters ·{" "}
+                {game.matchLabel === "closest" ? "Closest available" : "Matches selected filters"} ·{" "}
                 {game.ratingContext.ratingMode === "reviewed" ? "Reviewed" : "Beta"}
               </span>
             ) : (

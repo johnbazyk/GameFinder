@@ -192,7 +192,7 @@ test("hard constraints, scope and reroll cannot be rescued by scores", () => {
   const r = scoring.runWizard(context({ vibes: ["strategy"] }), user, ["3931"], identity);
   assert.equal(r.ownedTop.length, 0);
   assert.equal(r.exhaustedVault, true);
-  assert.equal(scoring.pickTonight(context({ vibes: ["party"] }), user), undefined);
+  assert.equal(scoring.pickTonight(context({ vibes: ["party"] }), user)?.bggId, "3931");
 });
 test("beta ranking is seeded and unaffected by popularity or ownership bonus", () => {
   const a = game(),
@@ -254,14 +254,15 @@ test("scarcity separates hard exclusions, missing ratings and known vibe mismatc
     identity,
     games,
   );
-  assert.equal(result.ownedTop.length, 1);
+  assert.deepEqual(result.ownedTop.map((g) => g.matchLabel), ["good", "closest"]);
   assert.deepEqual(result.coverage.owned, {
     hardExcluded: 1,
-    missingRatings: 1,
+    missingRatings: 0,
     ratingMismatch: 0,
   });
   const mismatch = scoring.runWizard(context({ vibes: ["party"] }), user, [], identity, [game()]);
-  assert.equal(mismatch.coverage.owned.ratingMismatch, 1);
+  assert.equal(mismatch.ownedTop[0].matchLabel, "closest");
+  assert.equal(mismatch.coverage.owned.ratingMismatch, 0);
   assert.equal(mismatch.coverage.owned.missingRatings, 0);
   const unowned = scoring.runWizard(
     context({ vibes: ["strategy"] }),

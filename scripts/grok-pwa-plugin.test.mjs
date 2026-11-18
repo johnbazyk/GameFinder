@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   appNameFromHost,
-  createHeadInjector,
+  createHeadInjector as createInjector,
   grokXCreatorHeadTags,
-  injectGrokPwaHead,
+  injectGrokPwaHead as injectHead,
   isDocumentPath,
   isInstallQuery,
   renderWebManifest,
@@ -18,6 +18,10 @@ import {
 import { renderInstallPage } from "./grok-pwa-plugin.mjs";
 
 const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+const emptyWorkspace = mkdtempSync(join(tmpdir(), "pwa-fixture-"));
+const injectGrokPwaHead = (html, ctx) => injectHead(html, { cwd: emptyWorkspace, ...ctx });
+const createHeadInjector = (ctx) => createInjector({ cwd: emptyWorkspace, ...ctx });
 
 test("injects before </head>", () => {
   const out = injectGrokPwaHead("<html><head><title>x</title></head><body></body></html>");
@@ -134,7 +138,7 @@ test("baked identity does not need a workspace filesystem", () => {
   assert.doesNotMatch(out, /og\.grok\.me/);
 });
 
-test("explicit site without card=custom is not overridden by a cwd card file", () => {
+test("a local card takes precedence over an empty site snapshot", () => {
   const root = mkdtempSync(join(tmpdir(), "grok-og-card-"));
   mkdirSync(join(root, "public"));
   writeFileSync(join(root, "public/og.jpg"), "x");
@@ -143,8 +147,8 @@ test("explicit site without card=custom is not overridden by a cwd card file", (
     cwd: root,
     site: {},
   });
-  assert.match(out, /og\.grok\.me\/v1\/card\.png/);
-  assert.doesNotMatch(out, /wild-race\.grok\.me\/og\.jpg/);
+  assert.doesNotMatch(out, /og\.grok\.me\/v1\/card\.png/);
+  assert.match(out, /wild-race\.grok\.me\/og\.jpg/);
 });
 
 test("snapshotOgIdentity stamps card=custom from a public card file", () => {

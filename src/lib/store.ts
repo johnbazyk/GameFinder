@@ -331,7 +331,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "gamefinder-v2",
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         owned: s.owned,
@@ -360,6 +360,8 @@ export const useAppStore = create<AppState>()(
       }),
       migrate: (persistedState, version) => ({
         ...(persistedState as Partial<AppState>),
+        lastResults: null,
+        shownIds: [],
         customGamesOwnerId:
           version < 1
             ? "unattributed"

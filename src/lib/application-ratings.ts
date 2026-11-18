@@ -41,6 +41,7 @@ export function compareRatedGames(a: Game, b: Game, ctx: WizardContext) {
   return seededOrder(a.bggId, seed) - seededOrder(b.bggId, seed) || a.bggId.localeCompare(b.bggId);
 }
 export function ratingExplanation(game: Game, ctx: WizardContext): string {
+  if (!gameMatchesRatings(game, ctx)) return "Fits your player, age and time selections.";
   const targets = selectedTargets(ctx);
   const names = Object.keys(targets ?? {}).map((key) =>
     key === "board" ? "Spatial Play" : key[0].toUpperCase() + key.slice(1),

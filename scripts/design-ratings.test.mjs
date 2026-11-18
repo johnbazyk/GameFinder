@@ -150,3 +150,21 @@ test("rules-based calibration contrasts remain distinct without popularity input
     5,
   );
 });
+
+test("Find fills each shelf independently when every owned game misses the vibe", () => {
+  const ctx = context({ players: 2, ageBand: "11-13", maxTimeMin: 60, vibes: ["party"] });
+  const games = catalog.standaloneGames().filter((g) => vibes.passesHardConstraints(g, ctx));
+  const low = games.filter((g) => app.gameRating(g, "party", ctx).value < 3);
+  const high = games.filter((g) => app.gameRating(g, "party", ctx).value >= 3);
+  assert.ok(low.length >= 3 && high.length >= 3);
+  const owned = low.map((g) => g.bggId);
+  const result = scoring.runWizard(ctx, { owned }, [], identity, games);
+  assert.equal(result.ownedTop.length, 3);
+  assert.equal(result.unownedTop.length, 3);
+  assert.ok(result.ownedTop.every((g) => g.matchLabel === "closest"));
+  assert.ok(result.unownedTop.every((g) => g.matchLabel === "good"));
+  const scores = low.map((g) => app.gameRating(g, "party", ctx).value).sort((a, b) => b - a);
+  assert.deepEqual(result.ownedTop.map((g) => app.gameRating(g, "party", ctx).value), scores.slice(0, 3));
+  const strict = scoring.runWizard({ ...ctx, exactTraits: { party: 4 } }, { owned }, [], identity, games);
+  assert.equal(strict.ownedCount, 0);
+});

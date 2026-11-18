@@ -31,3 +31,9 @@ Apply additive database migrations to the configured production database with
 Merges to `main` build on Netlify via `netlify.toml` (nitro `netlify` preset,
 publish `dist`, Node 22). Required env: `DATABASE_URL`, `BETTER_AUTH_URL`,
 `BETTER_AUTH_SECRET`, `VITE_AUTH_ENABLED=true`.
+
+## Shared beta workspace
+
+Use the johnbazyk/GameFinder repository and the `codex/rating-standard-03-beta` branch for beta edits and review. Open that branch in one Codespace. In its terminal, use `git status -sb` to confirm the branch, then `npm run dev` for the preview. Commit and push source changes to the beta branch. Review its pull request against the default branch before releasing.
+
+Run `npm test`, `npm run typecheck`, `npm run lint` and `npm run build` before release. With port 8080 free and Chromium installed, run `node scripts/rating-beta-browser.mjs` for a mobile Find and Vault check. Set CHROMIUM_PATH if Chromium is installed elsewhere.
