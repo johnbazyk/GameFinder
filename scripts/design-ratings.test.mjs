@@ -168,3 +168,42 @@ test("Find fills each shelf independently when every owned game misses the vibe"
   const strict = scoring.runWizard({ ...ctx, exactTraits: { party: 4 } }, { owned }, [], identity, games);
   assert.equal(strict.ownedCount, 0);
 });
+
+test("every catalog entry has distinct, short rules-based copy for Find", () => {
+  const seen = new Set();
+  for (const game of catalog.AUTHORED_GAMES) {
+    const record = app.ratingRecord(game);
+    const reasons = Object.entries(record.matchReasons);
+    assert.ok(reasons.length > 0, game.name);
+    assert.equal(app.ratingExplanation(game, context()), reasons[0][1]);
+    for (const [vibe, reason] of reasons) {
+      assert.ok(record.ratings[vibe].sources.some((s) => s.observation && s.url), game.name);
+      assert.ok(reason.trim() === reason && reason.split(/\s+/).length <= 26, reason);
+      assert.match(reason, /^[^.!?]+[.!?]$/u);
+      assert.ok(!seen.has(reason), reason);
+      seen.add(reason);
+      assert.equal(app.ratingExplanation(game, context({ vibes: [vibe] })), reason);
+    }
+  }
+});
+
+test("owned and unowned cards use the same evidence and prefer a matched vibe on closest fits", () => {
+  const game = catalog.GAMES.find((g) => g.name === "Carcassonne");
+  const ctx = context({ players: 2, vibes: ["luck", "board", "party"] });
+  const reasons = app.ratingRecord(game).matchReasons;
+  for (const owned of [[], [game.bggId]]) {
+    const result = scoring.runWizard(ctx, { owned }, [], identity, [game]);
+    const [card] = [...result.ownedTop, ...result.unownedTop];
+    assert.equal(card.matchLabel, "closest");
+    assert.equal(card.why, reasons.board);
+    assert.equal(app.displayedMatchReason({ ...card, why: "Obsolete copy" }), reasons.board);
+  }
+  assert.equal(
+    app.ratingExplanation(game, context({ exactTraits: { luck: 2.5 } })),
+    reasons.luck,
+  );
+  for (const unsupported of [{ ratingMode: "reviewed" }, { ratingEdition: "Other" }, { players: 99 }]) {
+    assert.equal(app.ratingExplanation(game, context(unsupported)), "");
+  }
+  assert.equal(app.ratingExplanation({ ...game, name: "Different game" }, ctx), "");
+});

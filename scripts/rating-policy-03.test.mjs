@@ -167,7 +167,7 @@ test("Find, Discover and tonight enforce same beta conditions without touching o
     result.ownedTop.map((g) => g.bggId),
     ["3931"],
   );
-  assert.match(result.ownedTop[0].why, /Strategy and Spatial Play preferences/);
+  assert.match(result.ownedTop[0].why, /disc falls to the lowest open space/);
   assert.doesNotMatch(result.ownedTop[0].why, /\d\/5/);
   assert.equal(result.ownedTop[0].ratingContext.ratingMode, "beta");
   const discovered = scoring.discoverGames(ctx, "", identity, catalog.GAMES);

@@ -1,8 +1,9 @@
-import type { Game, WizardContext } from "./types";
+import type { Game, ScoredGame, VibeId, WizardContext } from "./types";
 import { DESIGN_CATALOG } from "./ratings/design-catalog";
 import {
   APPLICATION_RATING_MODE,
   matchesRatings,
+  matchesTarget,
   resolveRating,
   seededOrder,
   selectedTargets,
@@ -41,12 +42,28 @@ export function compareRatedGames(a: Game, b: Game, ctx: WizardContext) {
   return seededOrder(a.bggId, seed) - seededOrder(b.bggId, seed) || a.bggId.localeCompare(b.bggId);
 }
 export function ratingExplanation(game: Game, ctx: WizardContext): string {
-  if (!gameMatchesRatings(game, ctx)) return "Fits your player, age and time selections.";
+  const record = ratingRecord(game);
   const targets = selectedTargets(ctx);
-  const names = Object.keys(targets ?? {}).map((key) =>
-    key === "board" ? "Spatial Play" : key[0].toUpperCase() + key.slice(1),
-  );
-  return names.length
-    ? `Fits your player, age and time selections, plus your ${names.join(" and ")} preferences.`
-    : "Fits your player, age and time selections.";
+  if (!record?.matchReasons || !targets) return "";
+  const scope = ratingScope(game, ctx);
+  const mode = ratingMode(ctx);
+  let firstAvailable = "";
+  let selectedMechanic = "";
+  for (const [key, reason] of Object.entries(record.matchReasons)) {
+    const vibe = key as VibeId;
+    const rating = resolveRating(record, vibe, scope, mode);
+    if (rating.value === null || !reason) continue;
+    firstAvailable ||= reason;
+    const target = targets[vibe];
+    if (!target) continue;
+    if (matchesTarget(rating.value, target)) return reason;
+    // Even on a closest match, describe the actual mechanic without claiming a full fit.
+    selectedMechanic ||= reason;
+  }
+  return selectedMechanic || firstAvailable;
+}
+
+// Saved Find results can contain older copy. Resolve it from the original search on display.
+export function displayedMatchReason(game: ScoredGame): string {
+  return game.ratingContext ? ratingExplanation(game, game.ratingContext) : game.why;
 }

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Check, ExternalLink } from "lucide-react";
 import type { Game, MatchLabel, ScoredGame } from "@/lib/types";
+import { displayedMatchReason } from "@/lib/application-ratings";
 import { formatAge, formatPlaytime, formatPlayers } from "@/lib/scoring";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,7 @@ export function MatchCard({
   showMatch?: boolean;
   discover?: boolean;
 }) {
+  const reason = displayedMatchReason(game);
   const addOwned = useAppStore((s) => s.addOwned);
   const amazonOn = useFlag("amazon_cta");
 
@@ -68,7 +70,7 @@ export function MatchCard({
               </span>
             ) : null}
           </p>
-          <p className="mt-3 text-sm leading-relaxed text-foreground/90">{game.why}</p>
+          {reason && <p className="mt-3 text-sm leading-relaxed text-foreground/90">{reason}</p>}
         </div>
       </Link>
       <div className="mt-4 flex flex-wrap items-center gap-2">

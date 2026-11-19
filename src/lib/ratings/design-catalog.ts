@@ -34,6 +34,8 @@ export type DesignAssessment = {
     number,
     number,
   ];
+  // First reason is the default when no tagged preference applies.
+  matchReasons: NonNullable<RatingRecord["matchReasons"]>;
   source: string;
   evidence: string;
   familyEvidence: string;
@@ -78,6 +80,7 @@ export function buildDesignRecord(row: DesignAssessment): RatingRecord {
     edition: row.edition,
     mode: "Standard",
     playerCounts: row.players,
+    matchReasons: row.matchReasons,
     scope: "design-baseline",
     ratings,
     family: {},

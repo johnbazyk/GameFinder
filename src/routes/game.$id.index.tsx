@@ -7,6 +7,7 @@ import { GameCover } from "@/components/game-cover";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
 import { GameRow } from "@/components/match-card";
+import { displayedMatchReason } from "@/lib/application-ratings";
 import { getGame, similarGames, formatPlaytime, formatPlayers, formatAge } from "@/lib/scoring";
 import { useAppStore } from "@/lib/store";
 import { amazonSearchUrl } from "@/lib/affiliate";
@@ -26,17 +27,12 @@ function GamePage() {
   const removeOwned = useAppStore((s) => s.removeOwned);
   const toggleWishlist = useAppStore((s) => s.toggleWishlist);
   const logPlay = useAppStore((s) => s.logPlay);
-  const fromResults = useAppStore((s) =>
-    Boolean(
-      s.lastResults &&
-      [...s.lastResults.ownedTop, ...s.lastResults.unownedTop].some((g) => g.bggId === id),
-    ),
-  );
   const match = useAppStore((s) =>
     s.lastResults
       ? [...s.lastResults.ownedTop, ...s.lastResults.unownedTop].find((g) => g.bggId === id)
       : undefined,
   );
+  const reason = match ? displayedMatchReason(match) : "";
   const [logging, setLogging] = useState(false);
   const [enjoyed, setEnjoyed] = useState(true);
   const amazonOn = useFlag("amazon_cta");
@@ -116,8 +112,8 @@ function GamePage() {
         </div>
       </div>
 
-      {fromResults && match ? (
-        <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{match.why}</p>
+      {reason ? (
+        <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{reason}</p>
       ) : null}
 
       <p className="mt-5 text-pretty leading-relaxed">{game.description}</p>

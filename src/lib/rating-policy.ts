@@ -41,6 +41,7 @@ export type RatingRecord = {
   edition: string;
   mode: string;
   playerCounts: number[];
+  matchReasons?: Partial<Record<VibeId, string>>;
   scope?: "design-baseline";
   ratings: Partial<Record<RatingKey, Assessment>>;
   family: Partial<
