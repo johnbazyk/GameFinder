@@ -43,7 +43,7 @@ function Home() {
   return (
     <div className="pb-8">
       <div className="anim-rise flex flex-col items-center pt-1 text-center">
-        <FoxAvatar mood="proud" size="md" />
+        <FoxAvatar mood="hopeful" size="md" />
         <h1 className="mt-2 max-w-md font-display text-4xl">What should we play right now?</h1>
       </div>
 
@@ -62,9 +62,12 @@ function Home() {
         <div className="fixed inset-0 z-40 grid place-items-end bg-night/40 sm:place-items-center sm:p-6">
           <div className="w-full max-w-md rounded-t-2xl bg-background p-5 shadow-lift sm:rounded-2xl">
             <div className="flex items-start justify-between">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-fox">
-                {surprise ? "Just pick something" : "Surprise me"}
-              </p>
+              <div className="flex items-center gap-3">
+                {surprise && <FoxAvatar mood="surprise" size="sm" />}
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-fox">
+                  {surprise ? "Just pick something" : "Surprise me"}
+                </p>
+              </div>
               <button
                 type="button"
                 className="grid size-10 place-items-center rounded-button hover:bg-muted"

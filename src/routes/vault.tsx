@@ -48,7 +48,7 @@ function VaultPage() {
     return (
       <>
         <EmptyState
-          mood="hopeful"
+          mood="shelf"
           title="What's on your shelf?"
           body={
             scanOn

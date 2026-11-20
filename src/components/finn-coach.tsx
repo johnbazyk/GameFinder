@@ -502,7 +502,7 @@ export function FinnCoach({
     }
   }, [ambiguousLegacyGame, armAudio, pending, recording, stopRecording]);
 
-  const foxMood = recording || pending ? "sniffing" : speaking ? "proud" : "hopeful";
+  const foxMood = recording || pending ? "thinking" : speaking ? "teaching" : "hopeful";
   const idx = lessonIndex(track.id);
   const readyN = readyClips.length;
   const loadStatus = packLoading

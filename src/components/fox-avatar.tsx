@@ -1,22 +1,20 @@
 import { cn } from "@/lib/utils";
 
-export type FoxMood = "sniffing" | "proud" | "shrug" | "celebrate" | "hopeful";
+const ART = {
+  sniffing: ["magnifier", "Finn looking through a magnifying glass"],
+  proud: ["point", "Finn pointing the way"],
+  shrug: ["shrug", "Finn shrugging"],
+  celebrate: ["trophy", "Finn raising a trophy"],
+  hopeful: ["wave", "Finn waving hello"],
+  shelf: ["game-box", "Finn with a box of games"],
+  profile: ["checklist", "Finn with a checklist"],
+  thinking: ["thinking", "Finn considering a move"],
+  teaching: ["cards", "Finn showing game cards"],
+  surprise: ["die", "Finn holding a die"],
+  resting: ["asleep", "Finn curled up beside a die"],
+} as const;
 
-const SRC: Record<FoxMood, string> = {
-  sniffing: "/fox/sniffing.jpg",
-  proud: "/fox/proud.jpg",
-  shrug: "/fox/shrug.jpg",
-  celebrate: "/fox/celebrate.jpg",
-  hopeful: "/fox/hopeful.jpg",
-};
-
-const LINE: Record<FoxMood, string> = {
-  sniffing: "Finn is sniffing out a match",
-  proud: "Finn found your games",
-  shrug: "Hmm, nothing fits all of that",
-  celebrate: "Logged. Finn is pleased",
-  hopeful: "Tell Finn what's on your shelf",
-};
+export type FoxMood = keyof typeof ART;
 
 export function FoxAvatar({
   mood,
@@ -36,20 +34,24 @@ export function FoxAvatar({
     hero: "size-52 sm:size-64",
   }[size];
 
+  const [pose, description] = ART[mood];
+
   return (
     <figure className={cn("flex flex-col items-center gap-3", className)}>
       <div
         className={cn(
-          "overflow-hidden rounded-full bg-cream-deep shadow-card ring-4 ring-cream",
+          "overflow-hidden rounded-2xl",
           dim,
           mood === "sniffing" && "anim-sniff",
           mood === "celebrate" && "anim-hop",
         )}
       >
         <img
-          src={SRC[mood]}
-          alt={LINE[mood]}
-          className="size-full object-cover"
+          src={`/fox/finn-${pose}.webp`}
+          width={768}
+          height={768}
+          alt={description}
+          className="size-full object-contain"
         />
       </div>
       {caption ? (

@@ -48,7 +48,7 @@ function ProfilePage() {
   return (
     <div className="pb-10">
       <div className="flex flex-col items-center text-center">
-        <FoxAvatar mood="proud" size="lg" />
+        <FoxAvatar mood="profile" size="lg" />
         <h1 className="mt-3 font-display text-3xl">
           {isPending ? "Your table" : user?.displayName || displayName || "Your table"}
         </h1>

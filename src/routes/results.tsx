@@ -53,7 +53,7 @@ function ResultsPage() {
   return (
     <div className="pb-10">
       <div className="flex flex-col items-center text-center">
-        <FoxAvatar mood="proud" size="md" />
+        <FoxAvatar mood={result.exhaustedVault ? "resting" : "proud"} size="md" />
         <h1 className="mt-3 font-display text-3xl">
           {recPool ? `Finn sniffed ${recPool.groupName}` : "Finn found your games"}
         </h1>
@@ -132,10 +132,7 @@ function ResultsPage() {
           className="w-full"
           size="xl"
           onClick={() => {
-            const next = sniffAgain();
-            if (next?.exhaustedVault && !next.ownedTop.length) {
-              /* stay put — copy already shown */
-            }
+            sniffAgain();
             window.scrollTo({ top: 0, behavior: "smooth" });
           }}
         >
