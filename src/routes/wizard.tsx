@@ -1,7 +1,7 @@
 import { RatingNotice, RatingTargets } from "@/components/rating-controls";
 import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,14 @@ import { cn } from "@/lib/utils";
 import { VIBE_META } from "@/lib/vibes";
 import { useFlag } from "@/lib/flags";
 
-export const Route = createFileRoute("/wizard")({ component: WizardPage });
+export const Route = createFileRoute("/wizard")({
+  head: () => ({
+    links: [{ rel: "preload", as: "image", href: "/fox/finn-magnifier.webp" }],
+  }),
+  component: WizardPage,
+});
+
+const SNIFF_DISPLAY_MS = 1600;
 
 function WizardPage() {
   const navigate = useNavigate();
@@ -30,6 +37,12 @@ function WizardPage() {
 
   const last = step === WIZARD_QUESTIONS.length - 1;
 
+  useEffect(() => {
+    if (!sniffing) return;
+    const timer = window.setTimeout(() => void navigate({ to: "/results" }), SNIFF_DISPLAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [sniffing, navigate]);
+
   function finish() {
     setSniffing(true);
     useAppStore.setState({ shownIds: [] });
@@ -42,7 +55,6 @@ function WizardPage() {
       vibeWeights,
     });
     setResults(result);
-    window.setTimeout(() => navigate({ to: "/results" }), 900);
   }
 
   function skip() {
@@ -63,9 +75,8 @@ function WizardPage() {
 
   if (sniffing) {
     return (
-      <div className="flex min-h-[70dvh] flex-col items-center justify-center">
+      <div role="status" className="flex min-h-[70dvh] flex-col items-center justify-center">
         <FoxAvatar mood="sniffing" size="hero" caption="Sniffing the shelf…" />
-        <p className="mt-2 text-sm text-muted-foreground">Hold on — Finn's almost there.</p>
       </div>
     );
   }
