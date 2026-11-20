@@ -72,15 +72,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
           <Link to="/" className="flex items-center gap-2" onClick={onLogo}>
-            <span className="block size-9 shrink-0 overflow-hidden rounded-lg">
-              <img
-                src="/fox/finn-wave.webp"
-                alt=""
-                width={768}
-                height={768}
-                className="size-full origin-[56%_9%] scale-[1.75]"
-              />
-            </span>
+            <img
+              src="/fox/finn-headshot.webp"
+              alt=""
+              width={36}
+              height={36}
+              className="size-9 shrink-0 object-contain"
+            />
             <span className="font-display text-xl tracking-tight">
               GameFinder
             </span>
