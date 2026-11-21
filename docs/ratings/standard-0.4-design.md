@@ -32,6 +32,10 @@ Find applies player, youngest age, time, content and explicit advanced rating ta
 
 The UI retains one seven-axis graph, integer ticks 1–5, half-point plotting, and a short provisional label. Evidence stays in the data rather than expanding the consumer interface. Personal rating overrides are not implemented by this patch.
 
+## Writing Find explanations
+
+For each ordinary Find vibe a game qualifies for, give one short sentence grounded in its recorded rules. Name something a player does or sees and show why it matters for that vibe. For Luck, describe what the draw or roll changes. For Strategy, show a choice and its consequence. For Family, show how someone participates. The first sentence in the record also appears when a search has no vibe preference, so it should make sense on its own. Keep the player count, age, time and scores in their existing fields.
+
 ## Verification and remaining work
 
 Automated checks cover all authored identities, eleven valid half-point values, provisional status, strict reviewed-mode exclusion, age-independent Family with separate hard age checks, supported scopes, all active game profiles rendering, shared Find/Discover filtering, and three-plus-three/reroll behavior. Passing software tests confirms implementation contracts, not the validity of every judgment.

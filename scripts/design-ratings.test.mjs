@@ -187,6 +187,19 @@ test("every catalog entry has distinct, short rules-based copy for Find", () => 
   }
 });
 
+test("every ordinary Find vibe a game matches has its own explanation", () => {
+  for (const game of catalog.AUTHORED_GAMES) {
+    const record = app.ratingRecord(game);
+    for (const vibe of Object.keys(vibes.VIBE_META)) {
+      const ctx = context({ vibes: [vibe] });
+      if (!app.gameMatchesRatings(game, ctx)) continue;
+      const reason = record.matchReasons[vibe];
+      assert.ok(reason, `${game.name} needs a reason for ${vibe}`);
+      assert.equal(app.ratingExplanation(game, ctx), reason);
+    }
+  }
+});
+
 test("owned and unowned cards use the same evidence and prefer a matched vibe on closest fits", () => {
   const game = catalog.GAMES.find((g) => g.name === "Carcassonne");
   const ctx = context({ players: 2, vibes: ["luck", "board", "party"] });
