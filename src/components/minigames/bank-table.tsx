@@ -156,11 +156,11 @@ export function BankTable({
         </span>
       </div>
       <Link
-        to="/game/$id/table"
+        to="/game/$id/teach"
         params={{ id: BANK_BGG_ID }}
         className="text-center text-sm font-semibold text-sky"
       >
-        Teach me with Finn
+        Teach me
       </Link>
 
       {over ? (

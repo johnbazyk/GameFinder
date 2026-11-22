@@ -163,9 +163,9 @@ function GamePage() {
       ) : null}
 
       <Button className="mt-3 w-full" variant="secondary" asChild>
-        <Link to="/game/$id/table" params={{ id: game.bggId }}>
+        <Link to="/game/$id/teach" params={{ id: game.bggId }}>
           <Mic className="size-4" />
-          Teach me with Finn
+          Teach me
         </Link>
       </Button>
       <FinnCoach game={game} />

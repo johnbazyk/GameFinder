@@ -80,7 +80,7 @@ export function MatchCard({
           </Link>
         </Button>
         <Button asChild size="sm" variant="ghost">
-          <Link to="/game/$id" params={{ id: game.bggId }} hash="ask-finn">
+          <Link to="/game/$id/teach" params={{ id: game.bggId }}>
             Teach me
           </Link>
         </Button>

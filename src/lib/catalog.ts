@@ -1,3 +1,4 @@
+import { boxTitleKey } from "./box-titles";
 import type { Game, Rubric, VibeId } from "./types";
 import { DIMENSIONS } from "./types";
 import { autoVibeTags } from "./vibes";
@@ -2174,7 +2175,7 @@ export function searchGames(query: string): Game[] {
     .filter((g) => {
       const hay =
         `${g.name} ${g.designer} ${g.categories.join(" ")} ${g.vibes.join(" ")}`.toLowerCase();
-      return hay.includes(q);
+      return hay.includes(q) || boxTitleKey(g.name) === boxTitleKey(q);
     })
     .sort((a, b) => b.bggRating - a.bggRating);
 }

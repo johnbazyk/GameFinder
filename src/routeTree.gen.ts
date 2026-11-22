@@ -32,6 +32,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as GameIdIndexRouteImport } from './routes/game.$id.index'
 import { Route as GameIdScoreRouteImport } from './routes/game.$id.score'
 import { Route as GameIdTableRouteImport } from './routes/game.$id.table'
+import { Route as GameIdTeachRouteImport } from './routes/game.$id.teach'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -148,6 +149,11 @@ const GameIdTableRoute = GameIdTableRouteImport.update({
   path: '/table',
   getParentRoute: () => GameIdRoute,
 } as any)
+const GameIdTeachRoute = GameIdTeachRouteImport.update({
+  id: '/teach',
+  path: '/teach',
+  getParentRoute: () => GameIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -172,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/game/$id/score': typeof GameIdScoreRoute
   '/game/$id/table': typeof GameIdTableRoute
+  '/game/$id/teach': typeof GameIdTeachRoute
   '/game/$id/': typeof GameIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -195,6 +202,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/game/$id/score': typeof GameIdScoreRoute
   '/game/$id/table': typeof GameIdTableRoute
+  '/game/$id/teach': typeof GameIdTeachRoute
   '/game/$id': typeof GameIdIndexRoute
 }
 export interface FileRoutesById {
@@ -221,6 +229,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/game/$id/score': typeof GameIdScoreRoute
   '/game/$id/table': typeof GameIdTableRoute
+  '/game/$id/teach': typeof GameIdTeachRoute
   '/game/$id/': typeof GameIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -248,6 +257,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/game/$id/score'
     | '/game/$id/table'
+    | '/game/$id/teach'
     | '/game/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/game/$id/score'
     | '/game/$id/table'
+    | '/game/$id/teach'
     | '/game/$id'
   id:
     | '__root__'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/game/$id/score'
     | '/game/$id/table'
+    | '/game/$id/teach'
     | '/game/$id/'
   fileRoutesById: FileRoutesById
 }
@@ -483,6 +495,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GameIdTableRouteImport
       parentRoute: typeof GameIdRoute
     }
+    '/game/$id/teach': {
+      id: '/game/$id/teach'
+      path: '/teach'
+      fullPath: '/game/$id/teach'
+      preLoaderRoute: typeof GameIdTeachRouteImport
+      parentRoute: typeof GameIdRoute
+    }
   }
 }
 
@@ -502,12 +521,14 @@ const CircleRouteWithChildren =
 interface GameIdRouteChildren {
   GameIdScoreRoute: typeof GameIdScoreRoute
   GameIdTableRoute: typeof GameIdTableRoute
+  GameIdTeachRoute: typeof GameIdTeachRoute
   GameIdIndexRoute: typeof GameIdIndexRoute
 }
 
 const GameIdRouteChildren: GameIdRouteChildren = {
   GameIdScoreRoute: GameIdScoreRoute,
   GameIdTableRoute: GameIdTableRoute,
+  GameIdTeachRoute: GameIdTeachRoute,
   GameIdIndexRoute: GameIdIndexRoute,
 }
 

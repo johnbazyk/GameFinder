@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { boxTitleKey } from "./box-titles";
 import { standaloneGames } from "./catalog";
 
 export type ScanHit = {
@@ -28,18 +29,20 @@ export const identifyShelf = createServerFn({ method: "POST" })
 
     const res = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
+      signal: AbortSignal.timeout(20000),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: "grok-4.5",
+        model: process.env.XAI_SCAN_MODEL || "grok-4.7",
+        store: false,
         temperature: 0.1,
-        max_tokens: 900,
+        max_tokens: 3200,
         messages: [
           {
             role: "system",
-            content: `You identify published board games visible in a photo of a shelf, table, or boxes. Match only against this catalog. Return JSON only: {"games":[{"bggId":"id or null","name":"title","confidence":"high"|"review"|"unknown","possibleExpansion":false,"note":"short"}]}. If a box is an expansion, set possibleExpansion true. If you cannot match a catalog id, set bggId null and confidence unknown. Do not invent games that are not in the photo. Catalog:\n${catalog.join("\n")}`,
+            content: `You identify published board games visible in a photo of a shelf, table, or boxes. Match only against this catalog. Read box fronts and spine titles. The Settlers of Catan is the base game Catan. Return JSON only: {"games":[{"bggId":"id or null","name":"title","confidence":"high"|"review"|"unknown","possibleExpansion":false,"note":"short"}]}. If a box is an expansion, set possibleExpansion true. If you cannot match a catalog id, set bggId null and confidence unknown. Do not invent games that are not in the photo. Catalog:\n${catalog.join("\n")}`,
           },
           {
             role: "user",
@@ -73,11 +76,11 @@ export const identifyShelf = createServerFn({ method: "POST" })
       return { ok: false as const, error: "parse", hits: [] as ScanHit[] };
     }
     const known = new Map(standaloneGames().map((g) => [g.bggId, g]));
-    const byName = new Map(standaloneGames().map((g) => [g.name.toLowerCase(), g]));
+    const byName = new Map(standaloneGames().map((g) => [boxTitleKey(g.name), g]));
     const hits: ScanHit[] = (parsed.games ?? []).slice(0, 40).map((h) => {
       const byId = h.bggId ? known.get(String(h.bggId)) : undefined;
-      const named = byName.get((h.name ?? "").toLowerCase());
-      const game = byId ?? named;
+      const named = byName.get(boxTitleKey(h.name ?? ""));
+      const game = h.possibleExpansion ? undefined : named ?? byId;
       const confidence = game
         ? h.confidence === "high"
           ? "high"

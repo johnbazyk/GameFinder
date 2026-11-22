@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { prepareScanPhoto } from "@/lib/scan-photo";
 import { Camera, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { identifyShelf, type ScanHit } from "@/lib/scan";
@@ -11,45 +12,78 @@ import { AddGameDialog } from "./add-game-dialog";
 
 type Row = ScanHit & { selected: boolean };
 
-export function ScanGames({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function ScanGames({ open, onClose }: { open: boolean; onClose: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [manual, setManual] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  const [message, setMessage] = useState("");
   const owned = useAppStore((s) => s.owned);
   const addOwned = useAppStore((s) => s.addOwned);
   const isPremium = useAppStore((s) => s.isPremium);
   const setUpgradePrompt = useAppStore((s) => s.setUpgradePrompt);
 
+  useEffect(() => () => request.current?.abort(), []);
+
   if (!open) return null;
 
+  function close() {
+    request.current?.abort();
+    setBusy(false);
+    setRows(null);
+    setManual(false);
+    onClose();
+  }
+
   async function onFile(file: File) {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
     setBusy(true);
-    const dataUrl = await readDataUrl(file);
+    setRows(null);
+    setMessage("");
+    let photo: string;
     try {
-      const result = await identifyShelf({ data: { image: dataUrl } });
-      if (!result.ok) {
-        toast("Finn couldn't read that photo. Try another angle, or search by title.");
-        setRows([]);
-      } else {
-        setRows(
-          result.hits.map((h) => ({
-            ...h,
-            selected: h.confidence !== "unknown" && Boolean(h.bggId) && !owned.includes(h.bggId ?? ""),
-          })),
-        );
-      }
+      photo = await prepareScanPhoto(file);
     } catch {
-      toast("Scan failed. Search by title instead.");
-      setRows([]);
+      if (!controller.signal.aborted) {
+        setMessage("This photo could not be opened. Try a JPEG or PNG.");
+        setRows([]);
+        setBusy(false);
+      }
+      return;
+    }
+    try {
+      if (controller.signal.aborted) return;
+      const remote = await identifyShelf({
+        data: { image: photo },
+        signal: controller.signal,
+      }).catch(() => null);
+      if (controller.signal.aborted) return;
+      let hits = remote?.ok ? remote.hits : [];
+      if (!hits.some((hit) => hit.bggId)) {
+        const { readBoxTitles } = await import("@/lib/box-ocr");
+        const local = await readBoxTitles(photo, controller.signal);
+        const ids = new Set(local.map((hit) => hit.name.toLowerCase()));
+        hits = [...local, ...hits.filter((hit) => !ids.has(hit.name.toLowerCase()))];
+      }
+      if (controller.signal.aborted) return;
+      setMessage("No catalog titles found. Try a closer photo with the box titles upright.");
+      setRows(
+        hits.map((hit) => ({
+          ...hit,
+          selected:
+            hit.confidence === "high" && Boolean(hit.bggId) && !owned.includes(hit.bggId ?? ""),
+        })),
+      );
+    } catch {
+      if (!controller.signal.aborted) {
+        setMessage("Scanning is unavailable. Try again or search by title.");
+        setRows([]);
+      }
     } finally {
-      setBusy(false);
+      if (!controller.signal.aborted) setBusy(false);
     }
   }
 
@@ -69,8 +103,7 @@ export function ScanGames({
       if (res === "ok") added += 1;
     }
     if (added) toast(`Added ${added} to your vault.`);
-    onClose();
-    setRows(null);
+    close();
   }
 
   return (
@@ -78,14 +111,11 @@ export function ScanGames({
       <div className="flex max-h-[92dvh] w-full max-w-lg flex-col rounded-t-2xl bg-background shadow-lift sm:rounded-2xl">
         <div className="flex items-center justify-between px-4 pt-4">
           <h2 className="font-display text-xl">
-            {rows ? "Review Games Found" : "Scan Games"}
+            {rows?.length ? "Review Games Found" : "Scan Games"}
           </h2>
           <button
             type="button"
-            onClick={() => {
-              setRows(null);
-              onClose();
-            }}
+            onClick={close}
             className="grid size-10 place-items-center rounded-button hover:bg-muted"
             aria-label="Close"
           >
@@ -93,23 +123,25 @@ export function ScanGames({
           </button>
         </div>
 
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void onFile(file);
+            e.target.value = "";
+          }}
+        />
+
         {!rows ? (
           <div className="px-4 pb-8 pt-4">
             <p className="text-sm text-muted-foreground">
-              Photograph one box, a whole shelf, or a table. Finn identifies what's visible, then you confirm. Photos are not stored.
+              Photograph one box, a whole shelf, or a table. Finn identifies what's visible, then
+              you confirm. Photos are not stored.
             </p>
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void onFile(file);
-                e.target.value = "";
-              }}
-            />
             <Button
               size="xl"
               className="mt-6 w-full"
@@ -131,9 +163,7 @@ export function ScanGames({
           <div className="flex min-h-0 flex-1 flex-col">
             <ul className="flex-1 overflow-y-auto px-3 pb-4">
               {rows.length === 0 ? (
-                <li className="px-2 py-8 text-center text-sm text-muted-foreground">
-                  Nothing identified. Try another photo or search by title.
-                </li>
+                <li className="px-2 py-8 text-center text-sm text-muted-foreground">{message}</li>
               ) : (
                 rows.map((row, i) => {
                   const game = row.bggId ? getGame(row.bggId) : undefined;
@@ -178,7 +208,12 @@ export function ScanGames({
               )}
             </ul>
             <div className="space-y-2 border-t border-border px-4 py-4">
-              <Button className="w-full" size="lg" onClick={addSelected}>
+              <Button
+                className="w-full"
+                size="lg"
+                disabled={!rows.some((row) => row.selected)}
+                onClick={addSelected}
+              >
                 Add Selected to Vault
               </Button>
               <div className="flex gap-2">
@@ -204,13 +239,4 @@ export function ScanGames({
       <AddGameDialog open={manual} onClose={() => setManual(false)} />
     </div>
   );
-}
-
-function readDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("read"));
-    reader.onload = () => resolve(String(reader.result));
-    reader.readAsDataURL(file);
-  });
 }

@@ -94,7 +94,7 @@ function Home() {
                 </div>
                 <Button
                   className="mt-5 w-full"
-                  onClick={() => navigate({ to: "/game/$id", params: { id: surprise.bggId } })}
+                  onClick={() => navigate({ to: "/game/$id/teach", params: { id: surprise.bggId } })}
                 >
                   <Mic className="size-4" />
                   Teach me, then play

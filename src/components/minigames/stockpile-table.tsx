@@ -134,11 +134,11 @@ export function StockpileTable({
         </span>
       </div>
       <Link
-        to="/game/$id/table"
+        to="/game/$id/teach"
         params={{ id: "1269" }}
         className="text-center text-sm font-semibold text-sky"
       >
-        Teach me with Finn
+        Teach me
       </Link>
 
       <p className="stock-line">
