@@ -20,6 +20,10 @@ function apiKey() {
   return process.env.XAI_API_KEY;
 }
 
+export const isFinnVoiceConfigured = createServerFn({ method: "GET" }).handler(async () =>
+  Boolean(apiKey()),
+);
+
 function brief(gameId: string) {
   if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === gameId)) {
     return null;
@@ -104,7 +108,7 @@ export const askFinn = createServerFn({ method: "POST" })
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: "grok-4.5",
+        model: process.env.XAI_COACH_MODEL || "grok-4.3",
         temperature: data.mode === "table" ? 0.35 : 0.55,
         max_tokens: data.mode === "table" ? 220 : 420,
         messages: [
@@ -187,7 +191,7 @@ export const askFinnLesson = createServerFn({ method: "POST" })
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: "grok-4.5",
+        model: process.env.XAI_COACH_MODEL || "grok-4.3",
         temperature: 0.4,
         max_tokens: 1800,
         messages: [

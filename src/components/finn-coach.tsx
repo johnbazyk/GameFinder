@@ -2,9 +2,18 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, Play, Square } from "lucide-react";
 import { toast } from "sonner";
+import { RecordedLesson } from "@/components/recorded-lesson";
+import { guides } from "@/lib/written-guides";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { VoicePlayer } from "@/components/voice-player";
-import { askFinn, hearFinn, speakFinn, type CoachMessage, type CoachMode } from "@/lib/coach";
+import {
+  askFinn,
+  hearFinn,
+  isFinnVoiceConfigured,
+  speakFinn,
+  type CoachMessage,
+  type CoachMode,
+} from "@/lib/coach";
 import type { Game } from "@/lib/types";
 import { ensureLesson, peekLesson } from "@/lib/lesson-cache";
 import { cn } from "@/lib/utils";
@@ -64,7 +73,8 @@ function base64ToObjectUrl(b64: string, mime: string) {
 }
 
 function friendlyError(code: string) {
-  if (code === "unavailable") return "Finn's voice is napping. Try again in a bit.";
+  if (code === "unavailable") return "Live voice is unavailable in this preview.";
+  if (/error (401|403|402)$/.test(code)) return "The live voice service needs account access.";
   if (code === "too-long") return "Keep it short — tap the mic again.";
   if (code === "empty") return "Didn't catch that. Tap the mic and ask again.";
   if (code === "ambiguous-game") {
@@ -77,13 +87,66 @@ function lessonIndex(id: ChapterId) {
   return CHAPTERS.findIndex((c) => c.id === id);
 }
 
-export function FinnCoach({
+type CoachProps = { game: Game; variant?: "panel" | "table" };
+
+export function FinnCoach({ game, variant = "panel" }: CoachProps) {
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    isFinnVoiceConfigured().then(
+      (value) => {
+        if (active) setConfigured(value);
+      },
+      () => {
+        if (active) setConfigured(false);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (configured && !failed) {
+    return (
+      <LiveCoach
+        key={game.bggId}
+        game={game}
+        variant={variant}
+        onServiceFailure={() => setFailed(true)}
+      />
+    );
+  }
+  if (configured === null) return <p role="status">Checking voice availability…</p>;
+  const ambiguous = CATALOG_EXTERNAL_ID_CONFLICTS.some((entry) => entry.externalId === game.bggId);
+  const guide = ambiguous ? undefined : guides[game.name];
+  return (
+    <section id="ask-finn" className="mt-6 space-y-3">
+      <h2 className="font-display text-xl">How to play, out loud</h2>
+      {guide && <RecordedLesson name={game.name} src={guide.audio} />}
+      <p className="text-sm text-muted-foreground" role="status">
+        {ambiguous
+          ? "This game’s edition needs review."
+          : failed
+            ? "Live questions are temporarily unavailable."
+            : "Live questions are unavailable in this preview."}
+      </p>
+      <Link
+        to="/game/$id/teach"
+        params={{ id: game.bggId }}
+        className="text-sm font-semibold text-sky"
+      >
+        Open the game guide
+      </Link>
+    </section>
+  );
+}
+
+function LiveCoach({
   game,
-  variant = "panel",
-}: {
-  game: Game;
-  variant?: "panel" | "table";
-}) {
+  variant,
+  onServiceFailure,
+}: CoachProps & { onServiceFailure: () => void }) {
   const ambiguousLegacyGame = CATALOG_EXTERNAL_ID_CONFLICTS.some(
     (conflict) => conflict.externalId === game.bggId,
   );
@@ -178,6 +241,13 @@ export function FinnCoach({
 
   const ensureClip = useCallback(
     async (meta: { id: ChapterId; title: string }, prompt: string, usedMode: CoachMode) => {
+      // Each spoken question needs a fresh reply, even within the same game.
+      if (meta.id === "ask" || meta.id === "ruling") {
+        const previous = cacheRef.current[meta.id];
+        if (previous) URL.revokeObjectURL(previous);
+        delete cacheRef.current[meta.id];
+        delete textCacheRef.current[meta.id];
+      }
       const cached = cacheRef.current[meta.id];
       if (cached) return cached;
       const inflight = inflightRef.current[meta.id];
@@ -305,9 +375,11 @@ export function FinnCoach({
       const ch = CHAPTERS.find((c) => c.id === id);
       if (!ch) return;
       prefetchingRef.current[id] = true;
-      void ensureClip({ id: ch.id, title: ch.title }, ch.send, "teach").finally(() => {
-        prefetchingRef.current[id] = false;
-      });
+      void ensureClip({ id: ch.id, title: ch.title }, ch.send, "teach")
+        .catch(() => undefined)
+        .finally(() => {
+          prefetchingRef.current[id] = false;
+        });
     },
     [ensureClip],
   );
@@ -351,10 +423,11 @@ export function FinnCoach({
         setPending(false);
         setSpeaking(false);
         const code = err instanceof Error ? err.message : "unavailable";
-        toast(friendlyError(code));
+        if (code === "unavailable" || /xAI .*error/.test(code)) onServiceFailure();
+        else toast(friendlyError(code));
       }
     },
-    [ambiguousLegacyGame, armAudio, attachUrl, ensureClip, prefetch],
+    [ambiguousLegacyGame, armAudio, attachUrl, ensureClip, prefetch, onServiceFailure],
   );
 
   const playAsk = useCallback(
@@ -383,10 +456,11 @@ export function FinnCoach({
         if (requestIdRef.current !== requestId) return;
         setPending(false);
         const code = err instanceof Error ? err.message : "unavailable";
-        toast(friendlyError(code));
+        if (code === "unavailable" || /xAI .*error/.test(code)) onServiceFailure();
+        else toast(friendlyError(code));
       }
     },
-    [ambiguousLegacyGame, armAudio, attachUrl, ensureClip],
+    [ambiguousLegacyGame, armAudio, attachUrl, ensureClip, onServiceFailure],
   );
 
   const skipPrev = useCallback(() => {
@@ -454,7 +528,9 @@ export function FinnCoach({
         data: { audioBase64, mime: blob.type || "audio/webm" },
       });
       if (!heardText.ok) {
-        toast(friendlyError(heardText.error));
+        if (heardText.error === "unavailable" || /xAI .*error/.test(heardText.error))
+          onServiceFailure();
+        else toast(friendlyError(heardText.error));
         setPending(false);
         return;
       }
@@ -467,7 +543,7 @@ export function FinnCoach({
       setPending(false);
       toast("Couldn't hear that. Tap the mic again.");
     }
-  }, [mode, playAsk]);
+  }, [mode, playAsk, onServiceFailure]);
 
   const startRecording = useCallback(async () => {
     if (ambiguousLegacyGame) {
