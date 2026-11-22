@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { boxTitleKey } from "./box-titles";
-import { standaloneGames } from "./catalog";
+import { GAMES } from "./catalog";
 
 export type ScanHit = {
   bggId: string | null;
@@ -22,7 +22,7 @@ export const identifyShelf = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const key = apiKey();
-    const catalog = standaloneGames().map((g) => `${g.bggId}|${g.name}|${g.yearPublished}`);
+    const catalog = GAMES.map((g) => `${g.bggId}|${g.name}|${g.yearPublished}`);
     if (!key) {
       return { ok: false as const, error: "unavailable", hits: [] as ScanHit[] };
     }
@@ -75,12 +75,12 @@ export const identifyShelf = createServerFn({ method: "POST" })
     } catch {
       return { ok: false as const, error: "parse", hits: [] as ScanHit[] };
     }
-    const known = new Map(standaloneGames().map((g) => [g.bggId, g]));
-    const byName = new Map(standaloneGames().map((g) => [boxTitleKey(g.name), g]));
+    const known = new Map(GAMES.map((g) => [g.bggId, g]));
+    const byName = new Map(GAMES.map((g) => [boxTitleKey(g.name), g]));
     const hits: ScanHit[] = (parsed.games ?? []).slice(0, 40).map((h) => {
       const byId = h.bggId ? known.get(String(h.bggId)) : undefined;
       const named = byName.get(boxTitleKey(h.name ?? ""));
-      const game = h.possibleExpansion ? undefined : named ?? byId;
+      const game = h.possibleExpansion ? undefined : named ?? (byId && !h.name ? byId : undefined);
       const confidence = game
         ? h.confidence === "high"
           ? "high"

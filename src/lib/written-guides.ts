@@ -1,5 +1,8 @@
+import { catalogGuides } from "./catalog-guides";
+
 type Guide = { audio: string; setup: string; turn: string; win: string; rules?: string };
 export const guides: Record<string, Guide | undefined> = {
+  ...catalogGuides,
   Stockpile: {
     audio: "/lessons/stockpile.mp3",
     setup:

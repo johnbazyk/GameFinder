@@ -119,7 +119,7 @@ export function FinnCoach({ game, variant = "panel" }: CoachProps) {
   }
   if (configured === null) return <p role="status">Checking voice availability…</p>;
   const ambiguous = CATALOG_EXTERNAL_ID_CONFLICTS.some((entry) => entry.externalId === game.bggId);
-  const guide = ambiguous ? undefined : guides[game.name];
+  const guide = guides[game.name];
   return (
     <section id="ask-finn" className="mt-6 space-y-3">
       <h2 className="font-display text-xl">How to play, out loud</h2>

@@ -62,7 +62,7 @@ function TeachGame() {
   if (!game) return <p>Game not found.</p>;
   const ambiguous = CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === id);
   const profile = DESIGN_ASSESSMENTS.find((row) => row.legacyId === id && row.title === game.name);
-  const guide = ambiguous ? undefined : guides[game.name];
+  const guide = guides[game.name];
   const source = game.bggId === "1269" ? undefined : (guide?.rules ?? profile?.source);
   return (
     <main className="mx-auto max-w-xl space-y-5 pb-10">
@@ -98,7 +98,7 @@ function TeachGame() {
       {source?.startsWith("https://") && (
         <Button asChild>
           <a href={source} target="_blank" rel="noreferrer">
-            {(guide && game.name !== "Bank") || /\.pdf(?:$|\?)/i.test(source)
+            {guide?.rules || /\.pdf(?:$|\?)/i.test(source)
               ? "Open game rules"
               : "Open game reference"}
           </a>
