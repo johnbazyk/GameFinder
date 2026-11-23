@@ -2,7 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { Play } from "lucide-react";
 import type { Game } from "@/lib/types";
-import { chapters, chapterAudio } from "@/lib/guide-chapters";
+import { lessonRecording } from "@/lib/catan-voice-preview";
+import { chapters } from "@/lib/guide-chapters";
 import { guides, type Guide } from "@/lib/written-guides";
 import { cn } from "@/lib/utils";
 import { FoxAvatar } from "./fox-avatar";
@@ -31,7 +32,7 @@ function Lesson({ game, guide, variant }: Props & { guide?: Guide }) {
     setStarted(true);
     setError(false);
     setIndex(next);
-    player.src = chapterAudio(guide, chapters[next]);
+    player.src = lessonRecording(guide, chapters[next]);
     void player.play().catch((err) => {
       if (err.name !== "AbortError") setError(true);
     });

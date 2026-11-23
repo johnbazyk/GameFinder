@@ -8,7 +8,8 @@ import {
   type CoachMessage,
 } from "@/lib/coach";
 import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
-import { guidePassage, chapterAudio } from "@/lib/guide-chapters";
+import { lessonRecording, previewAnswer } from "@/lib/catan-voice-preview";
+import { guidePassage } from "@/lib/guide-chapters";
 import type { Guide } from "@/lib/written-guides";
 import type { Game } from "@/lib/types";
 import { Button } from "./ui/button";
@@ -100,8 +101,8 @@ export function FinnQuestions({
     answerAudio.current?.pause();
     onAsk();
     try {
-      let result: Answer | undefined;
-      if (live) {
+      let result: Answer | undefined = previewAnswer(game.bggId, text);
+      if (!result && live) {
         const messages: CoachMessage[] = [...history.current, { role: "user", content: text }];
         const reply = await askFinn({
           data: { gameId: game.bggId, mode: "table", messages },
@@ -127,7 +128,7 @@ export function FinnQuestions({
           guide && chapter
             ? {
                 text: guide[chapter.field],
-                audio: chapterAudio(guide, chapter),
+                audio: lessonRecording(guide, chapter),
                 label: "From the guide · " + chapter.title,
               }
             : {
