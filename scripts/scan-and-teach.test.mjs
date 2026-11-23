@@ -63,3 +63,29 @@ test("later shelf photos preserve review decisions and only contribute new games
     ],
   );
 });
+
+test("all five Finn chapters have game-specific text and separate recordings", async () => {
+  const { chapters, chapterAudio, guidePassage } = await server.ssrLoadModule(
+    "/src/lib/guide-chapters.ts",
+  );
+  assert.deepEqual(
+    chapters.map((chapter) => chapter.id),
+    ["goal", "setup", "turn", "score", "oops"],
+  );
+  const recordings = new Set();
+  for (const game of games) {
+    const guide = guides[game.name];
+    assert.equal(new Set(chapters.map((chapter) => guide[chapter.field])).size, 5, game.name);
+    for (const chapter of chapters) {
+      assert.ok(guide[chapter.field]?.trim(), game.name);
+      const path = chapterAudio(guide, chapter);
+      assert.ok(statSync("public" + path).size > 1000, path);
+      assert.ok(!recordings.has(path), path);
+      recordings.add(path);
+    }
+  }
+  assert.equal(guidePassage(guides.Catan, "How do I set up?").id, "setup");
+  assert.equal(guidePassage(guides.Catan, "What happens on a seven?").id, "oops");
+  assert.equal(guidePassage(guides.Wingspan, "How do I score?").id, "score");
+  assert.equal(guidePassage(guides.Catan, "Can I tunnel underground?"), undefined);
+});

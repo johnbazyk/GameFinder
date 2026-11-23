@@ -290,11 +290,13 @@
   overflow: hidden;
   flex-shrink: 0;
 }
-.game-cover-caption { font-size: 7cqw; line-height: 1.3; color: var(--color-ink-muted); }
 @container (max-width: 70px) {
-  .game-cover-brand, .game-cover-caption, .game-cover-title { display: none; }
+  .game-cover-brand, .game-cover-title { display: none; }
   .game-cover-symbol { width: 95%; }
 }
+
+.vault-cover .game-cover-title { display: block; }
+.vault-cover .game-cover-title[data-long] { font-size: 9.5cqw; }
 
 /* --- Bank table + dice --- */
 .dice-run {

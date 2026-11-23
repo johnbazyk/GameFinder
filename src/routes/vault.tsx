@@ -129,15 +129,8 @@ function VaultPage() {
           const id = isLegacyGame ? game.bggId : game.id;
           const title = isLegacyGame ? game.name : game.title;
           return (
-            <Link key={id} to="/game/$id" params={{ id }}>
-              {isLegacyGame ? (
-                <GameCover game={game} className="aspect-[5/7] w-full" />
-              ) : (
-                <div className="grid aspect-[5/7] w-full place-items-center rounded-card bg-muted text-sm font-semibold text-muted-foreground">
-                  Custom game
-                </div>
-              )}
-              <p className="mt-1 truncate text-xs font-semibold">{title}</p>
+            <Link key={id} to="/game/$id" params={{ id }} aria-label={title} title={title}>
+              <GameCover game={{ name: title, bggId: id }} className="vault-cover aspect-[5/7] w-full" />
             </Link>
           );
         })}

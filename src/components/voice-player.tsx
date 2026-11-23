@@ -84,8 +84,7 @@ export function VoicePlayer({
       if (audio.ended || (audio.duration && audio.currentTime >= audio.duration - 0.05)) {
         audio.currentTime = 0;
       }
-      void audio.play();
-      onPlay?.();
+      void audio.play().then(onPlay).catch(() => setPaused(true));
     } else {
       audio.pause();
       onPause?.();

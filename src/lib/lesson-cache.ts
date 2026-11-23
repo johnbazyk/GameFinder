@@ -4,7 +4,6 @@ const KEY = "gf-lesson-packs-v4-general";
 const TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const inflight = new Map<string, Promise<LessonPack | null>>();
 const refreshed = new Set<string>();
-let queue: Promise<void> = Promise.resolve();
 
 type Row = { at: number; pack: LessonPack };
 type Store = Record<string, Row>;
@@ -75,13 +74,4 @@ export async function ensureLesson(gameId: string): Promise<LessonPack | null> {
     return hit;
   }
   return fetchPack(gameId);
-}
-
-/** One-at-a-time warmup for tonight's recs. Skips titles already cached. */
-export function prefetchLessons(gameIds: string[]) {
-  const ids = [...new Set(gameIds.filter(Boolean))].slice(0, 4);
-  for (const id of ids) {
-    if (peekLesson(id) || inflight.has(id)) continue;
-    queue = queue.then(() => fetchPack(id).then(() => undefined)).catch(() => undefined);
-  }
 }

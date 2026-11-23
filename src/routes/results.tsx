@@ -1,6 +1,5 @@
 import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { MatchCard } from "@/components/match-card";
 import { EmptyState } from "@/components/empty-state";
@@ -11,7 +10,6 @@ import { useAppStore } from "@/lib/store";
 import { VIBE_META, AGE_BANDS } from "@/lib/vibes";
 
 import { cn } from "@/lib/utils";
-import { prefetchLessons } from "@/lib/lesson-cache";
 
 export const Route = createFileRoute("/results")({ component: ResultsPage });
 
@@ -22,12 +20,6 @@ function ResultsPage() {
   const startOver = useAppStore((s) => s.startOver);
   const ownedCount = useAppStore((s) => s.owned.length);
   const recPool = useAppStore((s) => s.recPool);
-
-  const lessonIds = result?.ownedTop.map((g) => g.bggId).join(",") ?? "";
-
-  useEffect(() => {
-    if (lessonIds) prefetchLessons(lessonIds.split(","));
-  }, [lessonIds]);
 
   const staleRatings =
     result &&

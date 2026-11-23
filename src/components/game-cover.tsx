@@ -4,12 +4,12 @@ import { cn } from "@/lib/utils";
 
 const ACCENTS = ["var(--color-fox)", "var(--color-moss)", "var(--color-sky)"];
 
-/** Original, decorative placeholder. Colors do not encode game ratings or types. */
+/** Original GameFinder card artwork. Colors do not encode game ratings or types. */
 export function GameCover({
   game,
   className,
 }: {
-  game: Pick<Game, "name" | "bggId" | "yearPublished" | "vibes" | "mechanics" | "categories">;
+  game: Pick<Game, "name" | "bggId">;
   className?: string;
 }) {
   const hash = Array.from(game.bggId || game.name).reduce(
@@ -56,8 +56,7 @@ export function GameCover({
           />
           <circle cx="72" cy="62" r="6" stroke="currentColor" strokeWidth="1.5" />
         </svg>
-        <span className="game-cover-title">{game.name}</span>
-        <span className="game-cover-caption">Cover coming soon</span>
+        <span className="game-cover-title" data-long={game.name.length > 24 || undefined}>{game.name}</span>
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
 import { DESIGN_ASSESSMENTS } from "@/lib/ratings/design-assessments";
 import { getGame } from "@/lib/scoring";
-import { RecordedLesson } from "@/components/recorded-lesson";
+import { FinnCoach } from "@/components/finn-coach";
 import { guides } from "@/lib/written-guides";
 import { Button } from "@/components/ui/button";
 
@@ -70,7 +70,7 @@ function TeachGame() {
         Back to {game.name}
       </Link>
       <h1 className="font-display text-3xl">How to play {game.name}</h1>
-      {guide && <RecordedLesson name={game.name} src={guide.audio} />}
+      <FinnCoach game={game} />
       {guide ? (
         <dl className="space-y-4 rounded-card bg-card p-5 shadow-card">
           {(
@@ -105,13 +105,6 @@ function TeachGame() {
         </Button>
       )}
       {!guide && !ambiguous && <MoreTeaching key={id} id={id} />}
-      {!ambiguous && (
-        <div>
-          <Link to="/game/$id/table" params={{ id }} className="text-sm font-semibold text-sky">
-            Ask Finn by voice
-          </Link>
-        </div>
-      )}
     </main>
   );
 }

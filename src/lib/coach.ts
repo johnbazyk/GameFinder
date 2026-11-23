@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { guides } from "./written-guides";
 import { getGame } from "./scoring";
 import { CATALOG_EXTERNAL_ID_CONFLICTS } from "./catalog";
 
@@ -41,6 +42,8 @@ function brief(gameId: string) {
       "Never call this Skip-Bo, Skipbo, or Uno.",
     ].join("\n");
   }
+  const guide = guides[game.name];
+  if (guide) return [game.name, guide.goal, guide.setup, guide.turn, guide.win, guide.tip].join("\n");
   return `Game title only: ${game.name}. No edition or rulebook has been verified.`;
 }
 
