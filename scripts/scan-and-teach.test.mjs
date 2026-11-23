@@ -41,6 +41,10 @@ test("read catalog titles among box text and keep distinct editions", () => {
   assert.deepEqual(find("Ticket to\nRide"), ["Ticket to Ride"]);
   assert.deepEqual(find("Catan Junior"), []);
   assert.deepEqual(find("CATAN 5–6 PLAYER EXTENSION"), []);
+  assert.deepEqual(find("WYRMSRANJ\nMYSTERIUML"), ["Mysterium", "Wyrmspan"]);
+  assert.deepEqual(find("CLE\nWYRM\nMYSTERIOUS"), []);
+  assert.deepEqual(find("FICRET 10 RIDE"), ["Ticket to Ride"]);
+  assert.deepEqual(find("FICRET 10 RIDE RAILS & SAILS"), []);
   assert.deepEqual(find("CATANIA"), []);
   assert.deepEqual(find("AZUL SUMMER PAVILION"), ["Azul: Summer Pavilion"]);
   assert.deepEqual(find("Outfoxed! | CATAN THE GAME"), ["Catan", "Outfoxed!"]);

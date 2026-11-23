@@ -1,5 +1,5 @@
 import { createWorker, OEM, PSM } from "tesseract.js";
-import { rotateScanPhoto, scanTitleBand } from "./scan-photo";
+import { enhancedScanPhoto, rotateScanPhoto, scanTitleBand } from "./scan-photo";
 import { GAMES } from "./catalog";
 import { findBoxTitles } from "./box-titles";
 import type { ScanHit } from "./scan";
@@ -33,12 +33,29 @@ export async function createBoxReader(signal: AbortSignal) {
     close,
     async read(photo: HTMLCanvasElement): Promise<ScanHit[]> {
       const hits = new Map<string, ScanHit>();
+      function* temporary(canvas: HTMLCanvasElement) {
+        try {
+          yield canvas;
+        } finally {
+          canvas.width = canvas.height = 0;
+        }
+      }
       function* views() {
         yield photo;
-        yield scanTitleBand(photo, false);
-        yield scanTitleBand(photo, true);
-        yield rotateScanPhoto(photo, 1);
-        yield rotateScanPhoto(photo, -1);
+        yield* temporary(scanTitleBand(photo, false));
+        yield* temporary(scanTitleBand(photo, true));
+        yield* temporary(rotateScanPhoto(photo, 1));
+        yield* temporary(rotateScanPhoto(photo, -1));
+        for (const mode of ["red", "detail", "warm", "green"] as const) {
+          const enhanced = enhancedScanPhoto(photo, mode);
+          try {
+            yield enhanced;
+            yield* temporary(rotateScanPhoto(enhanced, -1));
+            yield* temporary(rotateScanPhoto(enhanced, 1));
+          } finally {
+            enhanced.width = enhanced.height = 0;
+          }
+        }
       }
       for (const view of views()) {
         signal.throwIfAborted();

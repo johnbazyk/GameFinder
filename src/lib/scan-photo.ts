@@ -1,3 +1,5 @@
+import { scanContrast, type ScanContrastMode } from "./scan-contrast";
+
 // Bound decoded working memory even when several high-resolution phone photos are selected.
 export async function openScanPhoto(file: File): Promise<HTMLCanvasElement> {
   const url = URL.createObjectURL(file);
@@ -56,4 +58,19 @@ export function scanTitleBand(photo: HTMLCanvasElement, bottom: boolean) {
   if (!ctx) throw new Error("Photo unavailable");
   ctx.drawImage(photo, 0, y, photo.width, bandHeight, 0, 0, copy.width, copy.height);
   return copy;
+}
+
+export function enhancedScanPhoto(photo: HTMLCanvasElement, mode: ScanContrastMode) {
+  const scale = Math.min(1, (mode === "green" ? 1200 : 1600) / Math.max(photo.width, photo.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(photo.width * scale));
+  canvas.height = Math.max(1, Math.round(photo.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Photo unavailable");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(photo, 0, 0, canvas.width, canvas.height);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  scanContrast(image.data, image.width, image.height, mode);
+  ctx.putImageData(image, 0, 0);
+  return canvas;
 }
