@@ -1,4 +1,4 @@
-export type ScanContrastMode = "red" | "detail" | "warm" | "green";
+export type ScanContrastMode = "red" | "detail" | "warm" | "green" | "redInk" | "compactRed";
 
 // Use a single colour channel to separate coloured lettering from similarly bright artwork.
 // For embossed or outlined lettering, subtract a local average to highlight the strokes.
@@ -8,6 +8,15 @@ export function scanContrast(
   height: number,
   mode: ScanContrastMode,
 ) {
+  if (mode === "redInk" || mode === "compactRed") {
+    for (let j = 0; j < pixels.length; j += 4) {
+      const red = pixels[j];
+      const ink = red - Math.max(pixels[j + 1], pixels[j + 2]) > 18;
+      const value = mode === "compactRed" ? red : ink ? 0 : 255;
+      pixels[j] = pixels[j + 1] = pixels[j + 2] = value;
+    }
+    return;
+  }
   if (mode === "green") {
     for (let j = 0; j < pixels.length; j += 4) pixels[j] = pixels[j + 2] = pixels[j + 1];
     return;

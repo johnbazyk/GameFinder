@@ -54,7 +54,7 @@ export async function createBoxReader(signal: AbortSignal) {
             if (upright !== photo) upright.width = upright.height = 0;
           }
         }
-        for (const mode of ["red", "detail", "warm", "green"] as const) {
+        for (const mode of ["compactRed", "redInk", "red", "detail", "warm", "green"] as const) {
           const enhanced = enhancedScanPhoto(photo, mode);
           try {
             for (const turn of [0, -1, 1, 2] as const) {

@@ -63,7 +63,7 @@ export function findBoxTitles<T extends { name: string }>(
         const normalized = words
           .map((word, i) =>
             /^\d+$/.test(word) && /^[a-z]+$/.test(tokens[i])
-              ? word.replace(/1/g, "t").replace(/0/g, "o")
+              ? word.replace(/1/g, "t").replace(/[09]/g, "o")
               : word,
           )
           .join(" ");
@@ -93,7 +93,16 @@ export function findBoxTitles<T extends { name: string }>(
     }
   }
   for (let i = 0; i < lines.length; i++) {
-    match(lines[i]);
+    // Older Catan boxes put SETTLERS directly above the outlined CATAN lettering.
+    const line = lines[i];
+    if (
+      /^(the )?settlers( of)?$/.test(lines[i - 1] ?? "") &&
+      /^cata[a-z]{0,2}$/.test(line) &&
+      titleDistance(line, "catan") <= 1
+    ) {
+      match("catan " + (lines[i + 1] ?? ""));
+    }
+    match(line);
     if (i && lines[i - 1].length + lines[i].length <= 85) {
       // Only join when the break actually splits a catalog title.
       const combined = lines[i - 1] + " " + lines[i];

@@ -81,7 +81,8 @@ export function scanTitleBand(photo: HTMLCanvasElement, bottom: boolean) {
 }
 
 export function enhancedScanPhoto(photo: HTMLCanvasElement, mode: ScanContrastMode) {
-  const scale = Math.min(1, (mode === "green" ? 1200 : 1600) / Math.max(photo.width, photo.height));
+  const longestEdge = mode === "compactRed" ? 800 : mode === "green" ? 1200 : 1600;
+  const scale = Math.min(1, longestEdge / Math.max(photo.width, photo.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(photo.width * scale));
   canvas.height = Math.max(1, Math.round(photo.height * scale));
