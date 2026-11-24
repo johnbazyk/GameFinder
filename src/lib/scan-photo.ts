@@ -90,3 +90,43 @@ export function enhancedScanPhoto(photo: HTMLCanvasElement, mode: ScanContrastMo
   ctx.putImageData(image, 0, 0);
   return canvas;
 }
+
+// Overlap neighboring shelf regions so labels crossing a crop boundary get a second read.
+export function* shelfRegions(photo: HTMLCanvasElement) {
+  const landscape = photo.width >= photo.height;
+  const cols = landscape ? 3 : 2;
+  const rows = landscape ? 2 : 3;
+  const w = Math.max(1, Math.round(photo.width * (landscape ? 0.375 : 0.625)));
+  const h = Math.max(1, Math.round(photo.height * (landscape ? 0.625 : 0.375)));
+  const scale = Math.min(2, 1200 / Math.max(w, h));
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const region = document.createElement("canvas");
+      region.width = Math.max(1, Math.round(w * scale));
+      region.height = Math.max(1, Math.round(h * scale));
+      try {
+        const ctx = region.getContext("2d");
+        if (!ctx) throw new Error("Photo unavailable");
+        const x = Math.round(col * (photo.width - w) / (cols - 1));
+        const y = Math.round(row * (photo.height - h) / (rows - 1));
+        ctx.drawImage(photo, x, y, w, h, 0, 0, region.width, region.height);
+        const image = ctx.getImageData(0, 0, region.width, region.height);
+        let low = 255, high = 0;
+        const pixels = image.data;
+        for (let i = 0; i < pixels.length; i += 4) {
+          const gray = Math.round(0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]);
+          pixels[i] = gray;
+          low = Math.min(low, gray);
+          high = Math.max(high, gray);
+        }
+        for (let i = 0; i < pixels.length; i += 4) {
+          pixels[i] = pixels[i + 1] = pixels[i + 2] = 255 * (pixels[i] - low) / Math.max(1, high - low);
+        }
+        ctx.putImageData(image, 0, 0);
+        yield region;
+      } finally {
+        region.width = region.height = 0;
+      }
+    }
+  }
+}

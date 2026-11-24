@@ -210,8 +210,9 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         {rows.length > 0 && (
           <>
             <div className="flex items-center justify-between text-sm">
-              <span>{selected.length} selected</span>
+              <span>{rows.length} found · {selected.length} selected</span>
               <button
+                disabled={!rows.some(canSelect)}
                 onClick={() => {
                   const all = rows.filter(canSelect).every((r) => r.selected);
                   setRows((prev) =>

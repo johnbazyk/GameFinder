@@ -1,5 +1,5 @@
 import { createWorker, OEM, PSM } from "tesseract.js";
-import { diagonalScanPhoto, enhancedScanPhoto, rotateScanPhoto, scanTitleBand } from "./scan-photo";
+import { diagonalScanPhoto, enhancedScanPhoto, rotateScanPhoto, scanTitleBand, shelfRegions } from "./scan-photo";
 import { GAMES } from "./catalog";
 import { findBoxTitles } from "./box-titles";
 import type { ScanHit } from "./scan";
@@ -40,8 +40,11 @@ export async function createBoxReader(signal: AbortSignal) {
           canvas.width = canvas.height = 0;
         }
       }
+      let readingTurn: 0 | 1 | -1 | 2 = 0;
+      const directionHits = new Map<0 | 1 | -1 | 2, Set<string>>();
       function* views() {
         for (const turn of [0, 1, -1, 2] as const) {
+          readingTurn = turn;
           const upright = turn === 0 ? photo : rotateScanPhoto(photo, turn);
           try {
             yield upright;
@@ -54,10 +57,11 @@ export async function createBoxReader(signal: AbortSignal) {
         for (const mode of ["red", "detail", "warm", "green"] as const) {
           const enhanced = enhancedScanPhoto(photo, mode);
           try {
-            yield enhanced;
-            yield* temporary(rotateScanPhoto(enhanced, -1));
-            yield* temporary(rotateScanPhoto(enhanced, 1));
-            yield* temporary(rotateScanPhoto(enhanced, 2));
+            for (const turn of [0, -1, 1, 2] as const) {
+              readingTurn = turn;
+              if (turn === 0) yield enhanced;
+              else yield* temporary(rotateScanPhoto(enhanced, turn));
+            }
           } finally {
             enhanced.width = enhanced.height = 0;
           }
@@ -67,10 +71,26 @@ export async function createBoxReader(signal: AbortSignal) {
         signal.throwIfAborted();
         const result = await worker.recognize(view, { rotateAuto: deskew });
         for (const game of findBoxTitles(result.data.text, GAMES)) {
+          const ids = directionHits.get(readingTurn) ?? new Set<string>();
+          ids.add(game.bggId);
+          directionHits.set(readingTurn, ids);
           hits.set(game.bggId, { bggId: game.bggId, name: game.name, confidence: "review" });
         }
       }
       for (const view of views()) await recognize(view);
+      if (hits.size >= 2) {
+        // Limit extra mobile OCR work to the two orientations with the most catalog evidence.
+        const directions = [...directionHits].sort((a, b) => b[1].size - a[1].size).slice(0, 2);
+        for (const [turn] of directions) {
+          readingTurn = turn;
+          const upright = turn === 0 ? photo : rotateScanPhoto(photo, turn);
+          try {
+            for (const region of shelfRegions(upright)) await recognize(region);
+          } finally {
+            if (upright !== photo) upright.width = upright.height = 0;
+          }
+        }
+      }
       if (!hits.size) {
         const diagonal = diagonalScanPhoto(photo);
         try {
