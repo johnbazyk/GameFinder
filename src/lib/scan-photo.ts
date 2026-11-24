@@ -34,15 +34,31 @@ export function remoteScanImage(photo: HTMLCanvasElement) {
 }
 
 // Swap width and height for spines. Rotating inside the original bounds clips titles.
-export function rotateScanPhoto(photo: HTMLCanvasElement, direction: 1 | -1) {
+export function rotateScanPhoto(photo: HTMLCanvasElement, direction: 1 | -1 | 2) {
   const copy = document.createElement("canvas");
-  copy.width = photo.height;
-  copy.height = photo.width;
+  copy.width = direction === 2 ? photo.width : photo.height;
+  copy.height = direction === 2 ? photo.height : photo.width;
   const ctx = copy.getContext("2d");
   if (!ctx) throw new Error("Photo unavailable");
-  ctx.translate(direction === 1 ? copy.width : 0, direction === -1 ? copy.height : 0);
+  ctx.translate(direction > 0 ? copy.width : 0, direction !== 1 ? copy.height : 0);
   ctx.rotate((direction * Math.PI) / 2);
   ctx.drawImage(photo, 0, 0);
+  return copy;
+}
+
+// A diagonal photograph needs padded bounds so the outermost titles survive rotation.
+export function diagonalScanPhoto(photo: HTMLCanvasElement) {
+  const side = Math.max(1, Math.ceil((photo.width + photo.height) / Math.SQRT2));
+  const copy = document.createElement("canvas");
+  copy.width = copy.height = Math.min(side, 2200);
+  const ctx = copy.getContext("2d");
+  if (!ctx) throw new Error("Photo unavailable");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, copy.width, copy.height);
+  ctx.translate(copy.width / 2, copy.height / 2);
+  ctx.rotate(Math.PI / 4);
+  ctx.scale(copy.width / side, copy.height / side);
+  ctx.drawImage(photo, -photo.width / 2, -photo.height / 2);
   return copy;
 }
 

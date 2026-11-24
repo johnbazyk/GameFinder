@@ -93,3 +93,30 @@ test("all five Finn chapters have game-specific text and separate recordings", a
   assert.equal(guidePassage(guides.Wingspan, "How do I score?").id, "score");
   assert.equal(guidePassage(guides.Catan, "Can I tunnel underground?"), undefined);
 });
+
+test("quarter turns preserve every corner of a rectangular photo", async () => {
+  const { rotateScanPhoto } = await server.ssrLoadModule("/src/lib/scan-photo.ts");
+  const photo = { width: 90, height: 40 };
+  const previous = globalThis.document;
+  try {
+    for (const turn of [1, -1, 2]) {
+      let offset, angle, drawn;
+      globalThis.document = { createElement: () => ({ getContext: () => ({
+        translate(x, y) { offset = [x, y]; },
+        rotate(value) { angle = value; },
+        drawImage(image) { drawn = image; },
+      }) }) };
+      const out = rotateScanPhoto(photo, turn);
+      assert.equal(drawn, photo);
+      assert.equal(angle, (turn * Math.PI) / 2);
+      const corners = [[0, 0], [90, 0], [0, 40], [90, 40]].map(([x, y]) => [
+        Math.round(offset[0] + x * Math.cos(angle) - y * Math.sin(angle)) || 0,
+        Math.round(offset[1] + x * Math.sin(angle) + y * Math.cos(angle)) || 0,
+      ]);
+      assert.deepEqual(corners.sort(), [[0, 0], [out.width, 0], [0, out.height], [out.width, out.height]].sort());
+    }
+  } finally {
+    if (previous === undefined) delete globalThis.document;
+    else globalThis.document = previous;
+  }
+});
