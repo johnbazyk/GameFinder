@@ -28,9 +28,27 @@ export type ReviewScope = {
   market: string;
 };
 
+export type ReviewedExternalIdentity = {
+  provider: "bgg";
+  providerId: string;
+  status: "VERIFIED" | "PROVISIONAL" | "UNKNOWN" | "DISPUTED" | "MISMATCH";
+  observedTitle: string | null;
+  scope: ReviewScope;
+  source: {
+    reference: string | null;
+    url: string | null;
+    classification: "provider-record" | "publisher-record" | "none";
+    accessStatus: ReviewSourceAccess;
+    accessedAt: string | null;
+  };
+  reviewerId: string | null;
+  reviewedAt: string | null;
+};
+
 export type ReviewedFactRecord = {
   reviewRef: string;
   identity: ReviewIdentityReference;
+  externalIdentity: ReviewedExternalIdentity | null;
   scope: ReviewScope;
   field: ReviewedField;
   value: ReviewedFactValue;
@@ -87,6 +105,13 @@ export type ReviewResolutionReason =
   | "identity-not-found"
   | "identity-ambiguous"
   | "identity-title-mismatch"
+  | "external-identity-unverified"
+  | "external-identity-disputed"
+  | "external-identity-mismatch"
+  | "external-identity-title-mismatch"
+  | "external-identity-scope-mismatch"
+  | "external-identity-evidence-required"
+  | "external-identity-review-required"
   | "scope-mismatch"
   | "legacy-value-mismatch"
   | "unknown-value"
