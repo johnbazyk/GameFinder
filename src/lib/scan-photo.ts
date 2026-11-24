@@ -29,8 +29,12 @@ export function remoteScanImage(photo: HTMLCanvasElement) {
   copy.height = Math.max(1, Math.round(photo.height * scale));
   const ctx = copy.getContext("2d");
   if (!ctx) throw new Error("Photo unavailable");
-  ctx.drawImage(photo, 0, 0, copy.width, copy.height);
-  return copy.toDataURL("image/jpeg", 0.8);
+  try {
+    ctx.drawImage(photo, 0, 0, copy.width, copy.height);
+    return copy.toDataURL("image/jpeg", 0.8);
+  } finally {
+    copy.width = copy.height = 0;
+  }
 }
 
 // Swap width and height for spines. Rotating inside the original bounds clips titles.

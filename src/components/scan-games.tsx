@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, Images, X } from "lucide-react";
 import { toast } from "sonner";
 import { openScanPhoto, remoteScanImage } from "@/lib/scan-photo";
-import { identifyShelf } from "@/lib/scan";
+import { identifyShelf, type ScanHit } from "@/lib/scan";
 import { mergeScanRows, type ScanRow } from "@/lib/scan-review";
 import { boxTitleKey } from "@/lib/box-titles";
 import type { createBoxReader } from "@/lib/box-ocr";
@@ -48,7 +48,9 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
     void cancelled.catch(() => {});
     let reader: Awaited<ReturnType<typeof createBoxReader>> | undefined;
     let readerUnavailable = false;
-    let unread = 0;
+    let unopened = 0;
+    let unavailable = 0;
+    let partial = 0;
     let empty = 0;
     try {
       for (let index = 0; index < files.length; index++) {
@@ -57,7 +59,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         const file = files[index];
         const photo = await openScanPhoto(file).catch(() => null);
         if (!photo) {
-          unread++;
+          unopened++;
           continue;
         }
         const remoteTask = Promise.resolve()
@@ -66,6 +68,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
             return identifyShelf({ data: { image: remoteScanImage(photo) }, signal });
           })
           .catch(() => null);
+        const localHits: ScanHit[] = [];
         const localTask = (async () => {
           if (readerUnavailable) return null;
           if (!reader) {
@@ -77,18 +80,26 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
               return null;
             }
           }
-          return reader.read(photo);
+          try {
+            await reader.read(photo, (hit) => localHits.push(hit));
+            return true;
+          } catch {
+            reader.close();
+            reader = undefined;
+            return null;
+          }
         })().catch(() => null);
         const [remote, local] = await Promise.race([
           Promise.all([remoteTask, localTask]),
           cancelled,
-        ]);
+        ]).finally(() => { photo.width = photo.height = 0; });
         signal.throwIfAborted();
-        const hits = [...(remote?.ok ? remote.hits : []), ...(local ?? [])];
+        const hits = [...(remote?.ok ? remote.hits : []), ...localHits];
         if (hits.length) {
+          if (local === null && !remote?.ok) partial++;
           setRows((prev) => mergeScanRows(prev, hits, useAppStore.getState().owned));
         } else if (!remote?.ok && local === null) {
-          unread++;
+          unavailable++;
         } else {
           empty++;
         }
@@ -96,9 +107,11 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
       signal.throwIfAborted();
       setMessage(
         [
-          unread ? `Couldn’t read ${unread} photo${unread === 1 ? "" : "s"}.` : "",
+          unopened ? `Couldn’t open ${unopened} photo${unopened === 1 ? "" : "s"}. Try a JPEG or PNG copy.` : "",
+          unavailable ? `The scanner couldn’t finish ${unavailable} photo${unavailable === 1 ? "" : "s"}. Try the same photo again.` : "",
+          partial ? "Scanning stopped early. You can review the titles found so far." : "",
           empty ? `No titles recognized in ${empty} photo${empty === 1 ? "" : "s"}.` : "",
-          unread || empty ? "Add another angle or search for a missing title." : "",
+          empty ? "Add another angle or search for a missing title." : "",
         ]
           .filter(Boolean)
           .join(" "),

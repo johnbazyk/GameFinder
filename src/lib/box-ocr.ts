@@ -31,7 +31,7 @@ export async function createBoxReader(signal: AbortSignal) {
   }
   return {
     close,
-    async read(photo: HTMLCanvasElement): Promise<ScanHit[]> {
+    async read(photo: HTMLCanvasElement, onHit?: (hit: ScanHit) => void): Promise<ScanHit[]> {
       const hits = new Map<string, ScanHit>();
       function* temporary(canvas: HTMLCanvasElement) {
         try {
@@ -74,7 +74,11 @@ export async function createBoxReader(signal: AbortSignal) {
           const ids = directionHits.get(readingTurn) ?? new Set<string>();
           ids.add(game.bggId);
           directionHits.set(readingTurn, ids);
-          hits.set(game.bggId, { bggId: game.bggId, name: game.name, confidence: "review" });
+          if (!hits.has(game.bggId)) {
+            const hit: ScanHit = { bggId: game.bggId, name: game.name, confidence: "review" };
+            hits.set(game.bggId, hit);
+            onHit?.(hit);
+          }
         }
       }
       for (const view of views()) await recognize(view);
