@@ -18,6 +18,8 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
   const [rows, setRows] = useState<ScanRow[]>([]);
   const [progress, setProgress] = useState("");
   const [message, setMessage] = useState("");
+  const [report, setReport] = useState("");
+  const diagnostics = import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("scanDebug") === "1";
   const [manual, setManual] = useState(false);
   const owned = useAppStore((s) => s.owned);
   const premium = useAppStore((s) => s.isPremium);
@@ -31,6 +33,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
     request.current = null;
     setProgress("");
     setMessage("");
+    setReport("");
     setRows([]);
     setManual(false);
     onClose();
@@ -57,11 +60,16 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         signal.throwIfAborted();
         setProgress(`Reading photo ${index + 1} of ${files.length}…`);
         const file = files[index];
+        const passes: string[] = [];
+        let phoneStatus = "Reader unavailable";
+        if (diagnostics) setReport("");
         const photo = await openScanPhoto(file).catch(() => null);
         if (!photo) {
+          if (diagnostics && !signal.aborted) setReport("Photo could not be opened.");
           unopened++;
           continue;
         }
+        const dimensions = photo.width + " × " + photo.height;
         const remoteTask = Promise.resolve()
           .then(() => {
             signal.throwIfAborted();
@@ -81,7 +89,11 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
             }
           }
           try {
-            await reader.read(photo, (hit) => localHits.push(hit));
+            phoneStatus = "Stopped during text recognition";
+            await reader.read(photo, (hit) => localHits.push(hit), diagnostics ? (stage, text, titles) => {
+              passes.push(stage + " · " + (titles.join(", ") || "no match") + "\n" + text.trim().slice(0, 2000));
+            } : undefined);
+            phoneStatus = "Completed";
             return true;
           } catch {
             reader.close();
@@ -94,6 +106,16 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
           cancelled,
         ]).finally(() => { photo.width = photo.height = 0; });
         signal.throwIfAborted();
+        if (diagnostics) {
+          const names = (items: ScanHit[]) => items.map(hit => hit.name).join(", ") || "none";
+          setReport([
+            "Photo " + (index + 1) + " · " + dimensions,
+            "Phone reader · " + phoneStatus + " · " + passes.length + " passes",
+            "Phone matches · " + names(localHits),
+            "Server matches · " + (remote?.ok ? names(remote.hits) : "unavailable"),
+            ...passes,
+          ].join("\n\n"));
+        }
         const hits = [...(remote?.ok ? remote.hits : []), ...localHits];
         if (hits.length) {
           if (local === null && !remote?.ok) partial++;
@@ -220,6 +242,14 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         <p role="status" className="empty:hidden text-sm text-muted-foreground">
           {progress || message}
         </p>
+        {diagnostics && (
+          <details className="text-sm">
+            <summary>Scan details</summary>
+            <pre className="max-h-[25dvh] overflow-auto whitespace-pre-wrap select-text">
+              {report || "Choose a photo to see what the scanner reads."}
+            </pre>
+          </details>
+        )}
         {rows.length > 0 && (
           <>
             <div className="flex items-center justify-between text-sm">

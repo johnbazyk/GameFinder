@@ -31,7 +31,7 @@ export async function createBoxReader(signal: AbortSignal) {
   }
   return {
     close,
-    async read(photo: HTMLCanvasElement, onHit?: (hit: ScanHit) => void): Promise<ScanHit[]> {
+    async read(photo: HTMLCanvasElement, onHit?: (hit: ScanHit) => void, onPass?: (stage: string, text: string, titles: string[]) => void): Promise<ScanHit[]> {
       const hits = new Map<string, ScanHit>();
       function* temporary(canvas: HTMLCanvasElement) {
         try {
@@ -42,6 +42,7 @@ export async function createBoxReader(signal: AbortSignal) {
       }
       let readingTurn: 0 | 1 | -1 | 2 = 0;
       const directionHits = new Map<0 | 1 | -1 | 2, Set<string>>();
+      let stage = "Original and title bands";
       function* views() {
         for (const turn of [0, 1, -1, 2] as const) {
           readingTurn = turn;
@@ -55,6 +56,7 @@ export async function createBoxReader(signal: AbortSignal) {
           }
         }
         for (const mode of ["compactRed", "redInk", "red", "detail", "warm", "green"] as const) {
+          stage = mode;
           const enhanced = enhancedScanPhoto(photo, mode);
           try {
             for (const turn of [0, -1, 1, 2] as const) {
@@ -70,7 +72,9 @@ export async function createBoxReader(signal: AbortSignal) {
       async function recognize(view: HTMLCanvasElement, deskew = false) {
         signal.throwIfAborted();
         const result = await worker.recognize(view, { rotateAuto: deskew });
-        for (const game of findBoxTitles(result.data.text, GAMES)) {
+        const games = findBoxTitles(result.data.text, GAMES);
+        onPass?.(stage + " " + readingTurn * 90 + "°", result.data.text, games.map(game => game.name));
+        for (const game of games) {
           const ids = directionHits.get(readingTurn) ?? new Set<string>();
           ids.add(game.bggId);
           directionHits.set(readingTurn, ids);
@@ -84,6 +88,7 @@ export async function createBoxReader(signal: AbortSignal) {
       for (const view of views()) await recognize(view);
       if (hits.size >= 2) {
         // Limit extra mobile OCR work to the two orientations with the most catalog evidence.
+        stage = "Shelf region";
         const directions = [...directionHits].sort((a, b) => b[1].size - a[1].size).slice(0, 2);
         for (const [turn] of directions) {
           readingTurn = turn;
@@ -96,10 +101,13 @@ export async function createBoxReader(signal: AbortSignal) {
         }
       }
       if (!hits.size) {
+        stage = "Diagonal";
+        readingTurn = 0;
         const diagonal = diagonalScanPhoto(photo);
         try {
           await recognize(diagonal, true);
           for (const turn of [1, -1, 2] as const) {
+            readingTurn = turn;
             for (const view of temporary(rotateScanPhoto(diagonal, turn))) await recognize(view, true);
           }
         } finally {
