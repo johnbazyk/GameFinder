@@ -355,6 +355,10 @@ export function resolvePermanentCatalogIdentityAlias(
   );
   if (
     identity.status !== "verified" ||
+    identity.conflictStatus !== "none" ||
+    identity.legacyAliases
+      .filter((a) => a.namespace === namespace && a.value === value)
+      .some((a) => a.status !== "verified") ||
     alias?.status !== "verified" ||
     !alias.evidenceRef ||
     !identity.evidence.some((evidence) => evidence.id === alias.evidenceRef)

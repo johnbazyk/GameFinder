@@ -90,6 +90,7 @@ function targetsSameGame(left: ArtworkGameIdentity, right: ArtworkGameIdentity):
 
 function rightsAllowCommercialDisplay(artwork: ArtworkCandidate, now: string): boolean {
   return (
+    Number.isFinite(Date.parse(now)) &&
     artwork.rights.commercialDisplay === "allowed" &&
     Boolean(artwork.rights.permissionReference?.trim()) &&
     artwork.rights.attribution.required !== null &&
@@ -134,7 +135,8 @@ export function selectApprovedArtwork(
       candidate.review.verification === "verified" &&
       candidate.review.approval === "approved" &&
       Boolean(candidate.review.reviewerId?.trim()) &&
-      Number.isFinite(Date.parse(candidate.review.reviewedAt ?? "")),
+      Number.isFinite(Date.parse(candidate.review.reviewedAt ?? "")) &&
+      Date.parse(candidate.review.reviewedAt ?? "") <= Date.parse(now),
   );
   const displayAuthorized = verifiedAndApproved.filter((candidate) =>
     rightsAllowCommercialDisplay(candidate, now),

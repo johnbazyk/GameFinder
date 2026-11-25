@@ -202,3 +202,24 @@ test("custom game IDs remain owner-scoped legacy keys, not provider identities",
   assert.equal(custom.externalIds.length, 0);
   assert.equal(custom.legacyAliases[0].namespace, "legacy-user");
 });
+
+test("a verified alias with an unresolved identity conflict cannot resolve", () => {
+  const record = identity("gf:00000000-0000-4000-8000-000000000099", {
+    status: "verified",
+    conflictStatus: "review-required",
+    evidence: [
+      {
+        id: "e",
+        kind: "curator-review",
+        reference: "fixture",
+        observedAt: "2026-01-01",
+        reviewerId: "fixture",
+      },
+    ],
+    legacyAliases: [{ namespace: "legacy-bgg", value: "99", status: "verified", evidenceRef: "e" }],
+  });
+  assert.equal(
+    foundation.resolvePermanentCatalogIdentityAlias([record], "legacy-bgg", "99").status,
+    "requires-identity-review",
+  );
+});

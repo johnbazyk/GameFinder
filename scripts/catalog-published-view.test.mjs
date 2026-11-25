@@ -285,3 +285,12 @@ test("the neutral adapter remains outside production imports and fixture generat
     /valid fixed timestamp/,
   );
 });
+
+test("publication rejects reuse of a provider source record across permanent identities", () => {
+  const snapshot = structuredClone(prototype.createSyntheticPublishedCatalogSnapshot());
+  snapshot.records[1].sourceIdentity = { ...snapshot.records[0].sourceIdentity };
+  assert.throws(
+    () => contract.assertPublishedCatalogSnapshot(snapshot),
+    /multiply-assigned source record/,
+  );
+});

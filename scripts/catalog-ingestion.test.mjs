@@ -426,3 +426,54 @@ test("catalog, recommendations, and persisted user references are untouched by s
   assert.equal(foundation.BGG_PROVIDER_POLICY.enabled, false);
   assert.equal(foundation.BGG_PROVIDER_POLICY.commercialUseAuthorized, false);
 });
+
+test("future or missing approval evidence cannot validate metadata", async () => {
+  const candidate = completeMetadataCandidate(await staged("Cedar"), { ownerApproval: "approved" });
+  assert.equal(
+    ingestion.validateStagedCandidate(candidate, [], fixtureTime).status,
+    "metadata-validated",
+  );
+  const invalid = structuredClone(candidate);
+  invalid.review.ownerApproval.decidedAt = "2099-01-01";
+  assert.ok(
+    ingestion
+      .validateStagedCandidate(invalid, [], fixtureTime)
+      .reasons.includes("owner-approval-pending"),
+  );
+  invalid.review.ownerApproval.decidedAt = fixtureTime;
+  invalid.review.humanReview.reviewerId = " ";
+  assert.ok(
+    ingestion
+      .validateStagedCandidate(invalid, [], fixtureTime)
+      .reasons.includes("human-review-pending"),
+  );
+  assert.ok(
+    ingestion
+      .validateStagedCandidate(candidate, [], "invalid")
+      .reasons.includes("metadata-rights-expired"),
+  );
+});
+
+test("artwork review cannot be future dated and evaluation time must be valid", async () => {
+  const candidate = await staged("Cedar");
+  const scope = {
+    edition: known("First"),
+    printing: known("First"),
+    language: known("English"),
+    market: known("US"),
+  };
+  const art = artworkCandidate(candidate, scope);
+  assert.equal(
+    artwork.selectApprovedArtwork(artworkIdentity(candidate), scope, [art], fixtureTime).status,
+    "selected",
+  );
+  assert.notEqual(
+    artwork.selectApprovedArtwork(artworkIdentity(candidate), scope, [art], "invalid").status,
+    "selected",
+  );
+  art.review.reviewedAt = "2099-01-01";
+  assert.notEqual(
+    artwork.selectApprovedArtwork(artworkIdentity(candidate), scope, [art], fixtureTime).status,
+    "selected",
+  );
+});

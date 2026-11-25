@@ -436,6 +436,8 @@ export function validateStagedCandidate(
 ): CandidateValidation {
   const reasons = new Set<CandidateValidationReason>();
   const identity = candidate.identityReview;
+  const validPast = (value: string | null) =>
+    validTimestamp(value) && Date.parse(value!) <= Date.parse(now);
 
   if (identity.status === "unreviewed") reasons.add("identity-unverified");
   if (identity.status === "disputed") reasons.add("identity-disputed");
@@ -561,10 +563,14 @@ export function validateStagedCandidate(
     ) {
       reasons.add("required-fact-evidence-missing");
     }
-    if (!fact.reviewed.reviewerId || !validTimestamp(fact.reviewed.reviewedAt)) {
+    if (!fact.reviewed.reviewerId?.trim() || !validPast(fact.reviewed.reviewedAt)) {
       reasons.add("human-review-pending");
     }
-    if (!fact.reviewed.approverId || !validTimestamp(fact.reviewed.approvedAt)) {
+    if (
+      !fact.reviewed.approverId?.trim() ||
+      !validPast(fact.reviewed.approvedAt) ||
+      Date.parse(fact.reviewed.approvedAt!) < Date.parse(fact.reviewed.reviewedAt!)
+    ) {
       reasons.add("owner-approval-pending");
     }
     if (
@@ -613,21 +619,32 @@ export function validateStagedCandidate(
     reasons.add("metadata-storage-not-cleared");
   }
   if (
-    candidate.metadataRights.expiresAt !== null &&
-    (!validTimestamp(candidate.metadataRights.expiresAt) ||
-      Date.parse(candidate.metadataRights.expiresAt) <= Date.parse(now))
+    !Number.isFinite(Date.parse(now)) ||
+    (candidate.metadataRights.expiresAt !== null &&
+      (!validTimestamp(candidate.metadataRights.expiresAt) ||
+        Date.parse(candidate.metadataRights.expiresAt) <= Date.parse(now)))
   ) {
     reasons.add("metadata-rights-expired");
   }
 
   if (candidate.review.humanReview.status === "rejected") {
     reasons.add("human-review-rejected");
-  } else if (candidate.review.humanReview.status !== "approved") {
+  } else if (
+    candidate.review.humanReview.status !== "approved" ||
+    !candidate.review.humanReview.reviewerId?.trim() ||
+    !validPast(candidate.review.humanReview.decidedAt)
+  ) {
     reasons.add("human-review-pending");
   }
   if (candidate.review.ownerApproval.status === "rejected") {
     reasons.add("owner-approval-rejected");
-  } else if (candidate.review.ownerApproval.status !== "approved") {
+  } else if (
+    candidate.review.ownerApproval.status !== "approved" ||
+    !candidate.review.ownerApproval.reviewerId?.trim() ||
+    !validPast(candidate.review.ownerApproval.decidedAt) ||
+    Date.parse(candidate.review.ownerApproval.decidedAt!) <
+      Date.parse(candidate.review.humanReview.decidedAt!)
+  ) {
     reasons.add("owner-approval-pending");
   }
 

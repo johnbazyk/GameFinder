@@ -266,6 +266,7 @@ export function assertPublishedCatalogSnapshot(
     }
   }
   const publishedIds = new Set<string>();
+  const sourceKeys = new Set<string>();
   for (const value of records) {
     if (!isObject(value) || !isObject(value.displayMetadata) || !isObject(value.facts)) {
       throw new Error("Published catalog snapshot contains a malformed record.");
@@ -364,6 +365,13 @@ export function assertPublishedCatalogSnapshot(
     if (!knownIds.includes(record.gamefinderId)) {
       throw new Error("Published record identity is absent from the source identity set.");
     }
+    const sourceKey = JSON.stringify([
+      record.sourceIdentity.namespace,
+      record.sourceIdentity.recordId,
+    ]);
+    if (sourceKeys.has(sourceKey))
+      throw new Error("Published catalog contains a multiply-assigned source record.");
+    sourceKeys.add(sourceKey);
     publishedIds.add(record.gamefinderId);
   }
 
