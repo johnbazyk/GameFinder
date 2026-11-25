@@ -24,7 +24,9 @@
     "format": "prettier --write .",
     "dev:ratings:beta": "VITE_GAMEFINDER_RATINGS_MODE=beta npm run dev",
     "build:ratings:beta": "VITE_GAMEFINDER_RATINGS_MODE=beta npm run build",
-    "test:ratings": "node --test scripts/rating-policy-03.test.mjs"
+    "test:ratings": "node --test scripts/rating-policy-03.test.mjs",
+    "check:release": "node scripts/with-app-env.mjs node scripts/release-preflight.mjs",
+    "test:postgres": "bash scripts/test-postgres-disposable.sh"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

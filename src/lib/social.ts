@@ -202,7 +202,13 @@ export const updateMyProfile = createServerFn({ method: "POST" })
 
 export const getCloudVault = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async ({ context }) => {
+  .validator((input: { expectedUserId: string }) => {
+    if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
+      throw new Error("Missing account identity");
+    return { expectedUserId: input.expectedUserId };
+  })
+  .handler(async ({ context, data }) => {
+    if (data.expectedUserId !== context.userId) throw new Error("Account changed");
     const sql = await getSql();
     const rows = await sql<{ bgg_id: string; list: string }>`
       select bgg_id, list from vault_games where user_id = ${context.userId}
@@ -241,7 +247,13 @@ export const replaceCloudVault = createServerFn({ method: "POST" })
 
 export const getCloudCatalogGames = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async ({ context }) => {
+  .validator((input: { expectedUserId: string }) => {
+    if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
+      throw new Error("Missing account identity");
+    return { expectedUserId: input.expectedUserId };
+  })
+  .handler(async ({ context, data }) => {
+    if (data.expectedUserId !== context.userId) throw new Error("Account changed");
     const sql = await getSql();
     const rows = await sql<{ record: unknown }>`
       select record from catalog_games

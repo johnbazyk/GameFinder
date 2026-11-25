@@ -2,7 +2,7 @@
 /**
  * Deploy-time database migrator (node-postgres, `pg`).
  *
- * Runs during `npm run build` — on every Vercel deploy — applying pending files
+ * Run explicitly against an approved staging or production database, applying pending files
  * in ../migrations to DATABASE_URL. Each file is applied in one transaction and
  * recorded in a `_migrations` table, so it runs once and is safe to re-run.
  *
@@ -18,27 +18,11 @@ import { dirname, join } from "node:path";
 import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
 
-function normalizeDatabaseUrl(url) {
-  const rewritten = url.replace(
-    /^(postgres(?:ql)?:\/\/)postgres(:)/i,
-    "$1postgres.gposxgncsktonuhlgbpg$2",
-  );
-  const [base, qs] = rewritten.split("?");
-  if (!qs) return rewritten;
-  const kept = qs
-    .split("&")
-    .filter((p) => p && !/^sslmode=/i.test(p) && !/^ssl=/i.test(p))
-    .join("&");
-  return kept ? `${base}?${kept}` : base;
-}
+import { databaseConnectionPolicy } from "./database-connection-policy.mjs";
 
-const databaseUrl = process.env.DATABASE_URL
-  ? normalizeDatabaseUrl(process.env.DATABASE_URL)
-  : undefined;
+const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) {
-  console.log(
-    "[migrate] DATABASE_URL not set — skipping (the PGLite fallback migrates itself).",
-  );
+  console.log("[migrate] DATABASE_URL not set — skipping (the PGLite fallback migrates itself).");
   process.exit(0);
 }
 
@@ -58,38 +42,23 @@ async function main() {
     return;
   }
 
-  const local = /localhost|127\.0\.0\.1/i.test(databaseUrl);
   const pool = new pg.Pool({
-    connectionString: databaseUrl,
+    ...databaseConnectionPolicy(databaseUrl),
     max: 1,
-    ssl: local ? undefined : { rejectUnauthorized: false },
     connectionTimeoutMillis: 15_000,
   });
   let client;
   try {
     client = await pool.connect();
-  } catch (first) {
-    console.warn(
-      "[migrate] TLS connect failed, retrying without ssl:",
-      first instanceof Error ? first.message : first,
-    );
+  } catch {
     await pool.end().catch(() => undefined);
-    const retry = new pg.Pool({
-      connectionString: databaseUrl,
-      max: 1,
-      connectionTimeoutMillis: 15_000,
-    });
-    client = await retry.connect();
-    // swap so the finally block still ends the live pool
-    Object.assign(pool, { end: () => retry.end() });
+    throw new Error("Database connection failed; verify TLS certificate and staging credentials.");
   }
   try {
     await client.query(
       "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     );
-    const applied = (await client.query("SELECT name FROM _migrations")).rows.map(
-      (r) => r.name,
-    );
+    const applied = (await client.query("SELECT name FROM _migrations")).rows.map((r) => r.name);
 
     let count = 0;
     for (const { name } of pendingMigrations(entries, applied)) {
@@ -112,7 +81,9 @@ async function main() {
       console.log(`[migrate] applied ${name}`);
       count += 1;
     }
-    console.log(count ? `[migrate] done — ${count} migration(s) applied.` : "[migrate] up to date.");
+    console.log(
+      count ? `[migrate] done — ${count} migration(s) applied.` : "[migrate] up to date.",
+    );
   } finally {
     client.release();
     await pool.end();

@@ -49,6 +49,7 @@ function VaultPage() {
     return (
       <>
         <EmptyState
+          pageHeading
           mood="shelf"
           title="What's on your shelf?"
           body={

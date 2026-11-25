@@ -1,13 +1,7 @@
-import {
-  createRootRoute,
-  HeadContent,
-  Outlet,
-  Scripts,
-} from "@tanstack/react-router";
+import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { AppShell } from "@/components/app-shell";
-import { UpgradeSheet } from "@/components/upgrade-sheet";
 import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 
@@ -70,7 +64,6 @@ function Root() {
               className: "font-sans",
             }}
           />
-          <UpgradeSheet />
         </AuthProvider>
         <Scripts />
       </body>

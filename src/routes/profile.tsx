@@ -36,13 +36,21 @@ function ProfilePage() {
   const scanOn = useFlag("scan_games");
 
   useEffect(() => {
+    setDisplayName("");
     if (!userId) return;
+    let current = true;
     void getMyProfile()
       .then((p) => {
+        if (!current) return;
         setDisplayName(p.displayName);
         if (p.pieceColor) setPieceColor(p.pieceColor);
       })
-      .catch(() => setDisplayName(userDisplayName ?? ""));
+      .catch(() => {
+        if (current) setDisplayName(userDisplayName ?? "");
+      });
+    return () => {
+      current = false;
+    };
   }, [setPieceColor, userDisplayName, userId]);
 
   return (
@@ -111,6 +119,7 @@ function ProfilePage() {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             maxLength={32}
+            aria-label="Display name"
             placeholder="Display name"
             className="min-w-0 flex-1 rounded-card bg-card px-3 py-3 text-sm shadow-card outline-none ring-fox/40 focus:ring-2"
           />
@@ -143,24 +152,26 @@ function ProfilePage() {
             : `Free vaults hold up to ${FREE_VAULT_LIMIT} games. Premium is ${BILLING.monthly.price} or ${BILLING.yearly.price}.`}
         </p>
         <Button className="mt-4 w-full" variant={isPremium ? "secondary" : "primary"} asChild>
-          <Link to="/premium" search={{ session_id: "" }}>{isPremium ? "View plan" : "See the family plan"}</Link>
+          <Link to="/premium" search={{ session_id: "" }}>
+            {isPremium ? "View plan" : "See the family plan"}
+          </Link>
         </Button>
       </section>
 
       {scanOn ? (
-      <section className="mt-8 space-y-2">
-        <h2 className="font-display text-xl">Shelf</h2>
-        <Row
-          title="Scan Games"
-          hint="Photograph a shelf. Photos aren't stored."
-          action={
-            <Button size="sm" variant="secondary" onClick={() => setScan(true)}>
-              <Camera className="size-4" />
-              Scan
-            </Button>
-          }
-        />
-      </section>
+        <section className="mt-8 space-y-2">
+          <h2 className="font-display text-xl">Shelf</h2>
+          <Row
+            title="Scan Games"
+            hint="Photograph a shelf. Local recognition by default."
+            action={
+              <Button size="sm" variant="secondary" onClick={() => setScan(true)}>
+                <Camera className="size-4" />
+                Scan
+              </Button>
+            }
+          />
+        </section>
       ) : null}
 
       <section className="mt-8 space-y-2">
@@ -211,11 +222,13 @@ function ProfilePage() {
       ) : null}
 
       <ScanGames open={scan} onClose={() => setScan(false)} />
-      <p className="mt-10 text-center text-xs text-muted-foreground">
-        <Link to="/internal/flags" className="font-semibold text-sky">
-          Internal flags
-        </Link>
-      </p>
+      {import.meta.env.DEV && (
+        <p className="mt-10 text-center text-xs text-muted-foreground">
+          <Link to="/internal/flags" className="font-semibold text-sky">
+            Internal flags
+          </Link>
+        </p>
+      )}
     </div>
   );
 }
@@ -229,15 +242,7 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Row({
-  title,
-  hint,
-  action,
-}: {
-  title: string;
-  hint: string;
-  action: ReactNode;
-}) {
+function Row({ title, hint, action }: { title: string; hint: string; action: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-card bg-card px-4 py-3 shadow-card">
       <div>

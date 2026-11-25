@@ -195,6 +195,20 @@ export default defineConfig(({ command, isPreview }) => ({
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.
             serverDir: "./server",
+            // Keep SSR module namespace bindings intact across Nitro bundling.
+            inlineDynamicImports: true,
+            hooks: {
+              compiled(nitro) {
+                // Embedded database is for isolated local builds, not Netlify.
+                if (process.env.NETLIFY) return;
+                for (const asset of ["pglite.data", "pglite.wasm", "initdb.wasm"]) {
+                  copyFileSync(
+                    join(nitro.options.rootDir, "node_modules/@electric-sql/pglite/dist", asset),
+                    join(nitro.options.output.serverDir, asset),
+                  );
+                }
+              },
+            },
           }),
         ]
       : []),

@@ -122,6 +122,7 @@ function Login() {
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  aria-label="Display name"
                   placeholder="Display name"
                   autoComplete="name"
                   className="w-full rounded-card bg-card px-3 py-3 text-sm shadow-card outline-none ring-fox/40 focus:ring-2"
@@ -134,6 +135,7 @@ function Login() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              aria-label="Email"
               placeholder="Email"
               autoComplete="email"
               className="w-full rounded-card bg-card px-3 py-3 text-sm shadow-card outline-none ring-fox/40 focus:ring-2"
@@ -144,11 +146,12 @@ function Login() {
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              aria-label="Password"
               placeholder="Password (8+)"
               autoComplete={mode === "up" ? "new-password" : "current-password"}
               className="w-full rounded-card bg-card px-3 py-3 text-sm shadow-card outline-none ring-fox/40 focus:ring-2"
             />
-            {error ? <p className="text-sm text-berry">{error}</p> : null}
+            {error ? <p role="alert" className="text-sm text-berry">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={busy}>
               {busy ? "One second…" : mode === "up" ? "Create account" : "Sign in"}
             </Button>

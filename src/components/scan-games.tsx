@@ -1,8 +1,9 @@
+import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useRef, useState } from "react";
 import { Camera, Images, X } from "lucide-react";
 import { toast } from "sonner";
 import { openScanPhoto, remoteScanImage } from "@/lib/scan-photo";
-import { identifyShelf, type ScanHit } from "@/lib/scan";
+import { identifyShelf, remoteScanAvailable, type ScanHit } from "@/lib/scan";
 import { mergeScanRows, type ScanRow } from "@/lib/scan-review";
 import { boxTitleKey } from "@/lib/box-titles";
 import type { createBoxReader } from "@/lib/box-ocr";
@@ -25,6 +26,22 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("scanDebug") === "1";
   const [manual, setManual] = useState(false);
+  const [remoteAvailable, setRemoteAvailable] = useState(false);
+  const [remoteConsent, setRemoteConsent] = useState(false);
+  useEffect(() => {
+    setRemoteAvailable(false);
+    setRemoteConsent(false);
+    if (!open) return;
+    let active = true;
+    void remoteScanAvailable()
+      .then((value) => {
+        if (active) setRemoteAvailable(value);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [open]);
   const owned = useAppStore((s) => s.owned);
   const ready = useAppStore((s) => s.entitlementReady);
   const premium = useAppStore((s) => s.isPremium);
@@ -79,12 +96,18 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
           continue;
         }
         const dimensions = photo.width + " × " + photo.height;
-        const remoteTask = Promise.resolve()
-          .then(() => {
-            signal.throwIfAborted();
-            return identifyShelf({ data: { image: remoteScanImage(photo) }, signal });
-          })
-          .catch(() => null);
+        const remoteTask =
+          remoteAvailable && remoteConsent
+            ? Promise.resolve()
+                .then(() => {
+                  signal.throwIfAborted();
+                  return identifyShelf({
+                    data: { image: remoteScanImage(photo), consent: true },
+                    signal,
+                  });
+                })
+                .catch(() => null)
+            : Promise.resolve(null);
         const localHits: ScanHit[] = [];
         const conflicts = new Set<string>();
         let reader: Awaited<ReturnType<typeof createBoxReader>> | undefined;
@@ -250,148 +273,177 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         row.name.trim().length <= 120 &&
         !/^(unknown|unidentified)( box| game)?$/i.test(row.name);
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-night/40 sm:items-center sm:p-6">
-      <div
-        role="dialog"
-        aria-label="Scan games"
-        className="flex max-h-[92dvh] w-full max-w-lg flex-col gap-3 rounded-t-2xl bg-background p-4 shadow-lift sm:rounded-2xl"
-      >
-        <header className="flex items-center justify-between">
-          <h2 className="font-display text-xl">
-            {rows.length ? "Review games found" : "Scan games"}
-          </h2>
-          <button
-            onClick={close}
-            aria-label="Close scanner"
-            className="grid size-10 place-items-center"
-          >
-            <X />
-          </button>
-        </header>
-        <input
-          className="hidden"
-          type="file"
-          accept="image/*"
-          capture="environment"
-          ref={camera}
-          onChange={(e) => pick(e.target)}
-        />
-        <input
-          className="hidden"
-          type="file"
-          accept="image/*"
-          multiple
-          ref={gallery}
-          onChange={(e) => pick(e.target)}
-        />
-        {!rows.length && (
-          <p className="text-sm">
-            Photograph a box or add several shelf photos. Review the games together. Photos are
-            discarded after scanning.
+    <Dialog.Root
+      open={open}
+      onOpenChange={(value) => {
+        if (!value) close();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-night/40" />
+        <Dialog.Content
+          aria-label="Scan games"
+          aria-describedby={undefined}
+          onPointerDownOutside={(event) => event.preventDefault()}
+          className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-lg flex-col gap-3 rounded-t-2xl bg-background p-4 shadow-lift sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+        >
+          <header className="flex items-center justify-between">
+            <Dialog.Title className="font-display text-xl">
+              {rows.length ? "Review games found" : "Scan games"}
+            </Dialog.Title>
+            <button
+              onClick={close}
+              aria-label="Close scanner"
+              className="grid size-10 place-items-center"
+            >
+              <X />
+            </button>
+          </header>
+          <input
+            className="hidden"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={camera}
+            onChange={(e) => pick(e.target)}
+          />
+          <input
+            className="hidden"
+            type="file"
+            accept="image/*"
+            multiple
+            ref={gallery}
+            onChange={(e) => pick(e.target)}
+          />
+          {!rows.length && (
+            <p className="text-sm">
+              Photograph a box or add several shelf photos. Review the games together. By default,
+              recognition stays on this device. GameFinder does not save the photos to your Vault.
+            </p>
+          )}
+          {remoteAvailable && (
+            <label className="flex items-start gap-2 rounded-card bg-muted p-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={remoteConsent}
+                disabled={!!progress}
+                onChange={(event) => setRemoteConsent(event.target.checked)}
+              />
+              <span>
+                Optional external recognition: send selected photos to xAI to help identify games.
+                Provider processing is subject to its privacy terms. Leave unchecked to scan
+                locally.
+              </span>
+            </label>
+          )}
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              disabled={!!progress}
+              onClick={() => camera.current?.click()}
+            >
+              <Camera />
+              Take photo
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={!!progress}
+              onClick={() => gallery.current?.click()}
+            >
+              <Images />
+              Add photos
+            </Button>
+          </div>
+          <p role="status" className="empty:hidden text-sm text-muted-foreground">
+            {progress || message}
           </p>
-        )}
-        <div className="flex gap-2">
-          <Button variant="secondary" disabled={!!progress} onClick={() => camera.current?.click()}>
-            <Camera />
-            Take photo
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={!!progress}
-            onClick={() => gallery.current?.click()}
-          >
-            <Images />
-            Add photos
-          </Button>
-        </div>
-        <p role="status" className="empty:hidden text-sm text-muted-foreground">
-          {progress || message}
-        </p>
-        {progress && (
+          {progress && (
+            <button
+              type="button"
+              className="text-sm font-semibold text-sky"
+              onClick={() => stopLocal.current?.()}
+            >
+              Finish reading this photo
+            </button>
+          )}
+          {diagnostics && (
+            <details className="text-sm">
+              <summary>Scan details</summary>
+              <pre className="max-h-[25dvh] overflow-auto whitespace-pre-wrap select-text">
+                {report || "Choose a photo to see what the scanner reads."}
+              </pre>
+            </details>
+          )}
+          {rows.length > 0 && (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span>
+                  {rows.length} found · {selected.length} selected
+                </span>
+                <button
+                  disabled={!rows.some(canSelect)}
+                  onClick={() => {
+                    const all = rows.filter(canSelect).every((r) => r.selected);
+                    setRows((prev) =>
+                      prev.map((row) => ({ ...row, selected: !all && canSelect(row) })),
+                    );
+                  }}
+                  className="font-semibold text-sky"
+                >
+                  {rows.filter(canSelect).length && rows.filter(canSelect).every((r) => r.selected)
+                    ? "Clear selection"
+                    : "Select all"}
+                </button>
+              </div>
+              <ul className="min-h-0 overflow-y-auto divide-y divide-border">
+                {rows.map((row) => (
+                  <li key={row.bggId ?? row.name}>
+                    <label className="flex items-center justify-between gap-3 py-2">
+                      <span>
+                        <span className="block font-semibold">{row.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {row.bggId && owned.includes(row.bggId)
+                            ? "Already in vault"
+                            : !row.bggId
+                              ? "Outside catalog · Add as custom game"
+                              : row.confidence === "high"
+                                ? "Catalog match"
+                                : "Check this match"}
+                        </span>
+                      </span>
+                      {canSelect(row) && (
+                        <input
+                          type="checkbox"
+                          className="size-5 accent-fox"
+                          checked={row.selected}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setRows((prev) =>
+                              prev.map((r) => (r === row ? { ...r, selected: checked } : r)),
+                            );
+                          }}
+                        />
+                      )}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <Button disabled={!ready || !!progress || !selected.length} onClick={addSelected}>
+                Add selected to Vault
+              </Button>
+            </>
+          )}
           <button
             type="button"
             className="text-sm font-semibold text-sky"
-            onClick={() => stopLocal.current?.()}
+            onClick={() => setManual(true)}
           >
-            Finish reading this photo
+            Search or add a missing title
           </button>
-        )}
-        {diagnostics && (
-          <details className="text-sm">
-            <summary>Scan details</summary>
-            <pre className="max-h-[25dvh] overflow-auto whitespace-pre-wrap select-text">
-              {report || "Choose a photo to see what the scanner reads."}
-            </pre>
-          </details>
-        )}
-        {rows.length > 0 && (
-          <>
-            <div className="flex items-center justify-between text-sm">
-              <span>
-                {rows.length} found · {selected.length} selected
-              </span>
-              <button
-                disabled={!rows.some(canSelect)}
-                onClick={() => {
-                  const all = rows.filter(canSelect).every((r) => r.selected);
-                  setRows((prev) =>
-                    prev.map((row) => ({ ...row, selected: !all && canSelect(row) })),
-                  );
-                }}
-                className="font-semibold text-sky"
-              >
-                {rows.filter(canSelect).length && rows.filter(canSelect).every((r) => r.selected)
-                  ? "Clear selection"
-                  : "Select all"}
-              </button>
-            </div>
-            <ul className="min-h-0 overflow-y-auto divide-y divide-border">
-              {rows.map((row) => (
-                <li key={row.bggId ?? row.name}>
-                  <label className="flex items-center justify-between gap-3 py-2">
-                    <span>
-                      <span className="block font-semibold">{row.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {row.bggId && owned.includes(row.bggId)
-                          ? "Already in vault"
-                          : !row.bggId
-                            ? "Outside catalog · Add as custom game"
-                            : row.confidence === "high"
-                              ? "Catalog match"
-                              : "Check this match"}
-                      </span>
-                    </span>
-                    {canSelect(row) && (
-                      <input
-                        type="checkbox"
-                        className="size-5 accent-fox"
-                        checked={row.selected}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setRows((prev) =>
-                            prev.map((r) => (r === row ? { ...r, selected: checked } : r)),
-                          );
-                        }}
-                      />
-                    )}
-                  </label>
-                </li>
-              ))}
-            </ul>
-            <Button disabled={!ready || !!progress || !selected.length} onClick={addSelected}>
-              Add selected to Vault
-            </Button>
-          </>
-        )}
-        <button
-          type="button"
-          className="text-sm font-semibold text-sky"
-          onClick={() => setManual(true)}
-        >
-          Search or add a missing title
-        </button>
-      </div>
-      <AddGameDialog open={manual} onClose={() => setManual(false)} />
-    </div>
+          <AddGameDialog open={manual} onClose={() => setManual(false)} />
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

@@ -99,7 +99,7 @@ export function AccountSync() {
         upgradePrompt: null,
         pieceColor: DEFAULT_PIECE_COLOR,
         isPremium: false,
-        entitlementReady: false,
+        entitlementReady: userId === null,
       });
     }
     setError(false);
@@ -176,9 +176,9 @@ export function AccountSync() {
     });
     void (async () => {
       try {
-        const cloud = await getCloudVault();
+        const cloud = await getCloudVault({ data: { expectedUserId: userId } });
         if (!current()) return;
-        const games = await getCloudCatalogGames();
+        const games = await getCloudCatalogGames({ data: { expectedUserId: userId } });
         if (!current()) return;
         const state = useAppStore.getState();
         const base = state.vaultBaselines[key] ?? empty();

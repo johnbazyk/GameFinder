@@ -1,7 +1,7 @@
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { TriangleAlert } from "lucide-react";
 
-export function AppErrorComponent({ error }: ErrorComponentProps) {
+export function AppErrorComponent({ reset }: ErrorComponentProps) {
   return (
     <main
       className={
@@ -14,8 +14,18 @@ export function AppErrorComponent({ error }: ErrorComponentProps) {
       </span>
       <h1 className="text-lg font-semibold">Something went wrong</h1>
       <p className="max-w-md text-sm break-words text-zinc-500 dark:text-zinc-400">
-        {error.message || "An unexpected error occurred. Try reloading the page."}
+        GameFinder could not load this page. Try again or return to Find.
       </p>
+      <button
+        type="button"
+        className="min-h-11 rounded-button bg-fox px-5 font-semibold text-cream"
+        onClick={reset}
+      >
+        Try again
+      </button>
+      <a href="/" className="min-h-11 px-4 py-3 text-sm font-semibold underline">
+        Return to Find
+      </a>
     </main>
   );
 }

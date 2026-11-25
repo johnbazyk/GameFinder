@@ -13,7 +13,18 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/internal/flags")({ component: FlagsConsole });
+export const Route = createFileRoute("/internal/flags")({ component: InternalFlagsPage });
+
+function InternalFlagsPage() {
+  if (!import.meta.env.DEV)
+    return (
+      <main>
+        <h1 className="font-display text-2xl">Page unavailable</h1>
+        <Link to="/">Return to Find</Link>
+      </main>
+    );
+  return <FlagsConsole />;
+}
 
 const STEPS = [0, 5, 10, 25, 50, 100];
 

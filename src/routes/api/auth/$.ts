@@ -5,12 +5,17 @@ async function handle(request: Request) {
   try {
     return await auth.handler(request);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[auth] handler failed:", err);
-    return new Response(JSON.stringify({ message, code: "AUTH_HANDLER" }), {
-      status: 500,
-      headers: { "content-type": "application/json" },
-    });
+    console.error("[auth] handler failed", err instanceof Error ? err.name : "UnknownError");
+    return new Response(
+      JSON.stringify({
+        message: "Authentication is temporarily unavailable.",
+        code: "AUTH_HANDLER",
+      }),
+      {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }
 }
 

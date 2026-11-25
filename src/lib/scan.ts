@@ -11,12 +11,19 @@ export type ScanHit = {
 };
 
 function apiKey() {
-  return process.env.XAI_API_KEY;
+  // External photo processing stays disabled until retention, rights and
+  // provider terms have been explicitly reviewed.
+  return process.env.GAMEFINDER_REMOTE_SCAN_APPROVED === "1" ? process.env.XAI_API_KEY : undefined;
 }
+
+export const remoteScanAvailable = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => Boolean(apiKey()));
 
 export const identifyShelf = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { image: string }) => {
+  .validator((input: { image: string; consent: boolean }) => {
+    if (input?.consent !== true) throw new Error("External photo processing requires consent");
     if (!input?.image || typeof input.image !== "string") throw new Error("Missing image");
     if (input.image.length > 6_500_000) throw new Error("Image too large");
     if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(input.image))
