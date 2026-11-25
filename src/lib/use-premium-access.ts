@@ -36,8 +36,18 @@ export function usePremiumAccess() {
     };
   }, [isPending, retryCount, userId]);
 
-  const access =
-    state.userId === (userId ?? null) && !isPending ? state.access : "loading";
+  useEffect(() => {
+    if (!userId || isPending) return;
+    const refresh = () => setRetryCount((n) => n + 1);
+    window.addEventListener("focus", refresh);
+    const timer = window.setInterval(refresh, 60000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.clearInterval(timer);
+    };
+  }, [userId, isPending]);
+
+  const access = state.userId === (userId ?? null) && !isPending ? state.access : "loading";
   const retry = useCallback(() => setRetryCount((value) => value + 1), []);
   return { access, retry };
 }

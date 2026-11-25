@@ -1,6 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
-import { getSql } from "@/lib/db";
+import { getSql, withSqlTransaction } from "@/lib/db";
+import { recordVerifiedSubscription } from "./subscription-ledger.server";
+import { verifiedSubscriptionState } from "./stripe-reconciliation.server";
+import { subscriptionEntitlement } from "./subscription-policy";
 
 const MONTHLY_AMOUNT = 499;
 const YEARLY_AMOUNT = 4499;
@@ -62,17 +65,20 @@ function stripeConfigured() {
 async function stripeForm(path: string, body: Record<string, string>) {
   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
     method: "POST",
+    signal: AbortSignal.timeout(15000),
     headers: {
       Authorization: `Bearer ${stripeKey()}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams(body),
   });
+  if (!res.ok) throw new Error("Billing provider request failed.");
   return (await res.json()) as Record<string, unknown>;
 }
 
 async function stripeGet(path: string) {
   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+    signal: AbortSignal.timeout(15000),
     headers: { Authorization: `Bearer ${stripeKey()}` },
   });
   const data = (await res.json()) as Record<string, unknown>;
@@ -87,9 +93,7 @@ async function approvedStripePrice(tier: BillingTier) {
   const id = priceId(tier);
   if (!stripeKey() || !id) return false;
   const data = await stripeGet(`prices/${encodeURIComponent(id)}`);
-  const recurring = data.recurring as
-    | { interval?: string; interval_count?: number }
-    | undefined;
+  const recurring = data.recurring as { interval?: string; interval_count?: number } | undefined;
   const expected = BILLING[tier];
   return (
     data.active === true &&
@@ -100,21 +104,12 @@ async function approvedStripePrice(tier: BillingTier) {
   );
 }
 
-async function writePlan(userId: string, plan: string) {
-  const sql = await getSql();
-  await sql`
-    insert into profiles (user_id, display_name, plan, updated_at)
-    values (${userId}, 'Player', ${plan}, now())
-    on conflict (user_id) do update set plan = excluded.plan, updated_at = now()
-  `;
-}
-
 export const billingStatus = createServerFn({ method: "GET" }).handler(async () => ({
-  stripe: stripeConfigured(),
+  stripe: SUBSCRIPTION_MANAGEMENT_AVAILABLE && stripeConfigured(),
   subscriptionManagement: SUBSCRIPTION_MANAGEMENT_AVAILABLE,
   prices: {
-    monthly: await approvedStripePrice("monthly"),
-    yearly: await approvedStripePrice("yearly"),
+    monthly: SUBSCRIPTION_MANAGEMENT_AVAILABLE && (await approvedStripePrice("monthly")),
+    yearly: SUBSCRIPTION_MANAGEMENT_AVAILABLE && (await approvedStripePrice("yearly")),
   },
 }));
 
@@ -139,7 +134,9 @@ export const startCheckout = createServerFn({ method: "POST" })
     }
     const price = priceId(data.tier);
     if (!price) return { ok: false as const, reason: "not-configured" as const };
-    const origin = data.origin.replace(/\/$/, "") || "https://gamefinderapp.netlify.app";
+    const origin = process.env.GAMEFINDER_BILLING_ORIGIN?.trim();
+    if (!origin || !/^https:\/\/[a-z0-9.-]+$/i.test(origin))
+      throw new Error("Billing return origin is not configured.");
     const spec = BILLING[data.tier];
     const session = await stripeForm("checkout/sessions", {
       mode: spec.mode,
@@ -168,13 +165,12 @@ export const confirmCheckout = createServerFn({ method: "POST" })
     if (!SUBSCRIPTION_MANAGEMENT_AVAILABLE) {
       throw new Error("Purchases are disabled until subscription management is available.");
     }
-    if (!data.sessionId.startsWith("cs_")) throw new Error("Missing checkout");
+    if (!/^cs_(test|live)_[a-zA-Z0-9]+$/.test(data.sessionId)) throw new Error("Missing checkout");
     if (!stripeKey()) throw new Error("Billing isn't connected");
-    const session = await stripeGet(
-      `checkout/sessions/${encodeURIComponent(data.sessionId)}`,
-    );
+    const session = await stripeGet(`checkout/sessions/${encodeURIComponent(data.sessionId)}`);
     const meta = (session.metadata ?? {}) as Record<string, string>;
-    if (meta.userId !== context.userId) throw new Error("That's not your checkout");
+    if (meta.userId !== context.userId || session.client_reference_id !== context.userId)
+      throw new Error("That's not your checkout");
     if (meta.tier !== "monthly" && meta.tier !== "yearly") {
       throw new Error("This checkout isn't for an active GameFinder plan.");
     }
@@ -190,24 +186,59 @@ export const confirmCheckout = createServerFn({ method: "POST" })
       session.currency === "usd" &&
       session.amount_total === expected.amount;
     if (!paid) return { ok: false as const, plan: "free" };
-    const subscriptionId =
-      typeof session.subscription === "string" ? session.subscription : "";
+    const subscriptionId = typeof session.subscription === "string" ? session.subscription : "";
     if (!subscriptionId) throw new Error("Checkout has no subscription.");
-    const subscription = await stripeGet(
-      `subscriptions/${encodeURIComponent(subscriptionId)}`,
+    const subscription = await stripeGet(`subscriptions/${encodeURIComponent(subscriptionId)}`);
+    const customerId = typeof session.customer === "string" ? session.customer : "";
+    if (!/^cus_[a-zA-Z0-9]+$/.test(customerId) || !/^sub_[a-zA-Z0-9]+$/.test(subscriptionId))
+      throw new Error("Invalid checkout identity.");
+    const invoiceId =
+      typeof subscription.latest_invoice === "string" ? subscription.latest_invoice : "";
+    if (!/^in_[a-zA-Z0-9]+$/.test(invoiceId)) throw new Error("Missing paid invoice.");
+    const invoice = await stripeGet("invoices/" + invoiceId);
+    const now = Date.now();
+    const state = verifiedSubscriptionState(
+      subscription,
+      invoice,
+      {
+        user_id: context.userId,
+        provider_subscription_id: subscriptionId,
+        provider_customer_id: customerId,
+        paid_through_ms: 0,
+        verified_at_ms: 0,
+      },
+      [priceId(tier)],
+      now,
     );
-    if (subscription.status !== "active" && subscription.status !== "trialing") {
-      throw new Error("This subscription isn't active.");
-    }
-    const items = subscription.items as
-      | { data?: { price?: string | { id?: string } }[] }
-      | undefined;
-    const subscriptionPrice = items?.data?.[0]?.price;
-    const subscriptionPriceId =
-      typeof subscriptionPrice === "string" ? subscriptionPrice : subscriptionPrice?.id;
-    if (items?.data?.length !== 1 || subscriptionPriceId !== priceId(tier)) {
-      throw new Error("The active subscription price doesn't match this plan.");
-    }
-    await writePlan(context.userId, "premium");
+    if (!subscriptionEntitlement(state, now)) throw new Error("No verified paid term.");
+    await withSqlTransaction(async (sql) => {
+      await sql`insert into profiles (user_id, display_name) values (${context.userId}, 'Player') on conflict (user_id) do nothing`;
+      await recordVerifiedSubscription(sql, context.userId, subscriptionId, customerId, state);
+    });
     return { ok: true as const, plan: "premium" as const };
+  });
+
+export const openBillingPortal = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    // Keep this gate closed until the provider portal is configured and tested.
+    if (!SUBSCRIPTION_MANAGEMENT_AVAILABLE)
+      throw new Error("Subscription management is unavailable.");
+    const sql = await getSql();
+    const rows = await sql<{
+      provider_customer_id: string;
+    }>`select provider_customer_id from billing_subscriptions where user_id=${context.userId}`;
+    const customer = rows[0]?.provider_customer_id;
+    if (!customer || !/^cus_[a-zA-Z0-9]+$/.test(customer)) throw new Error("No billing account.");
+    const origin = process.env.GAMEFINDER_BILLING_ORIGIN?.trim();
+    if (!origin || !/^https:\/\/[a-z0-9.-]+$/i.test(origin))
+      throw new Error("Billing return origin is not configured.");
+    const session = await stripeForm("billing_portal/sessions", {
+      customer,
+      return_url: origin + "/premium",
+    });
+    const url = typeof session.url === "string" ? session.url : "";
+    if (!url || new URL(url).origin !== "https://billing.stripe.com")
+      throw new Error("Invalid portal URL.");
+    return { url };
   });

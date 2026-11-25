@@ -1,4 +1,5 @@
-import { getSql } from "@/lib/db";
+import { getSql, type Sql } from "@/lib/db";
+import { readManagedEntitlement } from "./subscription-ledger.server";
 
 export type TestPlan = "actual" | "free" | "premium";
 let testPlan: TestPlan = "actual";
@@ -29,6 +30,12 @@ export function setTestPlan(userId: string, mode: TestPlan) {
 export async function hasPremiumPlan(userId: string) {
   if (userId === "dev-user") return testPlanAllowed(userId) && testPlan === "premium";
   const sql = await getSql();
+  return resolveAccountPremium(sql, userId);
+}
+
+export async function resolveAccountPremium(sql: Sql, userId: string, now = Date.now()) {
+  const managed = await readManagedEntitlement(sql, userId, now);
+  if (managed !== null) return managed;
   const rows = await sql<{ plan: string }>`
     select plan from profiles where user_id = ${userId} limit 1
   `;

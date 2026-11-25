@@ -6,7 +6,7 @@
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-const base = "http://127.0.0.1:8091";
+const base = "http://127.0.0.1:8097";
 const ids = [
   ...new Set(
     [
@@ -23,9 +23,15 @@ const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   page.setDefaultTimeout(30000);
+  await page.route("**/*", (route) =>
+    route.request().url().startsWith(base) ? route.continue() : route.abort(),
+  );
   await page.addInitScript((ids) => {
     if (!sessionStorage.getItem("fixture-seeded")) {
-      localStorage.setItem("gamefinder-v2", JSON.stringify({ state: { owned: ids }, version: 2 }));
+      localStorage.setItem(
+        "gamefinder-v2",
+        JSON.stringify({ state: { owned: ids, vaultOwnerId: "dev-user" }, version: 2 }),
+      );
       sessionStorage.setItem("fixture-seeded", "1");
     }
   }, ids);
@@ -79,6 +85,15 @@ try {
     }
   };
   await mode("Free");
+  await go("/premium");
+  await page
+    .getByText(
+      "Checkout is disabled until Stripe pricing and subscription management are configured.",
+    )
+    .waitFor();
+  assert.equal(await page.getByRole("button", { name: /Monthly.*4\.99/ }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: /Annual.*44\.99/ }).isDisabled(), true);
+  console.log("PASS locked pricing");
   await go("/vault");
   await count(50);
   await page.getByText(/50\s*\/\s*50 owned/).waitFor();

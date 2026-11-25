@@ -7,6 +7,7 @@ import {
   billingStatus,
   confirmCheckout,
   startCheckout,
+  openBillingPortal,
   type BillingTier,
 } from "@/lib/billing";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -35,7 +36,7 @@ function PremiumPage() {
     yearly: false,
   });
   const [billingError, setBillingError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<BillingTier | "confirm" | null>(null);
+  const [busy, setBusy] = useState<BillingTier | "confirm" | "portal" | null>(null);
 
   useEffect(() => {
     void billingStatus()
@@ -57,10 +58,12 @@ function PremiumPage() {
   }, []);
 
   useEffect(() => {
-    if (!sessionId || !userId) return;
+    if (!sessionId || !userId || !subscriptionManagement) return;
+    let active = true;
     setBusy("confirm");
     void confirmCheckout({ data: { sessionId } })
       .then((r) => {
+        if (!active) return;
         if (r.ok) {
           useAppStore.setState({ isPremium: true, upgradePrompt: null });
           retryEntitlement();
@@ -68,9 +71,16 @@ function PremiumPage() {
           navigate({ to: "/premium", search: { session_id: "" } });
         } else toast("Checkout didn't finish. Try again.");
       })
-      .catch((e) => toast(e instanceof Error ? e.message : "Couldn't confirm"))
-      .finally(() => setBusy(null));
-  }, [sessionId, userId, navigate, retryEntitlement]);
+      .catch((e) => {
+        if (active) toast(e instanceof Error ? e.message : "Couldn't confirm");
+      })
+      .finally(() => {
+        if (active) setBusy(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [sessionId, userId, navigate, retryEntitlement, subscriptionManagement]);
 
   async function pay(tier: BillingTier) {
     if (!user) {
@@ -177,6 +187,33 @@ function PremiumPage() {
         ) : null}
       </section>
 
+      {isPremium && (
+        <section className="mt-6 rounded-card bg-card p-4">
+          <h2 className="font-display text-xl">Manage subscription</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Manage billing, payment details and cancellation through Stripe when subscription
+            management is available.
+          </p>
+          <button
+            type="button"
+            disabled={!subscriptionManagement || busy !== null}
+            className="mt-3 rounded-button bg-muted px-4 py-3 font-semibold disabled:opacity-60"
+            onClick={async () => {
+              setBusy("portal");
+              try {
+                const result = await openBillingPortal();
+                window.location.href = result.url;
+              } catch {
+                toast.error("Subscription management is unavailable.");
+              } finally {
+                setBusy(null);
+              }
+            }}
+          >
+            Manage subscription
+          </button>
+        </section>
+      )}
       <section className="mt-8">
         <h2 className="font-display text-xl">Current Premium benefits</h2>
         <ul className="mt-2 space-y-2 text-sm">

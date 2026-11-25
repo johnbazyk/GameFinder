@@ -215,8 +215,24 @@ export const getCloudVault = createServerFn({ method: "GET" })
 
 export const replaceCloudVault = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(normalizeVault)
+  .validator(
+    (
+      input: Parameters<typeof normalizeVault>[0] & {
+        expectedUserId: string;
+        baseline: Parameters<typeof normalizeVault>[0];
+      },
+    ) => {
+      if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
+        throw new Error("Missing Vault account");
+      return {
+        ...normalizeVault(input),
+        expectedUserId: input.expectedUserId,
+        baseline: normalizeVault(input.baseline),
+      };
+    },
+  )
   .handler(async ({ context, data }) => {
+    if (data.expectedUserId !== context.userId) throw new Error("Vault account changed");
     await ensureProfile(context.userId);
     const { withSqlTransaction } = await import("./db");
     const { replaceVaultSnapshot } = await import("./vault-sync.server");
@@ -251,15 +267,18 @@ export const getCloudCatalogGames = createServerFn({ method: "GET" })
 
 export const syncCloudCatalogGames = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { games: CatalogGameRecord[] }) => {
+  .validator((input: { games: CatalogGameRecord[]; expectedUserId: string }) => {
+    if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
+      throw new Error("Missing catalog account");
     if (!Array.isArray(input?.games)) throw new Error("Catalog records must be an array.");
     if (input.games.length > 200) throw new Error("Too many catalog records.");
     if (!input.games.every(isCustomCatalogGame)) {
       throw new Error("A custom catalog record is invalid.");
     }
-    return { games: input.games };
+    return { games: input.games, expectedUserId: input.expectedUserId };
   })
   .handler(async ({ context, data }) => {
+    if (context.userId !== data.expectedUserId) throw new Error("Catalog account changed");
     const sql = await getSql();
     for (const game of data.games) {
       await sql`

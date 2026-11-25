@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   getCloudVault,
@@ -8,162 +8,207 @@ import {
   replaceCloudVault,
   syncCloudCatalogGames,
 } from "@/lib/social";
-import { useAppStore } from "@/lib/store";
-import { loadAndMergeAccountCatalog } from "@/lib/catalog-sync";
+import { useAppStore, DEFAULT_WIZARD } from "@/lib/store";
+import { accountVaultKey, switchVault, mergeVaultDelta, sameVault } from "@/lib/account-vault";
+import { DEFAULT_USER_WEIGHTS } from "@/lib/vibes";
+import { DEFAULT_PIECE_COLOR } from "@/lib/piece-color";
+import type { VaultSnapshot } from "@/lib/vault-policy";
 
-/** Merge the device vault with the signed-in cloud shelf. Guests are untouched. */
+const empty = (): VaultSnapshot => ({ owned: [], wishlist: [] });
+const snapshot = (): VaultSnapshot => {
+  const { owned, wishlist } = useAppStore.getState();
+  return { owned, wishlist };
+};
+
 export function AccountSync() {
   const { user, isPending } = useCurrentUserState();
-  const mergedFor = useRef<string | null>(null);
-  const catalogLoadedFor = useRef<string | null>(null);
-  const [catalogSyncError, setCatalogSyncError] = useState(false);
-  const [catalogRetry, setCatalogRetry] = useState(0);
+  const userId = user?.id ?? null;
+  const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
-  const userId = user?.id;
   useEffect(() => {
     let active = true;
-    useAppStore.setState({ isPremium: false, entitlementReady: !isPending && !userId });
-    if (!isPending && userId) {
+    let sequence = 0;
+    const refresh = () => {
+      const request = ++sequence;
+      if (isPending || !userId) {
+        useAppStore.setState({ isPremium: false, entitlementReady: !isPending });
+        return;
+      }
       void getPremiumEntitlement()
         .then(({ premium }) => {
-          if (active) useAppStore.setState({ isPremium: premium, entitlementReady: true });
+          if (active && request === sequence && useAppStore.getState().vaultOwnerId === userId)
+            useAppStore.setState({ isPremium: premium, entitlementReady: true });
         })
         .catch(() => {
-          if (active) useAppStore.setState({ isPremium: false, entitlementReady: true });
+          if (active && request === sequence)
+            useAppStore.setState({ isPremium: false, entitlementReady: true });
         });
-    }
+    };
+    useAppStore.setState({ isPremium: false, entitlementReady: false });
+    refresh();
+    window.addEventListener("focus", refresh);
+    const timer = window.setInterval(refresh, 60000);
     return () => {
       active = false;
+      window.removeEventListener("focus", refresh);
+      window.clearInterval(timer);
     };
-  }, [userId, isPending, catalogRetry]);
+  }, [userId, isPending, retry]);
 
   useEffect(() => {
-    if (isPending || !user) {
-      mergedFor.current = null;
-      catalogLoadedFor.current = null;
-      return;
+    if (isPending) return;
+    const s = useAppStore.getState();
+    if (s.vaultOwnerId !== userId) {
+      const switched = switchVault(
+        { ...snapshot(), ownerId: s.vaultOwnerId },
+        s.vaultArchives,
+        userId,
+      );
+      const history = {
+        ...s.accountHistory,
+        [accountVaultKey(s.vaultOwnerId)]: {
+          plays: s.plays,
+          scoreSessions: s.scoreSessions,
+          tablePlayers: s.tablePlayers,
+          lastPlayerIds: s.lastPlayerIds,
+          vibeWeights: s.vibeWeights,
+          customGames: s.customGames,
+        },
+      };
+      const target = history[accountVaultKey(userId)];
+      useAppStore.setState({
+        owned: switched.vault.owned,
+        wishlist: switched.vault.wishlist,
+        vaultOwnerId: userId,
+        vaultArchives: switched.archives,
+        accountHistory: history,
+        plays: target?.plays ?? [],
+        scoreSessions: target?.scoreSessions ?? [],
+        tablePlayers: target?.tablePlayers ?? [],
+        lastPlayerIds: target?.lastPlayerIds ?? [],
+        vibeWeights: target?.vibeWeights ?? { ...DEFAULT_USER_WEIGHTS },
+        customGames: target?.customGames ?? [],
+        customGamesOwnerId: userId,
+        wizard: { ...DEFAULT_WIZARD },
+        lastResults: null,
+        shownIds: [],
+        recPool: null,
+        pendingPlayPrompt: null,
+        lastSurpriseId: null,
+        upgradePrompt: null,
+        pieceColor: DEFAULT_PIECE_COLOR,
+        isPremium: false,
+        entitlementReady: false,
+      });
     }
-    if (mergedFor.current === user.id && catalogLoadedFor.current === user.id) return;
-    mergedFor.current = user.id;
-    catalogLoadedFor.current = null;
-    setCatalogSyncError(false);
-    let active = true;
-    const isCurrent = () => active && mergedFor.current === user.id;
+    setError(false);
+    if (!userId) return;
+    let active = true,
+      ready = false,
+      running = false,
+      queued = false,
+      catalogDirty = false;
+    let timer: number | undefined;
+    const key = accountVaultKey(userId);
+    const current = () => active && useAppStore.getState().vaultOwnerId === userId;
+    const fail = () => {
+      if (current()) setError(true);
+    };
+    // Persist the acknowledged baseline, so a reconnect never resurrects remote deletions.
+    const acknowledge = (cloud: VaultSnapshot, sent: VaultSnapshot) => {
+      if (!current()) return;
+      const next = mergeVaultDelta(sent, snapshot(), cloud);
+      useAppStore.setState({
+        ...next,
+        vaultBaselines: { ...useAppStore.getState().vaultBaselines, [key]: cloud },
+      });
+    };
+    const flush = async () => {
+      if (!current() || !ready) return;
+      if (running) {
+        queued = true;
+        return;
+      }
+      running = true;
+      try {
+        const sent = snapshot();
+        const baseline = useAppStore.getState().vaultBaselines[key] ?? empty();
+        if (!sameVault(sent, baseline)) {
+          const saved = await replaceCloudVault({
+            data: { ...sent, baseline, expectedUserId: userId },
+          });
+          acknowledge(saved, sent);
+        }
+        if (current() && catalogDirty) {
+          catalogDirty = false;
+          try {
+            await syncCloudCatalogGames({
+              data: { games: useAppStore.getState().customGames, expectedUserId: userId },
+            });
+          } catch (e) {
+            catalogDirty = true;
+            throw e;
+          }
+        }
+        if (current()) setError(false);
+      } catch {
+        fail();
+      } finally {
+        running = false;
+        if (queued && current()) {
+          queued = false;
+          void flush();
+        }
+      }
+    };
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void flush(), 500);
+    };
+    const unsub = useAppStore.subscribe((next, prev) => {
+      if (!current() || !ready) return;
+      if (next.customGames !== prev.customGames) {
+        catalogDirty = true;
+        schedule();
+      }
+      if (next.owned !== prev.owned || next.wishlist !== prev.wishlist) schedule();
+    });
     void (async () => {
       try {
         const cloud = await getCloudVault();
-        if (!isCurrent()) return;
-        const catalogResult = await loadAndMergeAccountCatalog({
-          userId: user.id,
-          loadCloudCatalog: getCloudCatalogGames,
-          getLocalCatalog: () => {
-            const state = useAppStore.getState();
-            return { games: state.customGames, ownerId: state.customGamesOwnerId };
-          },
-          setLocalCatalog: (games, ownerId, preservedLocalGames) => {
-            const state = useAppStore.getState();
-            const unattributedCustomGames = Array.from(
-              new Map(
-                [...state.unattributedCustomGames, ...preservedLocalGames].map((game) => [
-                  game.id,
-                  game,
-                ]),
-              ).values(),
-            );
-            useAppStore.setState({
-              customGames: games,
-              customGamesOwnerId: ownerId,
-              unattributedCustomGames,
-            });
-          },
-          syncCloudCatalog: async () => {
-            if (!isCurrent()) return;
-            const latest = useAppStore.getState();
-            if (latest.customGamesOwnerId !== user.id) return;
-            await syncCloudCatalogGames({ data: { games: latest.customGames } });
-          },
-          isCurrent,
+        if (!current()) return;
+        const games = await getCloudCatalogGames();
+        if (!current()) return;
+        const state = useAppStore.getState();
+        const base = state.vaultBaselines[key] ?? empty();
+        const next = mergeVaultDelta(base, snapshot(), cloud);
+        const local = state.customGamesOwnerId === userId ? state.customGames : [];
+        const merged = Array.from(new Map([...games, ...local].map((g) => [g.id, g])).values());
+        useAppStore.setState({
+          ...next,
+          vaultBaselines: { ...state.vaultBaselines, [key]: cloud },
+          customGames: merged,
+          customGamesOwnerId: userId,
         });
-        if (!catalogResult || !isCurrent()) return;
-        catalogLoadedFor.current = user.id;
-
-        const local = useAppStore.getState();
-        const owned = Array.from(new Set([...cloud.owned, ...local.owned]));
-        const wishlist = Array.from(new Set([...cloud.wishlist, ...local.wishlist])).filter(
-          (id) => !owned.includes(id),
-        );
-        useAppStore.setState({ owned, wishlist });
-        try {
-          const prof = await getMyProfile();
-          if (!isCurrent()) return;
-          if (prof.pieceColor) useAppStore.getState().setPieceColor(prof.pieceColor);
-        } catch (error) {
-          if (!isCurrent()) return;
-          console.error("[account-sync] Couldn't load profile.", error);
-        }
-        if (isCurrent()) await replaceCloudVault({ data: { owned, wishlist } });
-      } catch (error) {
-        if (!isCurrent()) return;
-        setCatalogSyncError(true);
-        console.error("[account-sync] Couldn't load or sync saved account data.", error);
+        catalogDirty = local.some((g) => !games.some((c) => c.id === g.id));
+        ready = true;
+        await flush();
+        const profile = await getMyProfile();
+        if (current() && profile.pieceColor)
+          useAppStore.getState().setPieceColor(profile.pieceColor);
+      } catch {
+        fail();
       }
     })();
     return () => {
       active = false;
-    };
-  }, [user, isPending, catalogRetry]);
-
-  useEffect(() => {
-    if (!user) return;
-    let vaultTimer: number | null = null;
-    let catalogTimer: number | null = null;
-    const unsub = useAppStore.subscribe((state, prev) => {
-      if (
-        mergedFor.current === user.id &&
-        catalogLoadedFor.current === user.id &&
-        (state.owned !== prev.owned || state.wishlist !== prev.wishlist)
-      ) {
-        if (vaultTimer) window.clearTimeout(vaultTimer);
-        vaultTimer = window.setTimeout(() => {
-          const latest = useAppStore.getState();
-          void replaceCloudVault({
-            data: { owned: latest.owned, wishlist: latest.wishlist },
-          }).catch((error) => {
-            setCatalogSyncError(true);
-            console.error("[account-sync] Couldn't save the cloud Vault.", error);
-          });
-        }, 900);
-      }
-      if (
-        state.customGames !== prev.customGames &&
-        state.customGamesOwnerId === user.id &&
-        catalogLoadedFor.current === user.id
-      ) {
-        if (catalogTimer) window.clearTimeout(catalogTimer);
-        catalogTimer = window.setTimeout(() => {
-          const latest = useAppStore.getState();
-          if (latest.customGamesOwnerId !== user.id || catalogLoadedFor.current !== user.id) {
-            return;
-          }
-          void syncCloudCatalogGames({ data: { games: latest.customGames } })
-            .then(() => {
-              if (mergedFor.current === user.id) setCatalogSyncError(false);
-            })
-            .catch((error) => {
-              if (mergedFor.current === user.id) setCatalogSyncError(true);
-              console.error("[account-sync] Couldn't save custom catalog records.", error);
-            });
-        }, 900);
-      }
-    });
-    return () => {
       unsub();
-      if (vaultTimer) window.clearTimeout(vaultTimer);
-      if (catalogTimer) window.clearTimeout(catalogTimer);
+      window.clearTimeout(timer);
     };
-  }, [user]);
+  }, [userId, isPending, retry]);
 
-  return catalogSyncError ? (
+  return error ? (
     <div
       role="alert"
       className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 bg-destructive p-3 text-sm text-destructive-foreground"
@@ -172,18 +217,14 @@ export function AccountSync() {
       <button
         type="button"
         className="shrink-0 font-semibold underline"
-        onClick={() => {
-          mergedFor.current = null;
-          catalogLoadedFor.current = null;
-          setCatalogRetry((retry) => retry + 1);
-        }}
+        onClick={() => setRetry((n) => n + 1)}
       >
         Retry
       </button>
       <button
         type="button"
         className="shrink-0 font-semibold underline"
-        onClick={() => setCatalogSyncError(false)}
+        onClick={() => setError(false)}
         aria-label="Dismiss sync warning"
       >
         Dismiss

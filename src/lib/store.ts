@@ -1,3 +1,4 @@
+import type { VaultArchives, VaultOwner } from "./account-vault";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type {
@@ -45,6 +46,16 @@ type AppState = {
 
   owned: string[];
   wishlist: string[];
+  vaultOwnerId: VaultOwner;
+  vaultArchives: VaultArchives;
+  vaultBaselines: VaultArchives;
+  accountHistory: Record<
+    string,
+    Pick<
+      AppState,
+      "plays" | "scoreSessions" | "tablePlayers" | "lastPlayerIds" | "vibeWeights" | "customGames"
+    >
+  >;
   customGames: CatalogGameRecord[];
   customGamesOwnerId: string | null | "unattributed";
   unattributedCustomGames: CatalogGameRecord[];
@@ -163,6 +174,10 @@ export const useAppStore = create<AppState>()(
 
       owned: [],
       wishlist: [],
+      vaultOwnerId: null,
+      vaultArchives: {},
+      vaultBaselines: {},
+      accountHistory: {},
       customGames: [],
       customGamesOwnerId: null,
       unattributedCustomGames: [],
@@ -355,6 +370,10 @@ export const useAppStore = create<AppState>()(
       partialize: (s) => ({
         owned: s.owned,
         wishlist: s.wishlist,
+        vaultOwnerId: s.vaultOwnerId,
+        vaultArchives: s.vaultArchives,
+        vaultBaselines: s.vaultBaselines,
+        accountHistory: s.accountHistory,
         customGames: s.customGames,
         customGamesOwnerId: s.customGamesOwnerId,
         unattributedCustomGames: s.unattributedCustomGames,

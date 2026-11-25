@@ -15,7 +15,14 @@ function helper(plan, env = {}) {
     ts.transpileModule(source, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText,
-    { exports, process: { env }, require: () => ({ getSql: async () => sql }) },
+    {
+      exports,
+      process: { env },
+      require: (id) =>
+        id.includes("subscription-ledger")
+          ? { readManagedEntitlement: async () => null }
+          : { getSql: async () => sql },
+    },
   );
   return exports;
 }

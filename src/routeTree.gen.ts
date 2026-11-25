@@ -29,6 +29,7 @@ import { Route as GameIdRouteImport } from './routes/game.$id'
 import { Route as InternalFlagsRouteImport } from './routes/internal.flags'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiBillingWebhookRouteImport } from './routes/api/billing/webhook'
 import { Route as GameIdIndexRouteImport } from './routes/game.$id.index'
 import { Route as GameIdScoreRouteImport } from './routes/game.$id.score'
 import { Route as GameIdTableRouteImport } from './routes/game.$id.table'
@@ -134,6 +135,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBillingWebhookRoute = ApiBillingWebhookRouteImport.update({
+  id: '/api/billing/webhook',
+  path: '/api/billing/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GameIdIndexRoute = GameIdIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -176,6 +182,7 @@ export interface FileRoutesByFullPath {
   '/invite/$token': typeof InviteTokenRoute
   '/circle/': typeof CircleIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/game/$id/score': typeof GameIdScoreRoute
   '/game/$id/table': typeof GameIdTableRoute
   '/game/$id/teach': typeof GameIdTeachRoute
@@ -200,6 +207,7 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof InviteTokenRoute
   '/circle': typeof CircleIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/game/$id/score': typeof GameIdScoreRoute
   '/game/$id/table': typeof GameIdTableRoute
   '/game/$id/teach': typeof GameIdTeachRoute
@@ -227,6 +235,7 @@ export interface FileRoutesById {
   '/invite/$token': typeof InviteTokenRoute
   '/circle/': typeof CircleIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/game/$id/score': typeof GameIdScoreRoute
   '/game/$id/table': typeof GameIdTableRoute
   '/game/$id/teach': typeof GameIdTeachRoute
@@ -255,6 +264,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/circle/'
     | '/api/auth/$'
+    | '/api/billing/webhook'
     | '/game/$id/score'
     | '/game/$id/table'
     | '/game/$id/teach'
@@ -279,6 +289,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/circle'
     | '/api/auth/$'
+    | '/api/billing/webhook'
     | '/game/$id/score'
     | '/game/$id/table'
     | '/game/$id/teach'
@@ -305,6 +316,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/circle/'
     | '/api/auth/$'
+    | '/api/billing/webhook'
     | '/game/$id/score'
     | '/game/$id/table'
     | '/game/$id/teach'
@@ -330,6 +342,7 @@ export interface RootRouteChildren {
   InternalFlagsRoute: typeof InternalFlagsRoute
   InviteTokenRoute: typeof InviteTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiBillingWebhookRoute: typeof ApiBillingWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -474,6 +487,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/billing/webhook': {
+      id: '/api/billing/webhook'
+      path: '/api/billing/webhook'
+      fullPath: '/api/billing/webhook'
+      preLoaderRoute: typeof ApiBillingWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/game/$id/': {
       id: '/game/$id/'
       path: '/'
@@ -554,6 +574,7 @@ const rootRouteChildren: RootRouteChildren = {
   InternalFlagsRoute: InternalFlagsRoute,
   InviteTokenRoute: InviteTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiBillingWebhookRoute: ApiBillingWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -17,6 +17,9 @@ before(async () => {
   await db.waitReady;
   await db.exec(readFileSync(new URL("../migrations/0002_social.sql", import.meta.url), "utf8"));
   await db.exec(
+    readFileSync(new URL("../migrations/0007_subscription_lifecycle.sql", import.meta.url), "utf8"),
+  );
+  await db.exec(
     "insert into profiles (user_id, display_name, plan) values ('free-fixture','Free','free'), ('paid-fixture','Paid','premium')",
   );
 });
@@ -69,4 +72,17 @@ test("normalization validates inputs and deduplicates ownership", () => {
   });
   assert.throws(() => policy.normalizeVault({ owned: [null], wishlist: [] }), /Invalid/);
   assert.throws(() => policy.normalizeVault({ owned: "abc", wishlist: [] }), /Invalid/);
+});
+
+test("transactional delta preserves unrelated concurrent cloud edits", async () => {
+  await save("free-fixture", ["base", "remove"]);
+  const baseline = snapshot(["base", "remove"]);
+  await db.transaction((tx) =>
+    replace(sqlFor(tx), "free-fixture", { ...snapshot(["base", "remote"]), baseline }),
+  );
+  const merged = await db.transaction((tx) =>
+    replace(sqlFor(tx), "free-fixture", { ...snapshot(["base", "local"]), baseline }),
+  );
+  assert.deepEqual(merged.owned.sort(), ["base", "local", "remote"]);
+  assert.deepEqual(await rows("free-fixture"), ["base", "local", "remote"]);
 });
