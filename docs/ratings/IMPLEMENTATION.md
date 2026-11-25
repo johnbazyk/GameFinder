@@ -48,3 +48,17 @@ npm run build:ratings:beta
 ## Recorded validation for this branch
 
 TypeScript and beta production build passed. The final focused run passed 47 tests (including 14 policy tests and one profile-render test). A broader suite run identified two stale label expectations, now corrected and rerun, plus 14 unrelated failures. Those same 14 failures were reproduced on the unchanged parent checkpoint in auth-environment, Grok PWA metadata and migration-layout tests (71 baseline tests: 57 pass, 14 fail). Eleven PostgreSQL integration cases were skipped without a configured test database. The full suite is not green. Browser interaction remains unverified because Chromium socket creation was denied in this environment.
+
+## Phase 04 stabilization verification
+
+The current application retains the existing 0.4 design assessment architecture, with provisional beta ratings distinct from reviewed ratings. No anchors, assessment values, commercial provider permissions, pricing, or ranking policy changed in this phase.
+
+- Hard-filter guards reject invalid player counts, invalid age bands, malformed required facts, and contradictory or invalid time selections in both the application and provider-neutral catalog paths.
+- Recommendation pools exclude ambiguous duplicate identities and non-standalone records. Surprise Me deduplicates owned IDs and excludes non-standalone titles; it remains an unfiltered random choice.
+- Sniff Again retains the applied session filters while enforcing current entitlement, and an explicitly empty shared shelf does not fall back to personal ownership.
+- Closest-match cards disclose below-threshold and unassessed soft Vibes separately from the evidence-based explanation.
+- Account synchronization warnings are inline and dismissible, not floating overlays. Dismissal does not imply that synchronization succeeded.
+- Verification: 56 focused recommendation/rating tests passed; final TypeScript and full regression passed (408 total, 397 passed, zero failed, 11 PostgreSQL integration cases skipped).
+- Browser acceptance: run scripts/recommendation-lab-browser.mjs against a fresh isolated auth-off development server on 127.0.0.1:8092, with no DATABASE_URL, GAMEFINDER_LOCAL_TEST_PLAN=1 and beta ratings enabled. Allow dependency optimization to settle first. Chrome at 390 x 844 verified wizard, closest-match disclosure, one owned plus three unowned results, reload persistence, non-repeating rerolls, and Discover layout. The browser fixture is disposable and external browser requests are blocked. Do not run against a shared or production database.
+
+Remaining release limits: provisional ratings still need independent review; physical-device testing, production account synchronization and real PostgreSQL integration are not certified by this phase. No live catalog provider or permanent-ID migration has been enabled.

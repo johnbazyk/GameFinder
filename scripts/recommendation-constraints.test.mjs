@@ -422,6 +422,7 @@ test("rerolls clearly report exhaustion after every matching owned game was show
 test("Sniff Again rerolls through the shared constraints and avoids games already shown", () => {
   appStore.setState({
     wizard: context({ players: null }),
+    lastResults: null,
     owned: ["9209", "266192"],
     wishlist: [],
     plays: [],
@@ -482,4 +483,103 @@ test("Free Vault additions stay available below the limit and capped at 50", () 
   });
   assert.equal(appStore.getState().addOwned("9209"), "limit");
   assert.ok(appStore.getState().upgradePrompt);
+});
+
+test("malformed hard constraints and missing catalog facts fail closed", () => {
+  const g = game("9209");
+  for (const filters of [
+    { players: 0 },
+    { players: 1.5 },
+    { players: 14 },
+    { players: NaN },
+    { ageBand: "invalid" },
+    { maxTimeMin: NaN },
+    { maxTimeMin: 0 },
+    { timeOver60: true, maxTimeMin: 60 },
+  ]) {
+    assert.equal(constraints.passesHardConstraints(g, context(filters)), false);
+  }
+  for (const bad of [
+    { ...g, players: { min: 5, max: 2, best: [] } },
+    { ...g, players: { min: NaN, max: 5, best: [] } },
+  ]) {
+    assert.equal(constraints.passesHardConstraints(bad, context()), false);
+  }
+  assert.equal(
+    constraints.passesHardConstraints(
+      { ...g, age: { publisher: NaN, community: 6 } },
+      context({ ageBand: "8-10" }),
+    ),
+    false,
+  );
+  assert.equal(
+    constraints.passesHardConstraints(
+      { ...g, playtime: { ...g.playtime, max: NaN } },
+      context({ maxTimeMin: 60 }),
+    ),
+    false,
+  );
+});
+test("duplicate candidate identities and expansion records cannot enter either recommendation pool", async () => {
+  const { isStandaloneGame } = await server.ssrLoadModule("/src/lib/catalog.ts");
+  const g = game("9209"),
+    expansion = games.find((g) => !isStandaloneGame(g));
+  assert.ok(expansion);
+  const pool = [g, { ...g, name: "Conflicting title" }, expansion, game("266192")];
+  const filters = context({ players: null });
+  const user = {
+    owned: pool.map((g) => g.bggId),
+    wishlist: [],
+    plays: [],
+    vibeWeights: defaultUserWeights,
+  };
+  const result = runWizard(filters, user, [], (g) => [...g], pool);
+  assert.deepEqual(
+    result.ownedList.map((g) => g.bggId),
+    ["266192"],
+  );
+  assert.deepEqual(
+    eligibleGames(filters, pool, (g) => [...g]).map((g) => g.bggId),
+    ["266192"],
+  );
+  assert.equal(pickSurprise([expansion.bggId]), undefined);
+  assert.equal(pickSurprise([expansion.bggId, "9209", "9209"]).bggId, "9209");
+});
+test("reroll retains original filters and empty shared shelves never borrow personal ownership", () => {
+  const original = context({ players: 2, ratingSeed: "session" });
+  appStore.setState({
+    wizard: original,
+    lastResults: null,
+    owned: ["9209", "266192"],
+    wishlist: [],
+    plays: [],
+    shownIds: [],
+    recPool: null,
+    isPremium: false,
+  });
+  const first = appStore.getState().sniffAgain();
+  appStore.getState().setWizard({ players: 13, ratingSeed: "different" });
+  const second = appStore.getState().sniffAgain();
+  assert.deepEqual(second.appliedFilters, original);
+  assert.ok(second.ownedTop.every((g) => !first.ownedTop.some((old) => old.bggId === g.bggId)));
+  appStore.getState().setRecPool({ groupId: "fixture", groupName: "Empty", ids: [] });
+  assert.equal(appStore.getState().lastResults, null);
+  assert.equal(appStore.getState().sniffAgain().ownedCount, 0);
+  appStore.getState().setRecPool(null);
+});
+test("closest matches disclose below-threshold and unknown preferences without changing exact targets", async () => {
+  const { unmetVibeLabels } = await server.ssrLoadModule("/src/lib/application-ratings.ts");
+  const chess = games.find((g) => g.name === "Chess");
+  assert.deepEqual(
+    unmetVibeLabels(chess, context({ players: 2, vibes: ["luck", "strategy", "luck"] })),
+    { below: ["luck"], unknown: [] },
+  );
+  assert.deepEqual(
+    unmetVibeLabels(chess, context({ players: 2, vibes: ["luck"], exactTraits: { luck: 1 } })),
+    { below: [], unknown: [] },
+  );
+  assert.deepEqual(
+    unmetVibeLabels({ ...chess, name: "Unknown" }, context({ players: 2, vibes: ["luck"] })),
+    { below: [], unknown: ["luck"] },
+  );
 });

@@ -67,3 +67,19 @@ export function ratingExplanation(game: Game, ctx: WizardContext): string {
 export function displayedMatchReason(game: ScoredGame): string {
   return game.ratingContext ? ratingExplanation(game, game.ratingContext) : game.why;
 }
+
+/** Describe the soft preferences that did not qualify, separately from the mechanic explanation. */
+export function unmetVibeLabels(
+  game: Game,
+  ctx: WizardContext,
+): { below: VibeId[]; unknown: VibeId[] } {
+  const below: VibeId[] = [],
+    unknown: VibeId[] = [];
+  for (const vibe of new Set(ctx.vibes)) {
+    if (ctx.exactTraits?.[vibe] !== undefined || ctx.ratingTargets?.[vibe] !== undefined) continue;
+    const value = gameRating(game, vibe, ctx).value;
+    if (value === null) unknown.push(vibe);
+    else if (value < 3) below.push(vibe);
+  }
+  return { below, unknown };
+}

@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { Check, ExternalLink } from "lucide-react";
 import type { Game, MatchLabel, ScoredGame } from "@/lib/types";
-import { displayedMatchReason } from "@/lib/application-ratings";
+import { displayedMatchReason, unmetVibeLabels } from "@/lib/application-ratings";
 import { formatAge, formatPlaytime, formatPlayers } from "@/lib/scoring";
+import { VIBE_META } from "@/lib/vibes";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { amazonSearchUrl } from "@/lib/affiliate";
@@ -43,6 +44,10 @@ export function MatchCard({
   discover?: boolean;
 }) {
   const reason = displayedMatchReason(game);
+  const gaps =
+    game.ratingContext && game.matchLabel === "closest"
+      ? unmetVibeLabels(game, game.ratingContext)
+      : null;
   const ready = useAppStore((s) => s.entitlementReady);
   const addOwned = useAppStore((s) => s.addOwned);
   const amazonOn = useFlag("amazon_cta");
@@ -72,6 +77,14 @@ export function MatchCard({
             ) : null}
           </p>
           {reason && <p className="mt-3 text-sm leading-relaxed text-foreground/90">{reason}</p>}
+          {gaps && (gaps.below.length > 0 || gaps.unknown.length > 0) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {gaps.below.length > 0 &&
+                `Below selected Vibe threshold: ${gaps.below.map((v) => VIBE_META[v].label).join(", ")}.`}
+              {gaps.unknown.length > 0 &&
+                ` Not assessed: ${gaps.unknown.map((v) => VIBE_META[v].label).join(", ")}.`}
+            </p>
+          )}
         </div>
       </Link>
       <div className="mt-4 flex flex-wrap items-center gap-2">

@@ -17,7 +17,7 @@ import type {
   WizardResult,
 } from "./types";
 import { DIMENSIONS } from "./types";
-import { GAMES, searchGames, standaloneGames } from "./catalog";
+import { GAMES, searchGames, standaloneGames, isStandaloneGame } from "./catalog";
 import { explainMatch } from "./explain";
 import { scoreLegacyGameWithCatalogFoundation } from "./catalog-legacy-bridge";
 import { passesHardConstraints, traitScore } from "./vibes";
@@ -100,12 +100,18 @@ function toScored(game: Game, ctx: WizardContext, owned: boolean): ScoredGame {
   };
 }
 
+function uniqueStandaloneCandidates(games: readonly Game[]): Game[] {
+  const counts = new Map<string, number>();
+  for (const game of games) counts.set(game.bggId, (counts.get(game.bggId) ?? 0) + 1);
+  return games.filter((game) => isStandaloneGame(game) && counts.get(game.bggId) === 1);
+}
+
 export function eligibleGames(
   ctx: WizardContext,
   games: readonly Game[] = standaloneGames(),
   catalogAdapter: RecommendationCatalogAdapter = applicationReviewedFactsAdapter,
 ): Game[] {
-  return catalogAdapter(games, ctx).filter(
+  return uniqueStandaloneCandidates(catalogAdapter(games, ctx)).filter(
     (game) => passesHardConstraints(game, ctx) && gameMatchesRatings(game, ctx),
   );
 }
@@ -132,7 +138,7 @@ export function runWizard(
 ): WizardResult {
   const ownedSet = new Set(user.owned);
   const excluded = new Set(excludeIds);
-  const adapted = catalogAdapter(games, ctx);
+  const adapted = uniqueStandaloneCandidates(catalogAdapter(games, ctx));
   const hardEligible = adapted.filter((game) => passesHardConstraints(game, ctx));
   const targets = selectedTargets(ctx);
   const advanced = { ...ctx, vibes: [] };
@@ -242,7 +248,9 @@ export function formatAge(game: Game): string {
 }
 
 export function pickSurprise(ownedIds: string[], avoidId?: string): Game | undefined {
-  const pool = ownedIds.map(getGame).filter((g): g is Game => g != null);
+  const pool = [...new Set(ownedIds)]
+    .map(getGame)
+    .filter((g): g is Game => g != null && isStandaloneGame(g));
   if (!pool.length) return undefined;
   const alternatives = pool.filter((g) => g.bggId !== avoidId);
   const selectable = alternatives.length ? alternatives : pool;

@@ -114,7 +114,7 @@ export const useAppStore = create<AppState>()(
         haptic(get().haptics);
         set({ wizard: { ...get().wizard, ...patch } });
       },
-      resetWizard: () => set({ wizard: { ...DEFAULT_WIZARD }, shownIds: [] }),
+      resetWizard: () => set({ wizard: { ...DEFAULT_WIZARD }, shownIds: [], lastResults: null }),
 
       lastResults: null,
       shownIds: [],
@@ -128,11 +128,21 @@ export const useAppStore = create<AppState>()(
         });
       },
       sniffAgain: () => {
-        const { wizard, owned, wishlist, plays, vibeWeights, shownIds, recPool, isPremium } = get();
+        const {
+          wizard,
+          lastResults,
+          owned,
+          wishlist,
+          plays,
+          vibeWeights,
+          shownIds,
+          recPool,
+          isPremium,
+        } = get();
         const result = runWizard(
-          entitledWizard(wizard, isPremium),
+          entitledWizard(lastResults?.appliedFilters ?? wizard, isPremium),
           {
-            owned: recPool?.ids.length ? recPool.ids : owned,
+            owned: recPool ? recPool.ids : owned,
             wishlist,
             plays,
             vibeWeights,
@@ -333,7 +343,7 @@ export const useAppStore = create<AppState>()(
       setUpgradePrompt: (v) => set({ upgradePrompt: v }),
 
       recPool: null,
-      setRecPool: (v) => set({ recPool: v }),
+      setRecPool: (v) => set({ recPool: v, lastResults: null, shownIds: [] }),
 
       pieceColor: DEFAULT_PIECE_COLOR,
       setPieceColor: (hex) => set({ pieceColor: normalizePieceColor(hex) }),

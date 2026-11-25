@@ -51,7 +51,7 @@ function WizardPage() {
     setWizard({ ratingSeed: crypto.randomUUID() });
     const { owned, wishlist, plays, vibeWeights, wizard: ctx, recPool } = useAppStore.getState();
     const result = runWizard(entitledWizard(ctx, useAppStore.getState().isPremium), {
-      owned: recPool?.ids.length ? recPool.ids : owned,
+      owned: recPool ? recPool.ids : owned,
       wishlist,
       plays,
       vibeWeights,

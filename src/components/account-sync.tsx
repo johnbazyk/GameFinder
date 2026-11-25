@@ -166,7 +166,7 @@ export function AccountSync() {
   return catalogSyncError ? (
     <div
       role="alert"
-      className="fixed inset-x-3 bottom-3 z-[100] flex items-center justify-between gap-3 rounded-card bg-destructive p-3 text-sm text-destructive-foreground shadow-lift"
+      className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 bg-destructive p-3 text-sm text-destructive-foreground"
     >
       <span>Saved account data could not be synced. Your local collection is still here.</span>
       <button
@@ -179,6 +179,14 @@ export function AccountSync() {
         }}
       >
         Retry
+      </button>
+      <button
+        type="button"
+        className="shrink-0 font-semibold underline"
+        onClick={() => setCatalogSyncError(false)}
+        aria-label="Dismiss sync warning"
+      >
+        Dismiss
       </button>
     </div>
   ) : null;

@@ -624,7 +624,17 @@ export function catalogHardEligible(
   context: WizardContext,
 ): boolean {
   if (context.players != null) {
-    if (game.players.minimum == null || game.players.maximum == null) {
+    if (
+      !Number.isInteger(context.players) ||
+      context.players < 1 ||
+      context.players > MAX_PLAYER_COUNT ||
+      game.players.minimum == null ||
+      game.players.maximum == null ||
+      !Number.isInteger(game.players.minimum) ||
+      !Number.isInteger(game.players.maximum) ||
+      game.players.minimum < 1 ||
+      game.players.maximum < game.players.minimum
+    ) {
       return false;
     }
     if (context.players >= MAX_PLAYER_COUNT) {
@@ -638,9 +648,12 @@ export function catalogHardEligible(
 
   if (context.ageBand) {
     const band = AGE_BANDS.find((item) => item.id === context.ageBand);
+    if (!band) return false;
     if (context.ageBand !== "adults") {
       if (
         game.publisherMinimumAge == null ||
+        !Number.isInteger(game.publisherMinimumAge) ||
+        game.publisherMinimumAge < 0 ||
         game.publisherMinimumAge > (band?.youngestAge ?? -1) ||
         game.adultContent !== false
       ) {
@@ -649,6 +662,20 @@ export function catalogHardEligible(
     }
   }
 
+  if (typeof context.timeOver60 !== "boolean" || (context.timeOver60 && context.maxTimeMin != null))
+    return false;
+  if (
+    (context.timeOver60 || context.maxTimeMin != null) &&
+    (game.maximumListedPlaytimeMinutes == null ||
+      !Number.isFinite(game.maximumListedPlaytimeMinutes) ||
+      game.maximumListedPlaytimeMinutes <= 0)
+  )
+    return false;
+  if (
+    context.maxTimeMin != null &&
+    (!Number.isFinite(context.maxTimeMin) || context.maxTimeMin <= 0)
+  )
+    return false;
   if (context.timeOver60) {
     if (game.maximumListedPlaytimeMinutes == null || game.maximumListedPlaytimeMinutes <= 60) {
       return false;

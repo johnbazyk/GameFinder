@@ -213,7 +213,7 @@ test("beta ranking is seeded and unaffected by popularity or ownership bonus", (
 test("results fill both groups to three without duplicates and explain reroll scarcity", () => {
   const games = Array.from({ length: 8 }, (_, i) => ({
     ...game(),
-    bggId: `test-${i}`,
+    bggId: String(9000000 + i),
     name: `Test ${i}`,
   }));
   const signals = { ...user, owned: games.slice(0, 4).map((g) => g.bggId) };
@@ -244,8 +244,8 @@ test("results fill both groups to three without duplicates and explain reroll sc
 });
 
 test("scarcity separates hard exclusions, missing ratings and known vibe mismatches", () => {
-  const unknown = { ...game(), bggId: "unknown-test", name: "Unknown test" };
-  const tooMany = { ...game(), bggId: "hard-test", players: { min: 4, max: 6, best: [4] } };
+  const unknown = { ...game(), bggId: "9000100", name: "Unknown test" };
+  const tooMany = { ...game(), bggId: "9000101", players: { min: 4, max: 6, best: [4] } };
   const games = [game(), unknown, tooMany];
   const result = scoring.runWizard(
     context({ vibes: ["strategy"] }),
@@ -254,7 +254,10 @@ test("scarcity separates hard exclusions, missing ratings and known vibe mismatc
     identity,
     games,
   );
-  assert.deepEqual(result.ownedTop.map((g) => g.matchLabel), ["good", "closest"]);
+  assert.deepEqual(
+    result.ownedTop.map((g) => g.matchLabel),
+    ["good", "closest"],
+  );
   assert.deepEqual(result.coverage.owned, {
     hardExcluded: 1,
     missingRatings: 0,

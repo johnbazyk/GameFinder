@@ -110,6 +110,16 @@ export function listedPlaytime(game: Game): number {
 
 export function passesHardConstraints(game: Game, ctx: WizardContext): boolean {
   if (ctx.players != null) {
+    if (
+      !Number.isInteger(ctx.players) ||
+      ctx.players < 1 ||
+      ctx.players > MAX_PLAYER_COUNT ||
+      !Number.isInteger(game.players.min) ||
+      !Number.isInteger(game.players.max) ||
+      game.players.min < 1 ||
+      game.players.max < game.players.min
+    )
+      return false;
     if (ctx.players >= MAX_PLAYER_COUNT) {
       if (game.players.max < MAX_PLAYER_COUNT || game.players.min > MAX_PLAYER_COUNT) return false;
     } else if (game.players.min > ctx.players || game.players.max < ctx.players) {
@@ -118,10 +128,21 @@ export function passesHardConstraints(game: Game, ctx: WizardContext): boolean {
   }
   if (ctx.ageBand) {
     const band = AGE_BANDS.find((b) => b.id === ctx.ageBand);
-    const listedAge = game.age.publisher || game.age.community;
+    if (!band) return false;
+    const listedAge = game.age.publisher;
+    if (band.youngestAge != null && (!Number.isInteger(listedAge) || listedAge < 0)) return false;
     if (band?.youngestAge != null && listedAge > band.youngestAge) return false;
     if (ctx.ageBand !== "adults" && hasAdultContent(game)) return false;
   }
+  if (typeof ctx.timeOver60 !== "boolean" || (ctx.timeOver60 && ctx.maxTimeMin != null))
+    return false;
+  if (
+    (ctx.timeOver60 || ctx.maxTimeMin != null) &&
+    (!Number.isFinite(listedPlaytime(game)) || listedPlaytime(game) <= 0)
+  )
+    return false;
+  if (ctx.maxTimeMin != null && (!Number.isFinite(ctx.maxTimeMin) || ctx.maxTimeMin <= 0))
+    return false;
   if (ctx.timeOver60) {
     if (listedPlaytime(game) <= 60) return false;
   } else if (ctx.maxTimeMin != null) {
