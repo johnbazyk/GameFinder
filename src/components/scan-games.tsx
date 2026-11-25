@@ -15,6 +15,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
   const camera = useRef<HTMLInputElement>(null);
   const gallery = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
+  const stopLocal = useRef<(() => void) | null>(null);
   const [rows, setRows] = useState<ScanRow[]>([]);
   const [progress, setProgress] = useState("");
   const [message, setMessage] = useState("");
@@ -35,6 +36,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
   function close() {
     request.current?.abort();
     request.current = null;
+    stopLocal.current = null;
     setProgress("");
     setMessage("");
     setReport("");
@@ -53,7 +55,6 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
     );
     // Cancellation may happen while the browser is still decoding a file.
     void cancelled.catch(() => {});
-    let reader: Awaited<ReturnType<typeof createBoxReader>> | undefined;
     let readerUnavailable = false;
     let unopened = 0;
     let unavailable = 0;
@@ -68,6 +69,10 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         let phoneStatus = "Reader unavailable";
         if (diagnostics) setReport("");
         const photo = await openScanPhoto(file).catch(() => null);
+        if (signal.aborted) {
+          if (photo) photo.width = photo.height = 0;
+          signal.throwIfAborted();
+        }
         if (!photo) {
           if (diagnostics && !signal.aborted) setReport("Photo could not be opened.");
           unopened++;
@@ -81,14 +86,39 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
           })
           .catch(() => null);
         const localHits: ScanHit[] = [];
+        const conflicts = new Set<string>();
+        let reader: Awaited<ReturnType<typeof createBoxReader>> | undefined;
+        const localController = new AbortController();
+        const abortLocal = () => localController.abort();
+        signal.addEventListener("abort", abortLocal, { once: true });
+        let stopped = false;
+        let finishLocal: () => void = () => {};
+        const localStopped = new Promise<null>((resolve) => {
+          finishLocal = () => resolve(null);
+        });
+        const stop = () => {
+          stopped = true;
+          localController.abort();
+          reader?.close();
+          reader = undefined;
+          finishLocal();
+        };
+        stopLocal.current = stop;
+        const timer = window.setTimeout(stop, 90000);
+
         const localTask = (async () => {
           if (readerUnavailable) return null;
           if (!reader) {
             try {
               const { createBoxReader } = await import("@/lib/box-ocr");
-              reader = await createBoxReader(signal);
+              const nextReader = await createBoxReader(localController.signal);
+              if (stopped || signal.aborted) {
+                nextReader.close();
+                return null;
+              }
+              reader = nextReader;
             } catch {
-              readerUnavailable = true;
+              if (!stopped && !signal.aborted) readerUnavailable = true;
               return null;
             }
           }
@@ -96,7 +126,9 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
             phoneStatus = "Stopped during text recognition";
             await reader.read(
               photo,
-              (hit) => localHits.push(hit),
+              (hit) => {
+                if (!stopped && !signal.aborted) localHits.push(hit);
+              },
               diagnostics
                 ? (stage, text, titles) => {
                     passes.push(
@@ -108,19 +140,27 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
                     );
                   }
                 : undefined,
+              (id) => {
+                if (!stopped && !signal.aborted) conflicts.add(id);
+              },
             );
             phoneStatus = "Completed";
             return true;
           } catch {
-            reader.close();
+            reader?.close();
             reader = undefined;
             return null;
           }
         })().catch(() => null);
         const [remote, local] = await Promise.race([
-          Promise.all([remoteTask, localTask]),
+          Promise.all([remoteTask, Promise.race([localTask, localStopped])]),
           cancelled,
         ]).finally(() => {
+          window.clearTimeout(timer);
+          signal.removeEventListener("abort", abortLocal);
+          if (request.current === controller) stopLocal.current = null;
+          reader?.close();
+          reader = undefined;
           photo.width = photo.height = 0;
         });
         signal.throwIfAborted();
@@ -136,9 +176,11 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
             ].join("\n\n"),
           );
         }
-        const hits = [...(remote?.ok ? remote.hits : []), ...localHits];
+        const hits = [...(remote?.ok ? remote.hits : []), ...localHits].filter(
+          (hit) => !hit.bggId || !conflicts.has(hit.bggId),
+        );
         if (hits.length) {
-          if (local === null && !remote?.ok) partial++;
+          if (local === null) partial++;
           setRows((prev) => mergeScanRows(prev, hits, useAppStore.getState().owned));
         } else if (!remote?.ok && local === null) {
           unavailable++;
@@ -165,7 +207,6 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
     } catch {
       if (!signal.aborted) setMessage("Scanning stopped. Your matches are ready to review.");
     } finally {
-      reader?.close();
       if (request.current === controller) {
         request.current = null;
         setProgress("");
@@ -266,6 +307,15 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         <p role="status" className="empty:hidden text-sm text-muted-foreground">
           {progress || message}
         </p>
+        {progress && (
+          <button
+            type="button"
+            className="text-sm font-semibold text-sky"
+            onClick={() => stopLocal.current?.()}
+          >
+            Finish reading this photo
+          </button>
+        )}
         {diagnostics && (
           <details className="text-sm">
             <summary>Scan details</summary>

@@ -17,6 +17,7 @@ let wizardOptions;
 let vibeMeta;
 let filterTypes;
 let appStore;
+let entitledWizard;
 
 before(async () => {
   server = await createServer({
@@ -44,7 +45,7 @@ before(async () => {
     setItem: () => {},
     removeItem: () => {},
   };
-  ({ useAppStore: appStore } = await server.ssrLoadModule("/src/lib/store.ts"));
+  ({ useAppStore: appStore, entitledWizard } = await server.ssrLoadModule("/src/lib/store.ts"));
 });
 
 after(async () => {
@@ -245,7 +246,9 @@ test("Find and Discover use the same hard-filter eligibility decisions", () => {
       .sort();
 
     assert.deepEqual(discoverIds, sharedEligibleIds);
-    const hardIds = eligibleGames({ ...filters, vibes: [] }).map((g) => g.bggId).sort();
+    const hardIds = eligibleGames({ ...filters, vibes: [] })
+      .map((g) => g.bggId)
+      .sort();
     assert.deepEqual(findIds, hardIds);
   }
 });
@@ -435,6 +438,18 @@ test("Sniff Again rerolls through the shared constraints and avoids games alread
     false,
   );
   assert.deepEqual(next?.appliedFilters, context({ players: null }));
+});
+
+test("Free recommendations discard advanced targets without changing standard filters or saved preferences", () => {
+  const saved = context({
+    exactTraits: { strategy: 4.5 },
+    ratingTargets: { strategy: { min: 4, max: 5 } },
+  });
+  const free = entitledWizard(saved, false);
+  assert.deepEqual(free, context());
+  assert.deepEqual(saved.exactTraits, { strategy: 4.5 });
+  assert.ok(saved.ratingTargets.strategy);
+  assert.equal(entitledWizard(saved, true), saved);
 });
 
 test("Surprise Me randomly selects only an owned catalog game and avoids the previous pick when possible", () => {

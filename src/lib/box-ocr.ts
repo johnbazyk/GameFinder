@@ -1,7 +1,13 @@
 import { createWorker, OEM, PSM } from "tesseract.js";
-import { diagonalScanPhoto, enhancedScanPhoto, rotateScanPhoto, scanTitleBand, shelfRegions } from "./scan-photo";
+import {
+  diagonalScanPhoto,
+  enhancedScanPhoto,
+  rotateScanPhoto,
+  scanTitleBand,
+  shelfRegions,
+} from "./scan-photo";
 import { GAMES } from "./catalog";
-import { findBoxTitles } from "./box-titles";
+import { boxTitleKey, conflictingBaseTitles, findBoxTitles } from "./box-titles";
 import type { ScanHit } from "./scan";
 
 export async function createBoxReader(signal: AbortSignal) {
@@ -31,8 +37,14 @@ export async function createBoxReader(signal: AbortSignal) {
   }
   return {
     close,
-    async read(photo: HTMLCanvasElement, onHit?: (hit: ScanHit) => void, onPass?: (stage: string, text: string, titles: string[]) => void): Promise<ScanHit[]> {
+    async read(
+      photo: HTMLCanvasElement,
+      onHit?: (hit: ScanHit) => void,
+      onPass?: (stage: string, text: string, titles: string[]) => void,
+      onConflict?: (id: string) => void,
+    ): Promise<ScanHit[]> {
       const hits = new Map<string, ScanHit>();
+      const blocked = new Set<string>();
       function* temporary(canvas: HTMLCanvasElement) {
         try {
           yield canvas;
@@ -55,6 +67,8 @@ export async function createBoxReader(signal: AbortSignal) {
             if (upright !== photo) upright.width = upright.height = 0;
           }
         }
+      }
+      function* contrastViews() {
         for (const mode of ["compactRed", "redInk", "red", "detail", "warm", "green"] as const) {
           stage = mode;
           const enhanced = enhancedScanPhoto(photo, mode);
@@ -72,8 +86,23 @@ export async function createBoxReader(signal: AbortSignal) {
       async function recognize(view: HTMLCanvasElement, deskew = false) {
         signal.throwIfAborted();
         const result = await worker.recognize(view, { rotateAuto: deskew });
-        const games = findBoxTitles(result.data.text, GAMES);
-        onPass?.(stage + " " + readingTurn * 90 + "°", result.data.text, games.map(game => game.name));
+        signal.throwIfAborted();
+        for (const key of conflictingBaseTitles(result.data.text)) {
+          for (const game of GAMES) {
+            if (boxTitleKey(game.name) !== key || blocked.has(game.bggId)) continue;
+            blocked.add(game.bggId);
+            hits.delete(game.bggId);
+            onConflict?.(game.bggId);
+          }
+        }
+        const games = findBoxTitles(result.data.text, GAMES).filter(
+          (game) => !blocked.has(game.bggId),
+        );
+        onPass?.(
+          stage + " " + readingTurn * 90 + "°",
+          result.data.text,
+          games.map((game) => game.name),
+        );
         for (const game of games) {
           const ids = directionHits.get(readingTurn) ?? new Set<string>();
           ids.add(game.bggId);
@@ -86,10 +115,14 @@ export async function createBoxReader(signal: AbortSignal) {
         }
       }
       for (const view of views()) await recognize(view);
-      if (hits.size >= 2) {
+      {
         // Limit extra mobile OCR work to the two orientations with the most catalog evidence.
         stage = "Shelf region";
         const directions = [...directionHits].sort((a, b) => b[1].size - a[1].size).slice(0, 2);
+        for (const turn of [0, 1] as const) {
+          if (directions.length < 2 && !directions.some(([seen]) => seen === turn))
+            directions.push([turn, new Set<string>()]);
+        }
         for (const [turn] of directions) {
           readingTurn = turn;
           const upright = turn === 0 ? photo : rotateScanPhoto(photo, turn);
@@ -100,7 +133,7 @@ export async function createBoxReader(signal: AbortSignal) {
           }
         }
       }
-      if (!hits.size) {
+      {
         stage = "Diagonal";
         readingTurn = 0;
         const diagonal = diagonalScanPhoto(photo);
@@ -108,12 +141,14 @@ export async function createBoxReader(signal: AbortSignal) {
           await recognize(diagonal, true);
           for (const turn of [1, -1, 2] as const) {
             readingTurn = turn;
-            for (const view of temporary(rotateScanPhoto(diagonal, turn))) await recognize(view, true);
+            for (const view of temporary(rotateScanPhoto(diagonal, turn)))
+              await recognize(view, true);
           }
         } finally {
           diagonal.width = diagonal.height = 0;
         }
       }
+      for (const view of contrastViews()) await recognize(view);
       return [...hits.values()];
     },
   };

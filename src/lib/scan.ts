@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { boxTitleKey } from "./box-titles";
+import { authMiddleware } from "./auth/middleware";
 import { GAMES } from "./catalog";
 
 export type ScanHit = {
@@ -15,9 +15,12 @@ function apiKey() {
 }
 
 export const identifyShelf = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator((input: { image: string }) => {
     if (!input?.image || typeof input.image !== "string") throw new Error("Missing image");
     if (input.image.length > 6_500_000) throw new Error("Image too large");
+    if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(input.image))
+      throw new Error("Invalid image");
     return { image: input.image };
   })
   .handler(async ({ data }) => {
@@ -75,24 +78,9 @@ export const identifyShelf = createServerFn({ method: "POST" })
     } catch {
       return { ok: false as const, error: "parse", hits: [] as ScanHit[] };
     }
-    const known = new Map(GAMES.map((g) => [g.bggId, g]));
-    const byName = new Map(GAMES.map((g) => [boxTitleKey(g.name), g]));
-    const hits: ScanHit[] = (parsed.games ?? []).slice(0, 40).map((h) => {
-      const byId = h.bggId ? known.get(String(h.bggId)) : undefined;
-      const named = byName.get(boxTitleKey(h.name ?? ""));
-      const game = h.possibleExpansion ? undefined : named ?? (byId && !h.name ? byId : undefined);
-      const confidence = game
-        ? h.confidence === "high"
-          ? "high"
-          : "review"
-        : "unknown";
-      return {
-        bggId: game?.bggId ?? null,
-        name: game?.name ?? h.name ?? "Unknown box",
-        confidence,
-        note: h.note,
-        possibleExpansion: Boolean(h.possibleExpansion),
-      };
-    });
+    if (!Array.isArray(parsed.games))
+      return { ok: false as const, error: "parse", hits: [] as ScanHit[] };
+    const { validateScanHits } = await import("./scan-validation");
+    const hits = validateScanHits(parsed.games, GAMES);
     return { ok: true as const, hits };
   });

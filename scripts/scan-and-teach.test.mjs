@@ -105,22 +105,85 @@ test("quarter turns preserve every corner of a rectangular photo", async () => {
   try {
     for (const turn of [1, -1, 2]) {
       let offset, angle, drawn;
-      globalThis.document = { createElement: () => ({ getContext: () => ({
-        translate(x, y) { offset = [x, y]; },
-        rotate(value) { angle = value; },
-        drawImage(image) { drawn = image; },
-      }) }) };
+      globalThis.document = {
+        createElement: () => ({
+          getContext: () => ({
+            translate(x, y) {
+              offset = [x, y];
+            },
+            rotate(value) {
+              angle = value;
+            },
+            drawImage(image) {
+              drawn = image;
+            },
+          }),
+        }),
+      };
       const out = rotateScanPhoto(photo, turn);
       assert.equal(drawn, photo);
       assert.equal(angle, (turn * Math.PI) / 2);
-      const corners = [[0, 0], [90, 0], [0, 40], [90, 40]].map(([x, y]) => [
+      const corners = [
+        [0, 0],
+        [90, 0],
+        [0, 40],
+        [90, 40],
+      ].map(([x, y]) => [
         Math.round(offset[0] + x * Math.cos(angle) - y * Math.sin(angle)) || 0,
         Math.round(offset[1] + x * Math.sin(angle) + y * Math.cos(angle)) || 0,
       ]);
-      assert.deepEqual(corners.sort(), [[0, 0], [out.width, 0], [0, out.height], [out.width, out.height]].sort());
+      assert.deepEqual(
+        corners.sort(),
+        [
+          [0, 0],
+          [out.width, 0],
+          [0, out.height],
+          [out.width, out.height],
+        ].sort(),
+      );
     }
   } finally {
     if (previous === undefined) delete globalThis.document;
     else globalThis.document = previous;
   }
+});
+
+test("provider responses require consistent catalog identity and valid data", async () => {
+  const { validateScanHits } = await server.ssrLoadModule("/src/lib/scan-validation.ts");
+  const catalog = [
+    { bggId: "13", name: "Catan" },
+    { bggId: "2", name: "Other" },
+  ];
+  const hits = validateScanHits(
+    [
+      null,
+      42,
+      { name: 123 },
+      { name: "" },
+      { bggId: "13", name: "Other", confidence: "high" },
+      { bggId: "13", name: "Catan", confidence: "high", possibleExpansion: true },
+      { bggId: "13", name: "The Settlers of Catan", confidence: "high" },
+      { bggId: null, name: "Catan", confidence: "high" },
+      { bggId: "unknown", name: "Catan", confidence: "high" },
+    ],
+    catalog,
+  );
+  assert.deepEqual(
+    hits.map((h) => [h.bggId, h.confidence]),
+    [
+      [null, "unknown"],
+      [null, "unknown"],
+      ["13", "high"],
+      ["13", "review"],
+      [null, "unknown"],
+    ],
+  );
+});
+
+test("explicit Catan expansion evidence survives separate OCR crops", async () => {
+  const { conflictingBaseTitles } = await server.ssrLoadModule("/src/lib/box-titles.ts");
+  assert.deepEqual(conflictingBaseTitles("CATAN\n5–6 PLAYER EXTENSION"), ["catan"]);
+  assert.deepEqual(conflictingBaseTitles("CATAN JUNIOR"), ["catan"]);
+  assert.deepEqual(conflictingBaseTitles("CATAN THE BOARD GAME"), []);
+  assert.deepEqual(conflictingBaseTitles("WINGSPAN"), []);
 });

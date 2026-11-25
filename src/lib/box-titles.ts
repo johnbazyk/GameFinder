@@ -26,6 +26,18 @@ function titleDistance(a: string, b: string) {
   return previous[b.length];
 }
 
+// An explicit expansion label can invalidate an isolated base-title crop.
+export function conflictingBaseTitles(text: string): string[] {
+  const key = boxTitleKey(text).replace(/\b(?:cat an|c atan|c4tan|cat4n)\b/g, "catan");
+  if (
+    /\bcatan\b.{0,45}\b(?:junior|seafarers|expansion|extension|knights|starfarers|explorers|traders|duel|5 6 player)\b/.test(
+      key,
+    )
+  )
+    return ["catan"];
+  return [];
+}
+
 // OCR often reads the designer, title and subtitle as a single line.
 export function findBoxTitles<T extends { name: string }>(
   text: string,
