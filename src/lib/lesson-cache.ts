@@ -1,9 +1,9 @@
 import { askFinnLesson, type LessonPack } from "@/lib/coach";
 
-const KEY = "gf-lesson-packs-v4-general";
+import { validateLesson, validGameId } from "./finn-validation";
+const KEY = "gf-lesson-packs-v5-general";
 const TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const inflight = new Map<string, Promise<LessonPack | null>>();
-const refreshed = new Set<string>();
 
 type Row = { at: number; pack: LessonPack };
 type Store = Record<string, Row>;
@@ -38,9 +38,10 @@ function writeStore(store: Store) {
 
 export function peekLesson(gameId: string): LessonPack | null {
   const row = readStore()[gameId];
-  if (!row?.pack) return null;
-  if (Date.now() - row.at > TTL_MS) return null;
-  return row.pack;
+  if (!validGameId(gameId) || !row?.pack || !Number.isFinite(row.at)) return null;
+  const age = Date.now() - row.at;
+  if (age < 0 || age > TTL_MS) return null;
+  return validateLesson(row.pack);
 }
 
 async function fetchPack(gameId: string): Promise<LessonPack | null> {
@@ -48,11 +49,11 @@ async function fetchPack(gameId: string): Promise<LessonPack | null> {
   if (existing) return existing;
   const run = (async () => {
     const res = await askFinnLesson({ data: { gameId } });
-    if (!res.ok) return null;
+    if (!res.ok || res.sourceStatus !== "general" || !validateLesson(res.pack)) return null;
     const store = readStore();
     store[gameId] = { at: Date.now(), pack: res.pack };
     writeStore(store);
-    refreshed.add(gameId);
+
     return res.pack;
   })();
   inflight.set(gameId, run);
@@ -63,15 +64,8 @@ async function fetchPack(gameId: string): Promise<LessonPack | null> {
   }
 }
 
-/** Instant cache hit, then a quiet refresh once per session. */
+/** Reuse valid cached material without a paid refresh. */
 export async function ensureLesson(gameId: string): Promise<LessonPack | null> {
-  const hit = peekLesson(gameId);
-  if (hit) {
-    if (!refreshed.has(gameId)) {
-      refreshed.add(gameId);
-      void fetchPack(gameId).catch(() => null);
-    }
-    return hit;
-  }
-  return fetchPack(gameId);
+  if (!validGameId(gameId)) return null;
+  return peekLesson(gameId) ?? fetchPack(gameId);
 }

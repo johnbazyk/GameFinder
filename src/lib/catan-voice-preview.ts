@@ -32,6 +32,10 @@ export function previewAnswer(gameId: string, question: string) {
       wording,
     )
   ) {
-    return { text: sevenAnswer, label: "From the Catan rules", audio: recording("seven") };
+    return {
+      text: sevenAnswer,
+      label: "Catan quick-start answer · Check your edition",
+      audio: recording("seven"),
+    };
   }
 }

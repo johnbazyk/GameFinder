@@ -26,6 +26,8 @@ function MoreTeaching({ id }: { id: string }) {
             ["Set up", lesson.setup],
             ["On your turn", lesson.turn],
             ["How to win", lesson.goal],
+            ["Scoring and ending", lesson.score],
+            ["Common mistakes", lesson.oops],
           ] as const
         ).map(([heading, text]) => (
           <div key={heading}>
@@ -63,8 +65,8 @@ function TeachGame() {
   if (!game) return <p>Game not found.</p>;
   const ambiguous = CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === id);
   const profile = DESIGN_ASSESSMENTS.find((row) => row.legacyId === id && row.title === game.name);
-  const guide = guides[game.name];
-  const source = game.bggId === "1269" ? undefined : (guide?.rules ?? profile?.source);
+  const guide = ambiguous ? undefined : guides[game.name];
+  const source = ambiguous || game.bggId === "1269" ? undefined : (guide?.rules ?? profile?.source);
   return (
     <main className="mx-auto max-w-xl space-y-5 pb-10">
       <Link to="/game/$id" params={{ id }} className="text-sm font-semibold text-sky">

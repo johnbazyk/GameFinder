@@ -9,7 +9,7 @@ import {
 } from "@/lib/coach";
 import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
 import { lessonRecording, previewAnswer } from "@/lib/catan-voice-preview";
-import { guidePassage } from "@/lib/guide-chapters";
+import { guidePassage, directGuideChapter } from "@/lib/guide-chapters";
 import type { Guide } from "@/lib/written-guides";
 import type { Game } from "@/lib/types";
 import { Button } from "./ui/button";
@@ -57,14 +57,13 @@ export function FinnQuestions({
   const dictation = useRef<Dictation | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const submitted = useRef(false);
+  const ambiguous = CATALOG_EXTERNAL_ID_CONFLICTS.some((c) => c.externalId === game.bggId);
 
   useEffect(() => {
     active.current = true;
     let cancelled = false;
-    setMicAvailable(Boolean(deviceDictation()));
-    const ambiguous = CATALOG_EXTERNAL_ID_CONFLICTS.some(
-      (conflict) => conflict.externalId === game.bggId,
-    );
+    setMicAvailable(!ambiguous && Boolean(deviceDictation()));
+
     if (!ambiguous)
       void isFinnVoiceConfigured()
         .then((available) => {
@@ -84,6 +83,7 @@ export function FinnQuestions({
       cancelled = true;
       active.current = false;
       window.clearTimeout(timer.current);
+      answerAudio.current?.pause();
       dictation.current?.abort();
       if (recorder.current?.state === "recording") recorder.current.stop();
       recorder.current?.stream.getTracks().forEach((track) => track.stop());
@@ -92,7 +92,7 @@ export function FinnQuestions({
 
   async function ask(value: string, spoken = false) {
     const text = value.trim();
-    if (!text || submitted.current || !active.current) return;
+    if (!text || text.length > 1600 || ambiguous || submitted.current || !active.current) return;
     submitted.current = true;
     setQuestion(text);
     setMessage("");
@@ -102,6 +102,13 @@ export function FinnQuestions({
     onAsk();
     try {
       let result: Answer | undefined = previewAnswer(game.bggId, text);
+      const direct = guide && directGuideChapter(text);
+      if (!result && guide && direct)
+        result = {
+          text: guide[direct.field],
+          audio: lessonRecording(guide, direct),
+          label: "Quick-start guide · " + direct.title + " · Check your edition",
+        };
       if (!result && live) {
         const messages: CoachMessage[] = [...history.current, { role: "user", content: text }];
         const reply = await askFinn({
@@ -113,7 +120,10 @@ export function FinnQuestions({
             ...messages,
             { role: "assistant" as const, content: reply.text },
           ].slice(-8);
-          result = { text: reply.text, label: "Finn’s answer" };
+          result = {
+            text: reply.text,
+            label: "General AI answer · Not verified against your edition",
+          };
           setAnswer(result);
           if (spoken) {
             const voice = await speakFinn({ data: { text: reply.text } }).catch(() => null);
@@ -129,7 +139,7 @@ export function FinnQuestions({
             ? {
                 text: guide[chapter.field],
                 audio: lessonRecording(guide, chapter),
-                label: "From the guide · " + chapter.title,
+                label: "Related guide passage · " + chapter.title + " · Not a verified ruling",
               }
             : {
                 text: "I couldn’t find that ruling in this guide. Check the rules for your edition.",
@@ -139,8 +149,15 @@ export function FinnQuestions({
       const player = answerAudio.current;
       if (player && result.audio) {
         player.src = result.audio;
-        if (spoken) void player.play().catch(() => {});
+        if (spoken)
+          void player.play().catch(() => {
+            if (active.current)
+              setMessage("Audio couldn’t play. Read the answer or tap Hear answer.");
+          });
       }
+    } catch {
+      if (active.current)
+        setMessage("Finn could not answer. Try again or check your edition’s rules.");
     } finally {
       submitted.current = false;
       if (active.current) setPhase("idle");
@@ -158,7 +175,7 @@ export function FinnQuestions({
       else dictation.current?.stop();
       return;
     }
-    if (phase !== "idle") return;
+    if (ambiguous || phase !== "idle") return;
     onAsk();
     answerAudio.current?.pause();
     setMessage("");
@@ -238,9 +255,14 @@ export function FinnQuestions({
     }
   }
 
+  if (ambiguous)
+    return <p role="status">Finn cannot answer until this game identity is resolved.</p>;
   return (
     <section className="space-y-3 py-2">
       <h3 className="text-center font-display text-xl">Ask Finn a rules question</h3>
+      <p className="text-sm text-muted-foreground">
+        General help, not official rulings. Check your edition for exact rules.
+      </p>
       {micAvailable && (
         <div className="flex flex-col items-center gap-2">
           <button

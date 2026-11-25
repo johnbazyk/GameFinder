@@ -29,7 +29,7 @@ function terms(text: string) {
 }
 
 // Return a labeled passage, never infer a yes/no ruling from a word match.
-export function guidePassage(guide: Guide, question: string) {
+export function directGuideChapter(question: string) {
   const topics = [
     /^(?:(?:what(?:'s| is) (?:the|my) (?:goal|objective))|how (?:do|can) (?:i|we|you) win)\??$/i,
     /^(?:how (?:do|should) (?:i|we|you) (?:set ?up|start)(?: (?:the |this )?game)?|set ?up)\??$/i,
@@ -38,7 +38,12 @@ export function guidePassage(guide: Guide, question: string) {
     /^(?:what (?:mistakes|should i watch out for)|any tips)\??$/i,
   ];
   const direct = topics.findIndex((pattern) => pattern.test(question.trim()));
-  if (direct >= 0) return chapters[direct];
+  return direct >= 0 ? chapters[direct] : undefined;
+}
+
+export function guidePassage(guide: Guide, question: string) {
+  const direct = directGuideChapter(question);
+  if (direct) return direct;
   const words = terms(question);
   if (!words.size) return undefined;
   const sorted = chapters

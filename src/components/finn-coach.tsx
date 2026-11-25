@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import type { Game } from "@/lib/types";
 import { lessonRecording } from "@/lib/catan-voice-preview";
 import { chapters } from "@/lib/guide-chapters";
+import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
 import { guides, type Guide } from "@/lib/written-guides";
 import { cn } from "@/lib/utils";
 import { FoxAvatar } from "./fox-avatar";
@@ -16,7 +17,13 @@ type Props = { game: Game; variant?: "panel" | "table" };
 export function FinnCoach({ game, variant = "panel" }: Props) {
   return (
     <PremiumGate feature="finn">
-      <Lesson key={game.bggId} game={game} guide={guides[game.name]} variant={variant} />
+      {CATALOG_EXTERNAL_ID_CONFLICTS.some((c) => c.externalId === game.bggId) ? (
+        <p role="status">
+          Finn cannot identify this game reliably. Check the title and edition on your box.
+        </p>
+      ) : (
+        <Lesson key={game.bggId} game={game} guide={guides[game.name]} variant={variant} />
+      )}
     </PremiumGate>
   );
 }
@@ -29,17 +36,28 @@ function Lesson({ game, guide, variant }: Props & { guide?: Guide }) {
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState(false);
   const current = chapters[index];
+  const playback = useRef(0);
+  useEffect(() => {
+    const lesson = audio.current;
+    const answer = answerAudio.current;
+    return () => {
+      playback.current++;
+      lesson?.pause();
+      answer?.pause();
+    };
+  }, []);
 
   function playChapter(next: number) {
     if (!guide || !audio.current || !chapters[next]) return;
     const player = audio.current;
+    const request = ++playback.current;
     answerAudio.current?.pause();
     setStarted(true);
     setError(false);
     setIndex(next);
     player.src = lessonRecording(guide, chapters[next]);
     void player.play().catch((err) => {
-      if (err.name !== "AbortError") setError(true);
+      if (request === playback.current && err.name !== "AbortError") setError(true);
     });
   }
 
@@ -69,6 +87,9 @@ function Lesson({ game, guide, variant }: Props & { guide?: Guide }) {
         <FoxAvatar mood={playing ? "teaching" : "hopeful"} size="sm" />
         <h2 className="font-display text-xl">Learn with Finn</h2>
       </div>
+      <p className="text-sm text-muted-foreground">
+        Quick-start teaching notes and recordings · Not independently verified against your edition.
+      </p>
       <div className="flex gap-2">
         <button
           type="button"
@@ -126,7 +147,18 @@ function Lesson({ game, guide, variant }: Props & { guide?: Guide }) {
               <span className="mt-3 font-display text-2xl">Start the lesson</span>
             </button>
           )}
-          {error && <p role="status">Audio couldn’t play. {guide[current.field]}</p>}
+          {error && (
+            <div role="status">
+              <p>Audio couldn’t play. {guide[current.field]}</p>
+              <button
+                type="button"
+                className="font-semibold text-sky"
+                onClick={() => playChapter(index)}
+              >
+                Retry chapter audio
+              </button>
+            </div>
+          )}
           <ol className="overflow-hidden rounded-card bg-card shadow-card">
             {chapters.map((chapter, i) => {
               const selected = started && i === index;
