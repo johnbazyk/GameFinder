@@ -20,6 +20,7 @@ function VaultPage() {
   const owned = useAppStore((s) => s.owned);
   const wishlist = useAppStore((s) => s.wishlist);
   const customGames = useAppStore((s) => s.customGames);
+  const ready = useAppStore((s) => s.entitlementReady);
   const isPremium = useAppStore((s) => s.isPremium);
   const stockStarterShelf = useAppStore((s) => s.stockStarterShelf);
   const [scan, setScan] = useState(false);
@@ -67,12 +68,13 @@ function VaultPage() {
           <button
             type="button"
             className="text-sm font-semibold text-sky"
+            disabled={!ready}
             onClick={() => stockStarterShelf()}
           >
             Or stock a starter shelf
           </button>
         </div>
-        <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />
+        {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
         <ScanGames open={scan} onClose={() => setScan(false)} />
         <AddGameDialog open={manual} onClose={() => setManual(false)} />
       </>
@@ -86,7 +88,8 @@ function VaultPage() {
           <h1 className="font-display text-3xl">Vault</h1>
           <p className="text-sm text-muted-foreground">
             {owned.length}
-            {!isPremium ? ` / ${FREE_VAULT_LIMIT}` : ""} owned · {wishlist.length} wishlisted
+            {!ready ? " · checking plan" : !isPremium ? ` / ${FREE_VAULT_LIMIT}` : ""} owned ·{" "}
+            {wishlist.length} wishlisted
           </p>
         </div>
         {scanOn ? (
@@ -102,7 +105,7 @@ function VaultPage() {
         )}
       </div>
 
-      <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />
+      {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
 
       <div className="mt-4 flex gap-2">
         <Tab on={tab === "owned"} onClick={() => setTab("owned")}>
@@ -130,7 +133,10 @@ function VaultPage() {
           const title = isLegacyGame ? game.name : game.title;
           return (
             <Link key={id} to="/game/$id" params={{ id }} aria-label={title} title={title}>
-              <GameCover game={{ name: title, bggId: id }} className="vault-cover aspect-[5/7] w-full" />
+              <GameCover
+                game={{ name: title, bggId: id }}
+                className="vault-cover aspect-[5/7] w-full"
+              />
             </Link>
           );
         })}

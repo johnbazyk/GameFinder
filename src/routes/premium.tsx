@@ -2,7 +2,13 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { FoxAvatar } from "@/components/fox-avatar";
-import { BILLING, billingStatus, confirmCheckout, startCheckout, type BillingTier } from "@/lib/billing";
+import {
+  BILLING,
+  billingStatus,
+  confirmCheckout,
+  startCheckout,
+  type BillingTier,
+} from "@/lib/billing";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -102,14 +108,14 @@ function PremiumPage() {
         {isPremium ? "You're on Premium" : "More room for game night"}
       </h1>
       <p className="mx-auto mt-3 max-w-sm text-center text-sm text-muted-foreground">
-        Keep an unlimited Vault, enjoy an ad-free experience, tune exact scores in Vibe filters,
-        and unlock Scores &amp; Win History. Your plays stay yours.
+        Keep an unlimited Vault, enjoy an ad-free experience, tune exact scores in Vibe filters, and
+        unlock Scores &amp; Win History. Your plays stay yours.
       </p>
 
       {access === "error" ? (
         <p role="alert" className="mt-5 rounded-card bg-muted p-3 text-sm text-muted-foreground">
-          We couldn’t verify this account’s Premium entitlement. Scoring remains locked until it
-          can be verified.
+          We couldn’t verify this account’s Premium entitlement. Scoring remains locked until it can
+          be verified.
         </p>
       ) : null}
 
@@ -120,8 +126,7 @@ function PremiumPage() {
         {(Object.keys(BILLING) as BillingTier[]).map((id) => {
           const plan = BILLING[id];
           const featured = id === "yearly";
-          const available =
-            subscriptionManagement && stripe === true && prices[id];
+          const available = subscriptionManagement && stripe === true && prices[id];
           return (
             <button
               key={id}
@@ -178,6 +183,7 @@ function PremiumPage() {
           <li>Unlimited Vault; Free includes up to 50 games.</li>
           <li>Ad-free experience.</li>
           <li>Advanced exact-score filters in the Vibe step.</li>
+          <li>Teach Me and Ask Finn.</li>
           <li>Scorecards, winning records, win/loss statistics, and lifetime standings.</li>
         </ul>
       </section>

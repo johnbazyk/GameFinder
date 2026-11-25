@@ -16,6 +16,13 @@ import { STARTER_SHELF_IDS } from "./catalog";
 import { createCustomCatalogGame, type CatalogGameRecord } from "./catalog-foundation";
 import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "./piece-color";
 
+/** Advanced targets are effective only while the current plan permits them. */
+export function entitledWizard(context: WizardContext, premium: boolean): WizardContext {
+  if (premium) return context;
+  const { ratingTargets: _ratingTargets, ...standard } = context;
+  return { ...standard, exactTraits: null };
+}
+
 export const DEFAULT_WIZARD: WizardContext = {
   players: 4,
   ageBand: null,
@@ -74,6 +81,7 @@ type AppState = {
   dismissPlayPrompt: () => void;
 
   isPremium: boolean;
+  entitlementReady: boolean;
   lastSurpriseId: string | null;
   setLastSurprise: (id: string | null) => void;
 
@@ -120,9 +128,9 @@ export const useAppStore = create<AppState>()(
         });
       },
       sniffAgain: () => {
-        const { wizard, owned, wishlist, plays, vibeWeights, shownIds, recPool } = get();
+        const { wizard, owned, wishlist, plays, vibeWeights, shownIds, recPool, isPremium } = get();
         const result = runWizard(
-          wizard,
+          entitledWizard(wizard, isPremium),
           {
             owned: recPool?.ids.length ? recPool.ids : owned,
             wishlist,
@@ -318,6 +326,7 @@ export const useAppStore = create<AppState>()(
       dismissPlayPrompt: () => set({ pendingPlayPrompt: null }),
 
       isPremium: false,
+      entitlementReady: false,
       lastSurpriseId: null,
       setLastSurprise: (id) => set({ lastSurpriseId: id }),
       upgradePrompt: null,
@@ -357,6 +366,7 @@ export const useAppStore = create<AppState>()(
         ...currentState,
         ...(persistedState as Partial<AppState>),
         isPremium: false,
+        entitlementReady: false,
       }),
       migrate: (persistedState, version) => ({
         ...(persistedState as Partial<AppState>),

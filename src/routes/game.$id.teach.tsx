@@ -5,6 +5,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
 import { DESIGN_ASSESSMENTS } from "@/lib/ratings/design-assessments";
 import { getGame } from "@/lib/scoring";
+import { PremiumGate } from "@/components/premium-gate";
 import { FinnCoach } from "@/components/finn-coach";
 import { guides } from "@/lib/written-guides";
 import { Button } from "@/components/ui/button";
@@ -70,41 +71,43 @@ function TeachGame() {
         Back to {game.name}
       </Link>
       <h1 className="font-display text-3xl">How to play {game.name}</h1>
-      <FinnCoach game={game} />
-      {guide ? (
-        <dl className="space-y-4 rounded-card bg-card p-5 shadow-card">
-          {(
-            [
-              ["Set up", guide.setup],
-              ["On your turn", guide.turn],
-              ["How to win", guide.win],
-            ] as const
-          ).map(([label, text]) => (
-            <div key={label}>
-              <dt className="font-semibold">{label}</dt>
-              <dd className="mt-1">{text}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <p>
-          {ambiguous
-            ? "Check the title and edition on your box before using the rules."
-            : profile
-              ? Object.values(profile.matchReasons)[0]
-              : "Use the instructions that came with this edition."}
-        </p>
-      )}
-      {source?.startsWith("https://") && (
-        <Button asChild>
-          <a href={source} target="_blank" rel="noreferrer">
-            {guide?.rules || /\.pdf(?:$|\?)/i.test(source)
-              ? "Open game rules"
-              : "Open game reference"}
-          </a>
-        </Button>
-      )}
-      {!guide && !ambiguous && <MoreTeaching key={id} id={id} />}
+      <PremiumGate feature="finn">
+        <FinnCoach game={game} />
+        {guide ? (
+          <dl className="space-y-4 rounded-card bg-card p-5 shadow-card">
+            {(
+              [
+                ["Set up", guide.setup],
+                ["On your turn", guide.turn],
+                ["How to win", guide.win],
+              ] as const
+            ).map(([label, text]) => (
+              <div key={label}>
+                <dt className="font-semibold">{label}</dt>
+                <dd className="mt-1">{text}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p>
+            {ambiguous
+              ? "Check the title and edition on your box before using the rules."
+              : profile
+                ? Object.values(profile.matchReasons)[0]
+                : "Use the instructions that came with this edition."}
+          </p>
+        )}
+        {source?.startsWith("https://") && (
+          <Button asChild>
+            <a href={source} target="_blank" rel="noreferrer">
+              {guide?.rules || /\.pdf(?:$|\?)/i.test(source)
+                ? "Open game rules"
+                : "Open game reference"}
+            </a>
+          </Button>
+        )}
+        {!guide && !ambiguous && <MoreTeaching key={id} id={id} />}
+      </PremiumGate>
     </main>
   );
 }

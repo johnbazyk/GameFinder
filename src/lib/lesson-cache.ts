@@ -69,7 +69,7 @@ export async function ensureLesson(gameId: string): Promise<LessonPack | null> {
   if (hit) {
     if (!refreshed.has(gameId)) {
       refreshed.add(gameId);
-      void fetchPack(gameId);
+      void fetchPack(gameId).catch(() => null);
     }
     return hit;
   }

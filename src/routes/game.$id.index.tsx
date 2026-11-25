@@ -21,6 +21,7 @@ function GamePage() {
   const game = getGame(id);
   const wizardContext = useAppStore((s) => s.wizard);
   const customGame = useAppStore((s) => s.customGames.find((entry) => entry.id === id));
+  const entitlementReady = useAppStore((s) => s.entitlementReady);
   const owned = useAppStore((s) => s.owned.includes(id));
   const wish = useAppStore((s) => s.wishlist.includes(id));
   const addOwned = useAppStore((s) => s.addOwned);
@@ -59,7 +60,7 @@ function GamePage() {
               Remove from Vault
             </Button>
           ) : (
-            <Button className="w-full" onClick={() => addOwned(id)}>
+            <Button className="w-full" disabled={!entitlementReady} onClick={() => addOwned(id)}>
               <Library className="size-4" />
               Add to Vault
             </Button>
@@ -112,9 +113,7 @@ function GamePage() {
         </div>
       </div>
 
-      {reason ? (
-        <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{reason}</p>
-      ) : null}
+      {reason ? <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{reason}</p> : null}
 
       <p className="mt-5 text-pretty leading-relaxed">{game.description}</p>
 
@@ -133,6 +132,7 @@ function GamePage() {
           <>
             <Button
               variant="primary"
+              disabled={!entitlementReady}
               onClick={() => {
                 const r = addOwned(game.bggId);
                 if (r === "ok") toast("Added to your vault");

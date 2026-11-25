@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [q, setQ] = useState("");
+  const ready = useAppStore((s) => s.entitlementReady);
   const owned = useAppStore((s) => s.owned);
   const addOwned = useAppStore((s) => s.addOwned);
   const customGames = useAppStore((s) => s.customGames);
@@ -72,6 +73,7 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
               className="mt-3 flex gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
+                if (!ready) return;
                 try {
                   const game = addCustomGame(customTitle);
                   const result = addOwned(game.id);
@@ -125,7 +127,7 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
                   size="sm"
                   variant={onShelf ? "moss" : "primary"}
                   onClick={() => addOwned(game.id)}
-                  disabled={onShelf}
+                  disabled={!ready || onShelf}
                 >
                   {onShelf ? "Owned" : "Add"}
                 </Button>
@@ -145,7 +147,7 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
                   size="sm"
                   variant={onShelf ? "moss" : "primary"}
                   onClick={() => addOwned(g.bggId)}
-                  disabled={onShelf}
+                  disabled={!ready || onShelf}
                 >
                   {onShelf ? "Owned" : "Add"}
                 </Button>

@@ -1,5 +1,14 @@
+import { useEffect, useState } from "react";
+import { getSubscriptionTestMode, setSubscriptionTestMode } from "@/lib/social";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { FLAG_DEFS, evaluate, useFlagStore, type DeviceOverride, type FlagKey, type RolloutMode } from "@/lib/flags";
+import {
+  FLAG_DEFS,
+  evaluate,
+  useFlagStore,
+  type DeviceOverride,
+  type FlagKey,
+  type RolloutMode,
+} from "@/lib/flags";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -7,6 +16,51 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/internal/flags")({ component: FlagsConsole });
 
 const STEPS = [0, 5, 10, 25, 50, 100];
+
+function SubscriptionTestControl() {
+  const [mode, setMode] = useState<"actual" | "free" | "premium" | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (import.meta.env.DEV)
+      void getSubscriptionTestMode()
+        .then((result) => {
+          if (result.enabled) setMode(result.mode);
+        })
+        .catch(() => {});
+  }, []);
+  if (mode === null) return null;
+  return (
+    <section className="mt-5 rounded-card bg-card p-4 shadow-card">
+      <h2 className="font-display text-xl">Subscription testing</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Local test account only. No purchases or billing changes. Switching reloads the app and
+        preserves your Vault.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {(["actual", "free", "premium"] as const).map((value) => (
+          <Button
+            key={value}
+            disabled={busy}
+            variant={mode === value ? "primary" : "outline"}
+            aria-pressed={mode === value}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await setSubscriptionTestMode({ data: { mode: value } });
+                window.location.reload();
+              } catch {
+                toast.error("Could not change test subscription");
+                setBusy(false);
+              }
+            }}
+          >
+            {value === "actual" ? "Actual" : value === "free" ? "Free" : "Premium"}
+          </Button>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function FlagsConsole() {
   const deviceId = useFlagStore((s) => s.deviceId);
@@ -24,7 +78,9 @@ function FlagsConsole() {
   if (!hydrated) {
     return (
       <div className="pb-12">
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-fox">Internal · staged rollouts</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-fox">
+          Internal · staged rollouts
+        </p>
         <h1 className="mt-1 font-display text-3xl">Feature flags</h1>
         <p className="mt-3 text-sm text-muted-foreground">Loading this device’s lab…</p>
       </div>
@@ -38,16 +94,22 @@ function FlagsConsole() {
 
   return (
     <div className="pb-12">
-      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-fox">Internal · staged rollouts</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-fox">
+        Internal · staged rollouts
+      </p>
       <h1 className="mt-1 font-display text-3xl">Feature flags</h1>
       <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-        Percent rollouts use a stable device bucket (0–99). Testers on this phone keep the same slice unless you rotate the id. Overrides apply only here.
+        Percent rollouts use a stable device bucket (0–99). Testers on this phone keep the same
+        slice unless you rotate the id. Overrides apply only here.
       </p>
 
+      <SubscriptionTestControl />
       <section className="mt-5 rounded-card bg-card p-4 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">This device</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              This device
+            </p>
             <p className="mt-1 font-mono text-sm">{deviceId === "pending" ? "…" : deviceId}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {live} / {FLAG_DEFS.length} flags on
@@ -88,7 +150,11 @@ function FlagsConsole() {
             />
             <span className="w-10 tabular-nums">{bucketOverride ?? "auto"}</span>
             {bucketOverride != null ? (
-              <button type="button" className="text-sm font-semibold text-sky" onClick={() => setBucketOverride(null)}>
+              <button
+                type="button"
+                className="text-sm font-semibold text-sky"
+                onClick={() => setBucketOverride(null)}
+              >
                 Clear
               </button>
             ) : null}
@@ -101,7 +167,11 @@ function FlagsConsole() {
           const runtime = flags[def.key];
           const ev = evaluate(def.key, runtime, deviceId, bucketOverride);
           return (
-            <article key={def.key} data-flag={def.key} className="rounded-card bg-card p-4 shadow-card">
+            <article
+              key={def.key}
+              data-flag={def.key}
+              className="rounded-card bg-card p-4 shadow-card"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -121,7 +191,15 @@ function FlagsConsole() {
                   <button
                     key={m}
                     type="button"
-                    onClick={() => setMode(def.key, m, m === "percent" ? Math.min(99, Math.max(1, runtime.percent || 25)) : runtime.percent)}
+                    onClick={() =>
+                      setMode(
+                        def.key,
+                        m,
+                        m === "percent"
+                          ? Math.min(99, Math.max(1, runtime.percent || 25))
+                          : runtime.percent,
+                      )
+                    }
                     aria-label={`${def.name} ${m}`}
                     className={cn(
                       "rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wide",
@@ -159,12 +237,16 @@ function FlagsConsole() {
                     className="mt-2 w-full accent-fox"
                     aria-label={`${def.name} percent`}
                   />
-                  <p className="text-xs tabular-nums text-muted-foreground">{runtime.percent}% of devices</p>
+                  <p className="text-xs tabular-nums text-muted-foreground">
+                    {runtime.percent}% of devices
+                  </p>
                 </div>
               ) : null}
 
               <div className="mt-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">This device</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  This device
+                </p>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {(["inherit", "force_on", "force_off"] as DeviceOverride[]).map((o) => (
                     <button
@@ -177,7 +259,11 @@ function FlagsConsole() {
                         runtime.override === o ? "bg-moss text-cream" : "bg-muted",
                       )}
                     >
-                      {o === "inherit" ? "Follow rollout" : o === "force_on" ? "Force on" : "Force off"}
+                      {o === "inherit"
+                        ? "Follow rollout"
+                        : o === "force_on"
+                          ? "Force on"
+                          : "Force off"}
                     </button>
                   ))}
                 </div>

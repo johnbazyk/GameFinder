@@ -43,6 +43,7 @@ export function MatchCard({
   discover?: boolean;
 }) {
   const reason = displayedMatchReason(game);
+  const ready = useAppStore((s) => s.entitlementReady);
   const addOwned = useAppStore((s) => s.addOwned);
   const amazonOn = useFlag("amazon_cta");
 
@@ -96,7 +97,7 @@ export function MatchCard({
           </a>
         ) : null}
         {!game.owned && !discover ? (
-          <Button size="sm" variant="ghost" onClick={() => addOwned(game.bggId)}>
+          <Button size="sm" variant="ghost" disabled={!ready} onClick={() => addOwned(game.bggId)}>
             Add to vault
           </Button>
         ) : null}

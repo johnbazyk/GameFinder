@@ -3,8 +3,9 @@ import { useFlag } from "@/lib/flags";
 
 export function AdBanner() {
   const premium = useAppStore((s) => s.isPremium);
+  const ready = useAppStore((s) => s.entitlementReady);
   const ads = useFlag("banner_ads");
-  if (premium || !ads) return null;
+  if (!ready || premium || !ads) return null;
   return (
     <div className="mt-6 rounded-card bg-muted/80 px-4 py-3 text-center ring-1 ring-border">
       <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">

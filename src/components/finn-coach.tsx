@@ -8,12 +8,17 @@ import { guides, type Guide } from "@/lib/written-guides";
 import { cn } from "@/lib/utils";
 import { FoxAvatar } from "./fox-avatar";
 import { VoicePlayer } from "./voice-player";
+import { PremiumGate } from "./premium-gate";
 import { FinnQuestions } from "./finn-questions";
 
 type Props = { game: Game; variant?: "panel" | "table" };
 
 export function FinnCoach({ game, variant = "panel" }: Props) {
-  return <Lesson key={game.bggId} game={game} guide={guides[game.name]} variant={variant} />;
+  return (
+    <PremiumGate feature="finn">
+      <Lesson key={game.bggId} game={game} guide={guides[game.name]} variant={variant} />
+    </PremiumGate>
+  );
 }
 
 function Lesson({ game, guide, variant }: Props & { guide?: Guide }) {

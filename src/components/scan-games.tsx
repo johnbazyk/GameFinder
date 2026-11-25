@@ -19,9 +19,13 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
   const [progress, setProgress] = useState("");
   const [message, setMessage] = useState("");
   const [report, setReport] = useState("");
-  const diagnostics = import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("scanDebug") === "1";
+  const diagnostics =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("scanDebug") === "1";
   const [manual, setManual] = useState(false);
   const owned = useAppStore((s) => s.owned);
+  const ready = useAppStore((s) => s.entitlementReady);
   const premium = useAppStore((s) => s.isPremium);
   const available = premium ? Infinity : Math.max(0, FREE_VAULT_LIMIT - owned.length);
   const selected = rows.filter((row) => row.selected && !(row.bggId && owned.includes(row.bggId)));
@@ -90,9 +94,21 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
           }
           try {
             phoneStatus = "Stopped during text recognition";
-            await reader.read(photo, (hit) => localHits.push(hit), diagnostics ? (stage, text, titles) => {
-              passes.push(stage + " · " + (titles.join(", ") || "no match") + "\n" + text.trim().slice(0, 2000));
-            } : undefined);
+            await reader.read(
+              photo,
+              (hit) => localHits.push(hit),
+              diagnostics
+                ? (stage, text, titles) => {
+                    passes.push(
+                      stage +
+                        " · " +
+                        (titles.join(", ") || "no match") +
+                        "\n" +
+                        text.trim().slice(0, 2000),
+                    );
+                  }
+                : undefined,
+            );
             phoneStatus = "Completed";
             return true;
           } catch {
@@ -104,17 +120,21 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         const [remote, local] = await Promise.race([
           Promise.all([remoteTask, localTask]),
           cancelled,
-        ]).finally(() => { photo.width = photo.height = 0; });
+        ]).finally(() => {
+          photo.width = photo.height = 0;
+        });
         signal.throwIfAborted();
         if (diagnostics) {
-          const names = (items: ScanHit[]) => items.map(hit => hit.name).join(", ") || "none";
-          setReport([
-            "Photo " + (index + 1) + " · " + dimensions,
-            "Phone reader · " + phoneStatus + " · " + passes.length + " passes",
-            "Phone matches · " + names(localHits),
-            "Server matches · " + (remote?.ok ? names(remote.hits) : "unavailable"),
-            ...passes,
-          ].join("\n\n"));
+          const names = (items: ScanHit[]) => items.map((hit) => hit.name).join(", ") || "none";
+          setReport(
+            [
+              "Photo " + (index + 1) + " · " + dimensions,
+              "Phone reader · " + phoneStatus + " · " + passes.length + " passes",
+              "Phone matches · " + names(localHits),
+              "Server matches · " + (remote?.ok ? names(remote.hits) : "unavailable"),
+              ...passes,
+            ].join("\n\n"),
+          );
         }
         const hits = [...(remote?.ok ? remote.hits : []), ...localHits];
         if (hits.length) {
@@ -129,8 +149,12 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
       signal.throwIfAborted();
       setMessage(
         [
-          unopened ? `Couldn’t open ${unopened} photo${unopened === 1 ? "" : "s"}. Try a JPEG or PNG copy.` : "",
-          unavailable ? `The scanner couldn’t finish ${unavailable} photo${unavailable === 1 ? "" : "s"}. Try the same photo again.` : "",
+          unopened
+            ? `Couldn’t open ${unopened} photo${unopened === 1 ? "" : "s"}. Try a JPEG or PNG copy.`
+            : "",
+          unavailable
+            ? `The scanner couldn’t finish ${unavailable} photo${unavailable === 1 ? "" : "s"}. Try the same photo again.`
+            : "",
           partial ? "Scanning stopped early. You can review the titles found so far." : "",
           empty ? `No titles recognized in ${empty} photo${empty === 1 ? "" : "s"}.` : "",
           empty ? "Add another angle or search for a missing title." : "",
@@ -253,7 +277,9 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         {rows.length > 0 && (
           <>
             <div className="flex items-center justify-between text-sm">
-              <span>{rows.length} found · {selected.length} selected</span>
+              <span>
+                {rows.length} found · {selected.length} selected
+              </span>
               <button
                 disabled={!rows.some(canSelect)}
                 onClick={() => {
@@ -302,7 +328,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
                 </li>
               ))}
             </ul>
-            <Button disabled={!!progress || !selected.length} onClick={addSelected}>
+            <Button disabled={!ready || !!progress || !selected.length} onClick={addSelected}>
               Add selected to Vault
             </Button>
           </>

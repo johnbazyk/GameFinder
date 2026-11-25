@@ -7,7 +7,7 @@ import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
 import { VibeGrid } from "@/components/vibe-grid";
 import { AgeBands, PlayerPicker, TimeChips, WIZARD_QUESTIONS } from "@/components/wizard-controls";
-import { useAppStore } from "@/lib/store";
+import { entitledWizard, useAppStore } from "@/lib/store";
 import { runWizard } from "@/lib/scoring";
 import type { VibeId } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,7 @@ function WizardPage() {
   const wizard = useAppStore((s) => s.wizard);
   const setWizard = useAppStore((s) => s.setWizard);
   const setResults = useAppStore((s) => s.setResults);
+  const ready = useAppStore((s) => s.entitlementReady);
   const isPremium = useAppStore((s) => s.isPremium);
   const setUpgradePrompt = useAppStore((s) => s.setUpgradePrompt);
   const advancedOn = useFlag("advanced_filters");
@@ -44,11 +45,12 @@ function WizardPage() {
   }, [sniffing, navigate]);
 
   function finish() {
+    if (!useAppStore.getState().entitlementReady) return;
     setSniffing(true);
     useAppStore.setState({ shownIds: [] });
     setWizard({ ratingSeed: crypto.randomUUID() });
     const { owned, wishlist, plays, vibeWeights, wizard: ctx, recPool } = useAppStore.getState();
-    const result = runWizard(ctx, {
+    const result = runWizard(entitledWizard(ctx, useAppStore.getState().isPremium), {
       owned: recPool?.ids.length ? recPool.ids : owned,
       wishlist,
       plays,
@@ -105,7 +107,12 @@ function WizardPage() {
             />
           ))}
         </div>
-        <button type="button" onClick={skip} className="h-11 px-2 text-sm font-semibold text-sky">
+        <button
+          type="button"
+          disabled={last && !ready}
+          onClick={skip}
+          className="h-11 px-2 text-sm font-semibold text-sky"
+        >
           Skip
         </button>
       </div>
@@ -135,6 +142,7 @@ function WizardPage() {
               <div>
                 <button
                   type="button"
+                  disabled={!ready}
                   className="text-sm font-semibold text-sky"
                   onClick={() => {
                     if (!isPremium) {
@@ -196,6 +204,7 @@ function WizardPage() {
       <div className="sticky bottom-4 mt-8">
         <Button
           size="xl"
+          disabled={last && !ready}
           className="w-full"
           onClick={() => (last ? finish() : setStep((s) => s + 1))}
         >

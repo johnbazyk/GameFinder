@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
+import { normalizeVault } from "./vault-policy";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "@/lib/piece-color";
 import { isCustomCatalogGame, type CatalogGameRecord } from "@/lib/catalog-foundation";
@@ -112,15 +113,8 @@ async function requireMember(groupId: string, userId: string) {
   return rows[0];
 }
 
-async function hasPremiumPlan(userId: string) {
-  const sql = await getSql();
-  const rows = await sql<{ plan: string }>`
-    select plan from profiles where user_id = ${userId} limit 1
-  `;
-  return rows[0]?.plan === "premium";
-}
-
 async function requirePremiumPlan(userId: string) {
+  const { hasPremiumPlan } = await import("./premium-entitlement.server");
   if (!(await hasPremiumPlan(userId))) {
     throw new Error("Scores & Win History requires GameFinder Premium.");
   }
@@ -128,9 +122,28 @@ async function requirePremiumPlan(userId: string) {
 
 export const getPremiumEntitlement = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async ({ context }) => ({
-    premium: await hasPremiumPlan(context.userId),
-  }));
+  .handler(async ({ context }) => {
+    const { hasPremiumPlan } = await import("./premium-entitlement.server");
+    return { premium: await hasPremiumPlan(context.userId) };
+  });
+
+export const getSubscriptionTestMode = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { getTestPlan } = await import("./premium-entitlement.server");
+    return getTestPlan(context.userId);
+  });
+
+export const setSubscriptionTestMode = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { mode: "actual" | "free" | "premium" }) => {
+    if (!["actual", "free", "premium"].includes(input?.mode)) throw new Error("Invalid test mode");
+    return { mode: input.mode };
+  })
+  .handler(async ({ context, data }) => {
+    const { setTestPlan } = await import("./premium-entitlement.server");
+    return setTestPlan(context.userId, data.mode);
+  });
 
 export const getMyProfile = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -152,7 +165,9 @@ export const getMyProfile = createServerFn({ method: "GET" })
       userId: r.user_id,
       displayName: r.display_name,
       avatarSeed: r.avatar_seed,
-      plan: r.plan,
+      plan: (await (await import("./premium-entitlement.server")).hasPremiumPlan(context.userId))
+        ? "premium"
+        : "free",
       pieceColor: normalizePieceColor(r.piece_color),
     } satisfies Profile;
   });
@@ -200,28 +215,12 @@ export const getCloudVault = createServerFn({ method: "GET" })
 
 export const replaceCloudVault = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { owned: string[]; wishlist: string[] }) => ({
-    owned: Array.from(new Set((input?.owned ?? []).map(String))).slice(0, 400),
-    wishlist: Array.from(new Set((input?.wishlist ?? []).map(String))).slice(0, 400),
-  }))
+  .validator(normalizeVault)
   .handler(async ({ context, data }) => {
-    const sql = await getSql();
-    await sql`delete from vault_games where user_id = ${context.userId}`;
-    for (const id of data.owned) {
-      await sql`
-        insert into vault_games (user_id, bgg_id, list)
-        values (${context.userId}, ${id}, 'owned')
-        on conflict do nothing
-      `;
-    }
-    for (const id of data.wishlist) {
-      await sql`
-        insert into vault_games (user_id, bgg_id, list)
-        values (${context.userId}, ${id}, 'wishlist')
-        on conflict do nothing
-      `;
-    }
-    return { ok: true as const };
+    await ensureProfile(context.userId);
+    const { withSqlTransaction } = await import("./db");
+    const { replaceVaultSnapshot } = await import("./vault-sync.server");
+    return withSqlTransaction((sql) => replaceVaultSnapshot(sql, context.userId, data));
   });
 
 export const getCloudCatalogGames = createServerFn({ method: "GET" })

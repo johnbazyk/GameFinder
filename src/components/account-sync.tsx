@@ -4,6 +4,7 @@ import {
   getCloudVault,
   getCloudCatalogGames,
   getMyProfile,
+  getPremiumEntitlement,
   replaceCloudVault,
   syncCloudCatalogGames,
 } from "@/lib/social";
@@ -18,6 +19,24 @@ export function AccountSync() {
   const [catalogSyncError, setCatalogSyncError] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
 
+  const userId = user?.id;
+  useEffect(() => {
+    let active = true;
+    useAppStore.setState({ isPremium: false, entitlementReady: !isPending && !userId });
+    if (!isPending && userId) {
+      void getPremiumEntitlement()
+        .then(({ premium }) => {
+          if (active) useAppStore.setState({ isPremium: premium, entitlementReady: true });
+        })
+        .catch(() => {
+          if (active) useAppStore.setState({ isPremium: false, entitlementReady: true });
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [userId, isPending, catalogRetry]);
+
   useEffect(() => {
     if (isPending || !user) {
       mergedFor.current = null;
@@ -28,7 +47,6 @@ export function AccountSync() {
     mergedFor.current = user.id;
     catalogLoadedFor.current = null;
     setCatalogSyncError(false);
-    useAppStore.setState({ isPremium: false });
     let active = true;
     const isCurrent = () => active && mergedFor.current === user.id;
     void (async () => {
@@ -79,11 +97,9 @@ export function AccountSync() {
           const prof = await getMyProfile();
           if (!isCurrent()) return;
           if (prof.pieceColor) useAppStore.getState().setPieceColor(prof.pieceColor);
-          useAppStore.setState({ isPremium: prof.plan === "premium" });
         } catch (error) {
           if (!isCurrent()) return;
-          useAppStore.setState({ isPremium: false });
-          console.error("[account-sync] Couldn't verify Premium plan status.", error);
+          console.error("[account-sync] Couldn't load profile.", error);
         }
         if (isCurrent()) await replaceCloudVault({ data: { owned, wishlist } });
       } catch (error) {
@@ -102,13 +118,18 @@ export function AccountSync() {
     let vaultTimer: number | null = null;
     let catalogTimer: number | null = null;
     const unsub = useAppStore.subscribe((state, prev) => {
-      if (state.owned !== prev.owned || state.wishlist !== prev.wishlist) {
+      if (
+        mergedFor.current === user.id &&
+        catalogLoadedFor.current === user.id &&
+        (state.owned !== prev.owned || state.wishlist !== prev.wishlist)
+      ) {
         if (vaultTimer) window.clearTimeout(vaultTimer);
         vaultTimer = window.setTimeout(() => {
           const latest = useAppStore.getState();
           void replaceCloudVault({
             data: { owned: latest.owned, wishlist: latest.wishlist },
           }).catch((error) => {
+            setCatalogSyncError(true);
             console.error("[account-sync] Couldn't save the cloud Vault.", error);
           });
         }, 900);
@@ -121,10 +142,7 @@ export function AccountSync() {
         if (catalogTimer) window.clearTimeout(catalogTimer);
         catalogTimer = window.setTimeout(() => {
           const latest = useAppStore.getState();
-          if (
-            latest.customGamesOwnerId !== user.id ||
-            catalogLoadedFor.current !== user.id
-          ) {
+          if (latest.customGamesOwnerId !== user.id || catalogLoadedFor.current !== user.id) {
             return;
           }
           void syncCloudCatalogGames({ data: { games: latest.customGames } })
@@ -150,7 +168,7 @@ export function AccountSync() {
       role="alert"
       className="fixed inset-x-3 bottom-3 z-[100] flex items-center justify-between gap-3 rounded-card bg-destructive p-3 text-sm text-destructive-foreground shadow-lift"
     >
-      <span>Saved account data could not be synced. Your local catalog is still here.</span>
+      <span>Saved account data could not be synced. Your local collection is still here.</span>
       <button
         type="button"
         className="shrink-0 font-semibold underline"

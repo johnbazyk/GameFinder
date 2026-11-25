@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { authMiddleware } from "@/lib/auth/middleware";
 import { guides } from "./written-guides";
 import { getGame } from "./scoring";
 import { CATALOG_EXTERNAL_ID_CONFLICTS } from "./catalog";
@@ -21,9 +22,13 @@ function apiKey() {
   return process.env.XAI_API_KEY;
 }
 
-export const isFinnVoiceConfigured = createServerFn({ method: "GET" }).handler(async () =>
-  Boolean(apiKey()),
-);
+export const isFinnVoiceConfigured = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { requireFinnPremium } = await import("./premium-entitlement.server");
+    await requireFinnPremium(context.userId);
+    return Boolean(apiKey());
+  });
 
 function brief(gameId: string) {
   if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === gameId)) {
@@ -43,7 +48,8 @@ function brief(gameId: string) {
     ].join("\n");
   }
   const guide = guides[game.name];
-  if (guide) return [game.name, guide.goal, guide.setup, guide.turn, guide.win, guide.tip].join("\n");
+  if (guide)
+    return [game.name, guide.goal, guide.setup, guide.turn, guide.win, guide.tip].join("\n");
   return `Game title only: ${game.name}. No edition or rulebook has been verified.`;
 }
 
@@ -82,6 +88,7 @@ function trimMessages(messages: CoachMessage[]) {
 }
 
 export const askFinn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator((input: { gameId: string; mode: CoachMode; messages: CoachMessage[] }) => {
     if (!input?.gameId) throw new Error("Missing game");
     if (input.mode !== "teach" && input.mode !== "table") throw new Error("Bad mode");
@@ -91,7 +98,9 @@ export const askFinn = createServerFn({ method: "POST" })
       messages: trimMessages(Array.isArray(input.messages) ? input.messages : []),
     };
   })
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { requireFinnPremium } = await import("./premium-entitlement.server");
+    await requireFinnPremium(context.userId);
     if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === data.gameId)) {
       return { ok: false as const, error: "ambiguous-game" };
     }
@@ -176,10 +185,13 @@ function parseLesson(raw: string): LessonPack | null {
 }
 
 export const askFinnLesson = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator((input: { gameId: string }) => ({
     gameId: String(input?.gameId ?? "").slice(0, 32),
   }))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { requireFinnPremium } = await import("./premium-entitlement.server");
+    await requireFinnPremium(context.userId);
     if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === data.gameId)) {
       return { ok: false as const, error: "ambiguous-game" };
     }
@@ -213,10 +225,13 @@ export const askFinnLesson = createServerFn({ method: "POST" })
   });
 
 export const speakFinn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator((input: { text: string }) => ({
     text: stripForSpeech(String(input?.text ?? "")),
   }))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { requireFinnPremium } = await import("./premium-entitlement.server");
+    await requireFinnPremium(context.userId);
     const key = apiKey();
     if (!key) return { ok: false as const, error: "unavailable" };
     if (!data.text) return { ok: false as const, error: "empty" };
@@ -248,11 +263,14 @@ export const speakFinn = createServerFn({ method: "POST" })
   });
 
 export const hearFinn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator((input: { audioBase64: string; mime: string }) => ({
     audioBase64: String(input?.audioBase64 ?? ""),
     mime: String(input?.mime ?? "audio/webm").slice(0, 80),
   }))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { requireFinnPremium } = await import("./premium-entitlement.server");
+    await requireFinnPremium(context.userId);
     const key = apiKey();
     if (!key) return { ok: false as const, error: "unavailable" };
     if (!data.audioBase64 || data.audioBase64.length < 80) {
