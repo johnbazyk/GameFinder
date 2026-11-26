@@ -113,6 +113,7 @@ type AppState = BrowseState & {
 
   isPremium: boolean;
   entitlementReady: boolean;
+  adEntitlement: "unknown" | "free" | "premium";
   lastSurpriseId: string | null;
   setLastSurprise: (id: string | null) => void;
 
@@ -373,6 +374,7 @@ export const useAppStore = create<AppState>()(
 
       isPremium: false,
       entitlementReady: false,
+      adEntitlement: "unknown",
       lastSurpriseId: null,
       setLastSurprise: (id) => set({ lastSurpriseId: id }),
       upgradePrompt: null,
@@ -418,6 +420,7 @@ export const useAppStore = create<AppState>()(
         ...EMPTY_BROWSE,
         isPremium: false,
         entitlementReady: false,
+        adEntitlement: "unknown",
       }),
       migrate: (persistedState, version) => ({
         ...(persistedState as Partial<AppState>),

@@ -302,12 +302,12 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-night/40" />
+        <Dialog.Overlay className="app-modal-overlay fixed inset-0 z-50 bg-night/40" />
         <Dialog.Content
           aria-label="Scan games"
           aria-describedby={undefined}
           onPointerDownOutside={(event) => event.preventDefault()}
-          className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-lg flex-col gap-3 rounded-t-2xl bg-background p-4 shadow-lift sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+          className="app-bottom-sheet fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-lg flex-col gap-3 rounded-t-2xl bg-background p-4 shadow-lift sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
         >
           <header className="flex items-center justify-between">
             <Dialog.Title className="font-display text-xl">

@@ -5,12 +5,7 @@ import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
 import { GameCover } from "@/components/game-cover";
 import { useAppStore } from "@/lib/store";
-import {
-  formatAge,
-  formatPlaytime,
-  formatPlayers,
-  pickSurprise,
-} from "@/lib/scoring";
+import { formatAge, formatPlaytime, formatPlayers, pickSurprise } from "@/lib/scoring";
 import type { Game } from "@/lib/types";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -26,13 +21,17 @@ function Home() {
   function rollSurprise() {
     if (!owned.length) {
       setSurprise(null);
-      setSurpriseMessage("Your vault is empty. Add a game to your vault before asking Finn to pick one.");
+      setSurpriseMessage(
+        "Your vault is empty. Add a game to your vault before asking Finn to pick one.",
+      );
       return;
     }
     const pick = pickSurprise(owned, lastSurpriseId ?? undefined);
     if (!pick) {
       setSurprise(null);
-      setSurpriseMessage("No playable games were found in your vault. Update your vault and try again.");
+      setSurpriseMessage(
+        "No playable games were found in your vault. Update your vault and try again.",
+      );
       return;
     }
     setSurpriseMessage(null);
@@ -59,7 +58,7 @@ function Home() {
       </div>
 
       {surprise || surpriseMessage ? (
-        <div className="fixed inset-0 z-40 grid place-items-end bg-night/40 sm:place-items-center sm:p-6">
+        <div className="app-modal-overlay fixed inset-0 z-40 grid place-items-end bg-night/40 sm:place-items-center sm:p-6">
           <div className="w-full max-w-md rounded-t-2xl bg-background p-5 shadow-lift sm:rounded-2xl">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
@@ -87,14 +86,19 @@ function Home() {
                   <div>
                     <h2 className="font-display text-2xl">{surprise.name}</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {formatPlayers(surprise)} players · {formatPlaytime(surprise)} · {formatAge(surprise)}
+                      {formatPlayers(surprise)} players · {formatPlaytime(surprise)} ·{" "}
+                      {formatAge(surprise)}
                     </p>
-                    <p className="mt-3 text-sm">A random pick from your vault, without applying filters.</p>
+                    <p className="mt-3 text-sm">
+                      A random pick from your vault, without applying filters.
+                    </p>
                   </div>
                 </div>
                 <Button
                   className="mt-5 w-full"
-                  onClick={() => navigate({ to: "/game/$id/teach", params: { id: surprise.bggId } })}
+                  onClick={() =>
+                    navigate({ to: "/game/$id/teach", params: { id: surprise.bggId } })
+                  }
                 >
                   <Mic className="size-4" />
                   Teach me, then play

@@ -72,10 +72,10 @@ export function AddGameDialog({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-night/40" />
+        <Dialog.Overlay className="app-modal-overlay fixed inset-0 z-50 bg-night/40" />
         <Dialog.Content
           aria-describedby={undefined}
-          className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full max-w-lg flex-col rounded-t-2xl bg-background shadow-lift sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+          className="app-bottom-sheet fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full max-w-lg flex-col rounded-t-2xl bg-background shadow-lift sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
         >
           <div className="flex items-center justify-between px-4 pt-4">
             <Dialog.Title className="font-display text-xl">

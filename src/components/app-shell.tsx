@@ -7,7 +7,7 @@ import { markFlagsHydrated } from "@/lib/flags";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { UpgradeSheet } from "@/components/upgrade-sheet";
 import { FinnProcessing } from "./finn-processing";
-import { AdBanner } from "./ad-banner";
+import { AdBanner, useShowAdBanner } from "./ad-banner";
 import { AccountSync } from "@/components/account-sync";
 
 const NAV = [
@@ -36,6 +36,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     /\/game\/[^/]+\/table\/?$/.test(pathname);
   const theme = useAppStore((s) => s.theme);
   const isPremium = useAppStore((s) => s.isPremium);
+  const showAd = useShowAdBanner();
+  const adPlan = useAppStore((s) => s.adEntitlement);
   const taps = useRef({ n: 0, t: 0 });
 
   useEffect(() => {
@@ -86,7 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
 
   return (
-    <div className="paper-grain min-h-dvh text-foreground">
+    <div className={cn("paper-grain min-h-dvh text-foreground", showAd && "app-has-ad")}>
       <AccountSync />
       {hideNav ? null : (
         <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md">
@@ -192,39 +194,55 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
       )}
-      <main className={cn("mx-auto w-full max-w-3xl px-4 pt-5", !hideNav && "safe-bottom")}>
-        {!/^\/(internal|login|invite)(\/|$)/.test(pathname) && <AdBanner />}
+      <main
+        className={cn(
+          "mx-auto w-full max-w-3xl px-4 pt-5",
+          !hideNav && "safe-bottom",
+          showAd && "app-ad-space",
+        )}
+      >
         <div key={user?.id ?? "guest:"}>{children}</div>
         <UpgradeSheet />
       </main>
-      {!hideNav ? (
-        <nav
-          aria-label="Primary navigation"
-          className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-background/95 backdrop-blur-md sm:hidden"
-        >
-          <ul className="mx-auto grid max-w-3xl grid-cols-4 px-1 pt-1.5 pb-[max(0.55rem,env(safe-area-inset-bottom))]">
-            {NAV.map((item) => {
-              const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
-              const Icon = item.icon;
-              return (
-                <li key={item.to}>
-                  <Link
-                    to={item.to}
-                    aria-current={active ? "page" : undefined}
-                    className={cn(
-                      "flex min-h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-bold",
-                      active ? "text-fox" : "text-muted-foreground",
-                    )}
-                  >
-                    <Icon className="size-6" strokeWidth={active ? 2.5 : 2} />
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-      ) : null}
+      <footer
+        data-app-footer
+        data-ad-plan={adPlan}
+        className={cn(
+          "fixed inset-x-0 bottom-0 z-30 bg-background",
+          !hideNav && "app-footer-nav",
+          showAd && "app-footer-ad",
+        )}
+      >
+        {!hideNav ? (
+          <nav
+            aria-label="Primary navigation"
+            className="border-t border-border/70 bg-background sm:hidden"
+          >
+            <ul className="mx-auto grid max-w-3xl grid-cols-4 px-1 pt-1.5 pb-2">
+              {NAV.map((item) => {
+                const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+                const Icon = item.icon;
+                return (
+                  <li key={item.to}>
+                    <Link
+                      to={item.to}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "flex min-h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-bold",
+                        active ? "text-fox" : "text-muted-foreground",
+                      )}
+                    >
+                      <Icon className="size-6" strokeWidth={active ? 2.5 : 2} />
+                      {item.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        ) : null}
+        <AdBanner />
+      </footer>
     </div>
   );
 }

@@ -32,20 +32,32 @@ export function AccountSync() {
     const refresh = () => {
       const request = ++sequence;
       if (isPending || !userId) {
-        useAppStore.setState({ isPremium: false, entitlementReady: !isPending });
+        useAppStore.setState({
+          isPremium: false,
+          entitlementReady: !isPending,
+          adEntitlement: isPending ? "unknown" : "free",
+        });
         return;
       }
       void getPremiumEntitlement()
         .then(({ premium }) => {
           if (active && request === sequence && useAppStore.getState().vaultOwnerId === userId)
-            useAppStore.setState({ isPremium: premium, entitlementReady: true });
+            useAppStore.setState({
+              isPremium: premium,
+              entitlementReady: true,
+              adEntitlement: premium ? "premium" : "free",
+            });
         })
         .catch(() => {
           if (active && request === sequence)
-            useAppStore.setState({ isPremium: false, entitlementReady: true });
+            useAppStore.setState({
+              isPremium: false,
+              entitlementReady: true,
+              adEntitlement: "unknown",
+            });
         });
     };
-    useAppStore.setState({ isPremium: false, entitlementReady: false });
+    useAppStore.setState({ isPremium: false, entitlementReady: false, adEntitlement: "unknown" });
     refresh();
     window.addEventListener("focus", refresh);
     const timer = window.setInterval(refresh, 60000);
@@ -101,6 +113,7 @@ export function AccountSync() {
         pieceColor: DEFAULT_PIECE_COLOR,
         isPremium: false,
         entitlementReady: userId === null,
+        adEntitlement: userId === null ? "free" : "unknown",
       });
     }
     setError(false);

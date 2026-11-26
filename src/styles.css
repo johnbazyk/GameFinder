@@ -773,3 +773,24 @@
   height: 4.25rem;
   font-size: 1.2rem;
 }
+
+
+/* Shared footer: navigation above the only ad slot; safe area below both. */
+.app-footer-nav, .app-footer-ad { padding-bottom: env(safe-area-inset-bottom); }
+.app-ad-space { padding-bottom: calc(50px + env(safe-area-inset-bottom) + 1rem); }
+.safe-bottom.app-ad-space { padding-bottom: calc(6.75rem + 50px + env(safe-area-inset-bottom)); }
+.app-has-ad .wizard-next { bottom: calc(50px + env(safe-area-inset-bottom) + 1rem); }
+@media (min-width: 640px) {
+  .app-footer-nav:not(.app-footer-ad) { padding-bottom: 0; }
+  .safe-bottom.app-ad-space { padding-bottom: calc(50px + env(safe-area-inset-bottom) + 1rem); }
+}
+
+/* Portaled dialogs must respect the same reserved screen area. */
+html:has(.app-has-ad) { --app-ad-offset: calc(50px + env(safe-area-inset-bottom)); }
+html:has(.app-has-ad) .app-modal-overlay { bottom: var(--app-ad-offset); }
+html:has(.app-has-ad) .app-bottom-sheet { bottom: var(--app-ad-offset); max-height: min(88dvh, calc(100dvh - var(--app-ad-offset) - 1rem)); }
+.app-has-ad :is(.bank-screen, .stock-screen) { bottom: var(--app-ad-offset); height: calc(100dvh - var(--app-ad-offset)); padding-bottom: 0.5rem; }
+@media (min-width: 640px) {
+  html:has(.app-has-ad) .app-bottom-sheet { bottom: auto; top: calc((100dvh - var(--app-ad-offset)) / 2); }
+  .safe-bottom:not(.app-ad-space) { padding-bottom: 1rem; }
+}

@@ -199,7 +199,7 @@ function WizardPage() {
         )}
       </div>
 
-      <div className="sticky bottom-4 mt-8">
+      <div className="wizard-next sticky bottom-4 mt-8">
         <Button
           size="xl"
           disabled={last && !ready}
