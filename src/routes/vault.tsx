@@ -6,7 +6,6 @@ import { ScanGames } from "@/components/scan-games";
 import { EmptyState } from "@/components/empty-state";
 import { GameCover } from "@/components/game-cover";
 import { Button } from "@/components/ui/button";
-import { AdBanner } from "@/components/ad-banner";
 import { getGame } from "@/lib/scoring";
 import { useAppStore } from "@/lib/store";
 import { FREE_VAULT_LIMIT } from "@/lib/types";
@@ -187,7 +186,6 @@ function VaultPage() {
         <Plus className="size-4" />
         {tab === "wish" ? "Search catalog to add to Wishlist" : "Can’t scan it? Search by title."}
       </button>
-      <AdBanner />
       <ScanGames open={scan} onClose={() => setScan(false)} />
       <AddGameDialog open={manual} collection={tab} onClose={() => setManual(false)} />
     </div>

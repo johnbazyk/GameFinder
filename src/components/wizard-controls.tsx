@@ -28,9 +28,7 @@ export function PlayerPicker({
         </button>
         <div className="min-w-24 text-center">
           <div className="font-display text-6xl tabular-nums leading-none">{label}</div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            {n === 1 ? "player" : "players"}
-          </div>
+          <div className="mt-2 text-sm text-muted-foreground">{n === 1 ? "player" : "players"}</div>
         </div>
         <button
           type="button"
@@ -44,6 +42,56 @@ export function PlayerPicker({
       <p className="text-center text-sm text-muted-foreground">
         1 to 13+. Past 13, most party games just scale.
       </p>
+    </div>
+  );
+}
+
+/** Discover's unrestricted state is explicit, with no hidden activation step. */
+export function DiscoverPlayerPicker({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (n: number | null) => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center gap-6">
+        <button
+          type="button"
+          aria-label="Fewer players"
+          disabled={value === null}
+          onClick={() => onChange(value === 1 ? null : Math.max(1, (value ?? 1) - 1))}
+          className="grid size-14 place-items-center rounded-button bg-card ring-1 ring-border disabled:opacity-40"
+        >
+          <Minus className="size-5" />
+        </button>
+        <div className="min-w-24 text-center" aria-live="polite">
+          <div className="font-display text-6xl tabular-nums leading-none">
+            {value === null ? "Any" : value === MAX_PLAYER_COUNT ? "13+" : value}
+          </div>
+          <div className="mt-2 text-sm text-muted-foreground">
+            {value === 1 ? "player" : "players"}
+          </div>
+        </div>
+        <button
+          type="button"
+          aria-label="More players"
+          disabled={value === MAX_PLAYER_COUNT}
+          onClick={() => onChange(Math.min(MAX_PLAYER_COUNT, (value ?? 0) + 1))}
+          className="grid size-14 place-items-center rounded-button bg-card ring-1 ring-border disabled:opacity-40"
+        >
+          <Plus className="size-5" />
+        </button>
+      </div>
+      <button
+        type="button"
+        aria-pressed={value === null}
+        className="min-h-11 text-sm font-semibold text-sky"
+        onClick={() => onChange(null)}
+      >
+        Any number of players
+      </button>
     </div>
   );
 }

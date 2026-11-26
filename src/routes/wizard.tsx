@@ -204,7 +204,11 @@ function WizardPage() {
           size="xl"
           disabled={last && !ready}
           className="w-full"
-          onClick={() => (last ? finish() : setStep((s) => s + 1))}
+          onClick={() => {
+            if (step === 0 && wizard.players === null) setWizard({ players: 4 });
+            if (last) finish();
+            else setStep((s) => s + 1);
+          }}
         >
           {last ? "Sniff it out" : "Next"}
           <ArrowRight className="size-5" />

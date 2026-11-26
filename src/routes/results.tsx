@@ -4,7 +4,6 @@ import { FoxAvatar } from "@/components/fox-avatar";
 import { MatchCard } from "@/components/match-card";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
-import { AdBanner } from "@/components/ad-banner";
 import { MAX_PLAYER_COUNT, type MatchCoverage } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
 import { VIBE_META, AGE_BANDS } from "@/lib/vibes";
@@ -144,7 +143,6 @@ function ResultsPage() {
           Start over
         </button>
       </div>
-      <AdBanner />
     </div>
   );
 }

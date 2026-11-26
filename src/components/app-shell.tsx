@@ -7,6 +7,7 @@ import { markFlagsHydrated } from "@/lib/flags";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { UpgradeSheet } from "@/components/upgrade-sheet";
 import { FinnProcessing } from "./finn-processing";
+import { AdBanner } from "./ad-banner";
 import { AccountSync } from "@/components/account-sync";
 
 const NAV = [
@@ -192,6 +193,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
       )}
       <main className={cn("mx-auto w-full max-w-3xl px-4 pt-5", !hideNav && "safe-bottom")}>
+        {!/^\/(internal|login|invite)(\/|$)/.test(pathname) && <AdBanner />}
         <div key={user?.id ?? "guest:"}>{children}</div>
         <UpgradeSheet />
       </main>

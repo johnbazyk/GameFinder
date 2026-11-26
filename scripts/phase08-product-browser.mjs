@@ -28,7 +28,8 @@ try {
   await page.getByRole("button", { name: "Add to Wishlist", exact: true }).click();
   await page.getByRole("textbox", { name: "Search the catalog" }).fill("Splendor");
   await page.getByRole("button", { name: "Details for Splendor", exact: true }).click();
-  await page.getByRole("heading", { name: "GameFinder Vibes" }).waitFor();
+  await page.getByText("How it plays", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("heading", { name: "GameFinder Vibes" }).count(), 0);
   await page.getByText("Mechanics:", { exact: true }).waitFor();
   await page
     .getByRole("dialog")
@@ -47,12 +48,13 @@ try {
   assert.equal(await page.getByRole("link", { name: "Splendor", exact: true }).count(), 0);
   console.log("PASS move Wishlist to Owned");
   await go("/discover");
-  await page.getByRole("button", { name: "Any number", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Any number of players", exact: true }).waitFor();
+  await page.getByText("Featured Games", { exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: /Skip/ }).count(), 0);
-  await page.getByRole("button", { name: "Set player count" }).click();
+  await page.getByRole("button", { name: "More players" }).click();
   await page.getByRole("button", { name: "More players" }).waitFor();
-  await page.getByRole("button", { name: "Any number", exact: true }).click();
-  assert.equal(await page.getByRole("button", { name: "More players" }).count(), 0);
+  await page.getByRole("button", { name: "Any number of players", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "More players" }).count(), 1);
   await page.getByRole("searchbox").fill("Splendor");
   await page
     .getByRole("link", { name: /Splendor/ })
@@ -74,13 +76,11 @@ try {
     ctx.fillText("CATAN", 40, 150);
     return c.toDataURL("image/png").split(",")[1];
   });
-  await page
-    .locator("input[type=file][multiple]")
-    .setInputFiles({
-      name: "synthetic.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(photo, "base64"),
-    });
+  await page.locator("input[type=file][multiple]").setInputFiles({
+    name: "synthetic.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(photo, "base64"),
+  });
   await page.getByText("Finn is exploring your shelf…", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Close scanner" }).click();
   assert.equal(await page.getByRole("dialog").count(), 0);

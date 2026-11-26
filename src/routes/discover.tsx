@@ -4,9 +4,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { Search, X } from "lucide-react";
 import { GameCover } from "@/components/game-cover";
-import { AdBanner } from "@/components/ad-banner";
 import { VibeGrid } from "@/components/vibe-grid";
-import { AgeBands, PlayerPicker, TimeChips, WIZARD_QUESTIONS } from "@/components/wizard-controls";
+import {
+  AgeBands,
+  DiscoverPlayerPicker,
+  TimeChips,
+  WIZARD_QUESTIONS,
+} from "@/components/wizard-controls";
 import { STARTER_SHELF_IDS, standaloneGames } from "@/lib/catalog";
 import {
   discoverAlternatives,
@@ -47,12 +51,10 @@ function DiscoverPage() {
     return discoverGames(filters, q);
   }, [filters, q]);
 
-  const popular = useMemo(() => {
+  const featured = useMemo(() => {
     const fromShelf = STARTER_SHELF_IDS.map(getGame).filter((g): g is Game => Boolean(g));
-    if (fromShelf.length >= 8) return fromShelf.slice(0, 10);
-    return standaloneGames()
-      .slice()
-      .sort((a, b) => b.bggRating - a.bggRating)
+    return fromShelf
+      .filter((g) => standaloneGames().some((item) => item.bggId === g.bggId))
       .slice(0, 10);
   }, []);
 
@@ -61,7 +63,7 @@ function DiscoverPage() {
       results.length === 0 && filters.vibes.length > 0 ? discoverAlternatives(filters, q) : [],
     [filters, q, results.length],
   );
-  const list = filtered || browseAll ? results : popular;
+  const list = filtered || browseAll ? results : featured;
 
   function clear() {
     setQ("");
@@ -117,28 +119,10 @@ function DiscoverPage() {
             {filters.players == null ? "No player-count limit" : WIZARD_QUESTIONS[0].hint}
           </p>
         </div>
-        <button
-          type="button"
-          aria-pressed={filters.players === null}
-          className="min-h-11 font-semibold text-sky"
-          onClick={() => setFilters((current) => ({ ...current, players: null }))}
-        >
-          Any number
-        </button>
-        {filters.players === null ? (
-          <button
-            type="button"
-            className="ml-4 min-h-11 font-semibold text-sky"
-            onClick={() => setFilters((current) => ({ ...current, players: 4 }))}
-          >
-            Set player count
-          </button>
-        ) : (
-          <PlayerPicker
-            value={filters.players}
-            onChange={(players) => setFilters((current) => ({ ...current, players }))}
-          />
-        )}
+        <DiscoverPlayerPicker
+          value={filters.players}
+          onChange={(players) => setFilters((current) => ({ ...current, players }))}
+        />
       </fieldset>
 
       <fieldset className="mt-5">
@@ -201,7 +185,7 @@ function DiscoverPage() {
             ? `${results.length} ${results.length === 1 ? "game" : "games"}`
             : browseAll
               ? "All games"
-              : "Popular to start"}
+              : "Featured Games"}
         </p>
         {filtered ? (
           <button type="button" className="min-h-11 text-sm font-semibold text-sky" onClick={clear}>
@@ -214,7 +198,7 @@ function DiscoverPage() {
               className="min-h-11 text-sm font-semibold text-sky"
               onClick={() => setBrowseAll((current) => !current)}
             >
-              {browseAll ? "Popular picks" : "Browse all"}
+              {browseAll ? "Featured games" : "Browse all"}
             </button>
             <Link to="/wizard" className="min-h-11 text-sm font-semibold text-sky">
               Ask Finn
@@ -292,7 +276,6 @@ function DiscoverPage() {
       <p className="mt-6 text-center text-sm text-muted-foreground">
         Tonight’s pick is on Home. This is the whole shelf.
       </p>
-      <AdBanner />
     </div>
   );
 }
