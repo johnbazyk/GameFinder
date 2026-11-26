@@ -40,13 +40,15 @@ function Home() {
   }
 
   return (
-    <div className="pb-8">
-      <div className="anim-rise flex flex-col items-center pt-1 text-center">
-        <FoxAvatar mood="hopeful" size="md" />
-        <h1 className="mt-2 max-w-md font-display text-4xl">What should we play right now?</h1>
+    <div className="home-finn-layout pb-8">
+      <div className="home-finn-intro anim-rise flex flex-col items-center pt-3 text-center sm:pt-5">
+        <FoxAvatar mood="hopeful" size="hero" />
+        <h1 className="home-finn-title mt-4 max-w-md font-display text-3xl sm:text-4xl">
+          What should we play right now?
+        </h1>
       </div>
 
-      <div className="anim-rise mt-5 flex flex-col gap-2">
+      <div className="home-finn-actions anim-rise mt-7 flex flex-col gap-3 sm:mt-9">
         <Button size="xl" className="w-full" onClick={() => navigate({ to: "/wizard" })}>
           Find a Game
           <ArrowRight className="size-5" />

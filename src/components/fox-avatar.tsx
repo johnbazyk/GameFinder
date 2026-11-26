@@ -28,19 +28,19 @@ export function FoxAvatar({
   className?: string;
 }) {
   const dim = {
-    sm: "size-16",
-    md: "size-28",
-    lg: "size-40",
-    hero: "size-52 sm:size-64",
+    sm: "size-20 sm:size-24",
+    md: "size-36 sm:size-40",
+    lg: "size-44 sm:size-52",
+    hero: "size-[clamp(10rem,30dvh,18rem)] sm:size-[clamp(12rem,34dvh,21rem)]",
   }[size];
 
   const [pose, description] = ART[mood];
 
   return (
-    <figure className={cn("flex flex-col items-center gap-3", className)}>
+    <figure data-finn-size={size} className={cn("flex flex-col items-center gap-3", className)}>
       <div
         className={cn(
-          "overflow-hidden rounded-2xl",
+          "max-w-full shrink-0 overflow-hidden rounded-2xl",
           dim,
           mood === "sniffing" && "anim-sniff",
           mood === "celebrate" && "anim-hop",

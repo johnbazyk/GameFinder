@@ -112,7 +112,7 @@ try {
     await page.setViewportSize({ width, height: 844 });
     for (const path of paths(width)) {
       await go(path);
-      await page.locator('[data-ad-plan="premium"]').waitFor();
+      await page.locator('[data-ad-plan="premium"]').waitFor({ state: "attached" });
       await page.waitForFunction(
         () =>
           !document.querySelector(".app-has-ad") &&
