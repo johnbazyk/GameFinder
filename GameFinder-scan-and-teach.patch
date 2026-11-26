@@ -1,0 +1,1017 @@
+From e7775dc9d6b0b78878bcc03356d11bc3b755fe6f Mon Sep 17 00:00:00 2001
+From: Codex <codex@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 21:57:56 -0700
+Subject: [PATCH] Recognize box titles locally and open written game guides
+
+---
+ .gitignore                                   |   2 +
+ package-lock.json                            | 122 +++++++++++++++
+ package.json                                 |   2 +
+ src/components/match-card.tsx                |   2 +-
+ src/components/minigames/bank-table.tsx      |   4 +-
+ src/components/minigames/stockpile-table.tsx |   4 +-
+ src/components/scan-games.tsx                | 136 +++++++++-------
+ src/lib/box-ocr.ts                           |  27 ++++
+ src/lib/box-titles.ts                        |  10 ++
+ src/lib/catalog.ts                           |   3 +-
+ src/lib/scan-photo.ts                        |  21 +++
+ src/lib/scan.ts                              |  15 +-
+ src/routeTree.gen.ts                         |  21 +++
+ src/routes/game.$id.index.tsx                |   4 +-
+ src/routes/game.$id.teach.tsx                | 155 +++++++++++++++++++
+ src/routes/index.tsx                         |   2 +-
+ vite.config.ts                               |  19 ++-
+ 17 files changed, 478 insertions(+), 71 deletions(-)
+ create mode 100644 src/lib/box-ocr.ts
+ create mode 100644 src/lib/box-titles.ts
+ create mode 100644 src/lib/scan-photo.ts
+ create mode 100644 src/routes/game.$id.teach.tsx
+
+diff --git a/.gitignore b/.gitignore
+index e9b4bc1..0dc89a2 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -14,3 +14,5 @@ dist-ssr
+ !.env.example
+ *.local
+ .grok
++
++/public/scan-ocr/
+diff --git a/package-lock.json b/package-lock.json
+index b15c873..396be0e 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -35,6 +35,7 @@
+         "@tanstack/react-start": "^1.168.0",
+         "@tanstack/react-table": "^8.21.0",
+         "@tanstack/router-plugin": "^1.168.0",
++        "@tesseract.js-data/eng": "^1.0.0",
+         "better-auth": "~1.6.30",
+         "chess.js": "^1.4.0",
+         "class-variance-authority": "^0.7.1",
+@@ -53,6 +54,7 @@
+         "sonner": "^2.0.7",
+         "tailwind-merge": "^3.5.0",
+         "tailwindcss": "^4.3.0",
++        "tesseract.js": "^6.0.1",
+         "tw-animate-css": "^1.3.4",
+         "vaul": "^1.1.2",
+         "zod": "^4.4.0",
+@@ -3474,6 +3476,12 @@
+         "url": "https://github.com/sponsors/tannerlinsley"
+       }
+     },
++    "node_modules/@tesseract.js-data/eng": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/@tesseract.js-data/eng/-/eng-1.0.0.tgz",
++      "integrity": "sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg==",
++      "license": "MIT"
++    },
+     "node_modules/@types/babel__core": {
+       "version": "7.20.5",
+       "resolved": "https://registry.npmjs.org/@types/babel__core/-/babel__core-7.20.5.tgz",
+@@ -4203,6 +4211,12 @@
+         "@noble/hashes": "^2.0.1"
+       }
+     },
++    "node_modules/bmp-js": {
++      "version": "0.1.0",
++      "resolved": "https://registry.npmjs.org/bmp-js/-/bmp-js-0.1.0.tgz",
++      "integrity": "sha512-vHdS19CnY3hwiNdkaqk93DvjVLfbEcI8mys4UjuWrlX1haDmroo8o4xCzh4wD6DGV6HxRCyauwhHRqMTfERtjw==",
++      "license": "MIT"
++    },
+     "node_modules/brace-expansion": {
+       "version": "1.1.18",
+       "resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.18.tgz",
+@@ -5297,6 +5311,12 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/idb-keyval": {
++      "version": "6.3.0",
++      "resolved": "https://registry.npmjs.org/idb-keyval/-/idb-keyval-6.3.0.tgz",
++      "integrity": "sha512-um+2dgAWmYsu615EXpWVwSmapJhON0G43t3Ka/EVaohzPQXSMqKEqeDK/oIW3Ow+BXaF2PvSc+oBTFp793A5Ow==",
++      "license": "Apache-2.0"
++    },
+     "node_modules/ignore": {
+       "version": "5.3.2",
+       "resolved": "https://registry.npmjs.org/ignore/-/ignore-5.3.2.tgz",
+@@ -5366,6 +5386,12 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/is-url": {
++      "version": "1.2.4",
++      "resolved": "https://registry.npmjs.org/is-url/-/is-url-1.2.4.tgz",
++      "integrity": "sha512-ITvGim8FhRiYe4IQ5uHSkj7pVaPDrCTkNd3yq3cV7iZAcJdHTUMPMEHcqSOy9xZ9qFenQCvi+2wjH9a1nXqHww==",
++      "license": "MIT"
++    },
+     "node_modules/isbot": {
+       "version": "5.2.1",
+       "resolved": "https://registry.npmjs.org/isbot/-/isbot-5.2.1.tgz",
+@@ -6070,6 +6096,26 @@
+         }
+       }
+     },
++    "node_modules/node-fetch": {
++      "version": "2.7.0",
++      "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
++      "integrity": "sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==",
++      "license": "MIT",
++      "dependencies": {
++        "whatwg-url": "^5.0.0"
++      },
++      "engines": {
++        "node": "4.x || >=6.0.0"
++      },
++      "peerDependencies": {
++        "encoding": "^0.1.0"
++      },
++      "peerDependenciesMeta": {
++        "encoding": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/node-releases": {
+       "version": "2.0.53",
+       "resolved": "https://registry.npmjs.org/node-releases/-/node-releases-2.0.53.tgz",
+@@ -6112,6 +6158,15 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/opencollective-postinstall": {
++      "version": "2.0.3",
++      "resolved": "https://registry.npmjs.org/opencollective-postinstall/-/opencollective-postinstall-2.0.3.tgz",
++      "integrity": "sha512-8AV/sCtuzUeTo8gQK5qDZzARrulB3egtLzFgteqB2tcT4Mw7B8Kt7JcDHmltjz6FOAHsvTevk70gZEbhM4ZS9Q==",
++      "license": "MIT",
++      "bin": {
++        "opencollective-postinstall": "index.js"
++      }
++    },
+     "node_modules/optionator": {
+       "version": "0.9.4",
+       "resolved": "https://registry.npmjs.org/optionator/-/optionator-0.9.4.tgz",
+@@ -6703,6 +6758,12 @@
+         "decimal.js-light": "^2.4.1"
+       }
+     },
++    "node_modules/regenerator-runtime": {
++      "version": "0.13.11",
++      "resolved": "https://registry.npmjs.org/regenerator-runtime/-/regenerator-runtime-0.13.11.tgz",
++      "integrity": "sha512-kY1AZVr2Ra+t+piVaJ4gxaFaReZVH40AKNo7UCX6W+dEwBo/2oZJzqfuN1qLq1oL45o56cPaTXELwrTh8Fpggg==",
++      "license": "MIT"
++    },
+     "node_modules/require-from-string": {
+       "version": "2.0.2",
+       "resolved": "https://registry.npmjs.org/require-from-string/-/require-from-string-2.0.2.tgz",
+@@ -6960,6 +7021,30 @@
+         "url": "https://opencollective.com/webpack"
+       }
+     },
++    "node_modules/tesseract.js": {
++      "version": "6.0.1",
++      "resolved": "https://registry.npmjs.org/tesseract.js/-/tesseract.js-6.0.1.tgz",
++      "integrity": "sha512-/sPvMvrCtgxnNRCjbTYbr7BRu0yfWDsMZQ2a/T5aN/L1t8wUQN6tTWv6p6FwzpoEBA0jrN2UD2SX4QQFRdoDbA==",
++      "hasInstallScript": true,
++      "license": "Apache-2.0",
++      "dependencies": {
++        "bmp-js": "^0.1.0",
++        "idb-keyval": "^6.2.0",
++        "is-url": "^1.2.4",
++        "node-fetch": "^2.6.9",
++        "opencollective-postinstall": "^2.0.3",
++        "regenerator-runtime": "^0.13.3",
++        "tesseract.js-core": "^6.0.0",
++        "wasm-feature-detect": "^1.2.11",
++        "zlibjs": "^0.3.1"
++      }
++    },
++    "node_modules/tesseract.js-core": {
++      "version": "6.1.2",
++      "resolved": "https://registry.npmjs.org/tesseract.js-core/-/tesseract.js-core-6.1.2.tgz",
++      "integrity": "sha512-pv4GjmramjdObhDyR1q85Td8X60Puu/lGQn7Kw2id05LLgHhAcWgnz6xSdMCSxBMWjQDmMyDXPTC2aqADdpiow==",
++      "license": "Apache-2.0"
++    },
+     "node_modules/tiny-invariant": {
+       "version": "1.3.3",
+       "resolved": "https://registry.npmjs.org/tiny-invariant/-/tiny-invariant-1.3.3.tgz",
+@@ -6982,6 +7067,12 @@
+         "url": "https://github.com/sponsors/SuperchupuDev"
+       }
+     },
++    "node_modules/tr46": {
++      "version": "0.0.3",
++      "resolved": "https://registry.npmjs.org/tr46/-/tr46-0.0.3.tgz",
++      "integrity": "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==",
++      "license": "MIT"
++    },
+     "node_modules/ts-api-utils": {
+       "version": "2.5.0",
+       "resolved": "https://registry.npmjs.org/ts-api-utils/-/ts-api-utils-2.5.0.tgz",
+@@ -7375,12 +7466,34 @@
+         }
+       }
+     },
++    "node_modules/wasm-feature-detect": {
++      "version": "1.10.1",
++      "resolved": "https://registry.npmjs.org/wasm-feature-detect/-/wasm-feature-detect-1.10.1.tgz",
++      "integrity": "sha512-+wz9+WpMKgQ7H1tm41nJbFwAvwX4DqY0jNY8Blw5Qe6hHg1yhCJ+AqU0R4lgX7p3pyo8irYIl1+mMNoBwSj2Zg==",
++      "license": "Apache-2.0"
++    },
++    "node_modules/webidl-conversions": {
++      "version": "3.0.1",
++      "resolved": "https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-3.0.1.tgz",
++      "integrity": "sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ==",
++      "license": "BSD-2-Clause"
++    },
+     "node_modules/webpack-virtual-modules": {
+       "version": "0.6.2",
+       "resolved": "https://registry.npmjs.org/webpack-virtual-modules/-/webpack-virtual-modules-0.6.2.tgz",
+       "integrity": "sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ==",
+       "license": "MIT"
+     },
++    "node_modules/whatwg-url": {
++      "version": "5.0.0",
++      "resolved": "https://registry.npmjs.org/whatwg-url/-/whatwg-url-5.0.0.tgz",
++      "integrity": "sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw==",
++      "license": "MIT",
++      "dependencies": {
++        "tr46": "~0.0.3",
++        "webidl-conversions": "^3.0.0"
++      }
++    },
+     "node_modules/which": {
+       "version": "2.0.2",
+       "resolved": "https://registry.npmjs.org/which/-/which-2.0.2.tgz",
+@@ -7450,6 +7563,15 @@
+         "url": "https://github.com/sponsors/sindresorhus"
+       }
+     },
++    "node_modules/zlibjs": {
++      "version": "0.3.1",
++      "resolved": "https://registry.npmjs.org/zlibjs/-/zlibjs-0.3.1.tgz",
++      "integrity": "sha512-+J9RrgTKOmlxFSDHo0pI1xM6BLVUv+o0ZT9ANtCxGkjIVCCUdx9alUF8Gm+dGLKbkkkidWIHFDZHDMpfITt4+w==",
++      "license": "MIT",
++      "engines": {
++        "node": "*"
++      }
++    },
+     "node_modules/zod": {
+       "version": "4.4.3",
+       "resolved": "https://registry.npmjs.org/zod/-/zod-4.4.3.tgz",
+diff --git a/package.json b/package.json
+index a6d1ce8..4615417 100644
+--- a/package.json
++++ b/package.json
+@@ -55,6 +55,7 @@
+     "@tanstack/react-start": "^1.168.0",
+     "@tanstack/react-table": "^8.21.0",
+     "@tanstack/router-plugin": "^1.168.0",
++    "@tesseract.js-data/eng": "^1.0.0",
+     "better-auth": "~1.6.30",
+     "chess.js": "^1.4.0",
+     "class-variance-authority": "^0.7.1",
+@@ -73,6 +74,7 @@
+     "sonner": "^2.0.7",
+     "tailwind-merge": "^3.5.0",
+     "tailwindcss": "^4.3.0",
++    "tesseract.js": "^6.0.1",
+     "tw-animate-css": "^1.3.4",
+     "vaul": "^1.1.2",
+     "zod": "^4.4.0",
+diff --git a/src/components/match-card.tsx b/src/components/match-card.tsx
+index 7ae03b3..9d17a9d 100644
+--- a/src/components/match-card.tsx
++++ b/src/components/match-card.tsx
+@@ -80,7 +80,7 @@ export function MatchCard({
+           </Link>
+         </Button>
+         <Button asChild size="sm" variant="ghost">
+-          <Link to="/game/$id" params={{ id: game.bggId }} hash="ask-finn">
++          <Link to="/game/$id/teach" params={{ id: game.bggId }}>
+             Teach me
+           </Link>
+         </Button>
+diff --git a/src/components/minigames/bank-table.tsx b/src/components/minigames/bank-table.tsx
+index af4be07..e91b733 100644
+--- a/src/components/minigames/bank-table.tsx
++++ b/src/components/minigames/bank-table.tsx
+@@ -156,11 +156,11 @@ export function BankTable({
+         </span>
+       </div>
+       <Link
+-        to="/game/$id/table"
++        to="/game/$id/teach"
+         params={{ id: BANK_BGG_ID }}
+         className="text-center text-sm font-semibold text-sky"
+       >
+-        Teach me with Finn
++        Teach me
+       </Link>
+ 
+       {over ? (
+diff --git a/src/components/minigames/stockpile-table.tsx b/src/components/minigames/stockpile-table.tsx
+index bcb5c25..8ced5e8 100644
+--- a/src/components/minigames/stockpile-table.tsx
++++ b/src/components/minigames/stockpile-table.tsx
+@@ -134,11 +134,11 @@ export function StockpileTable({
+         </span>
+       </div>
+       <Link
+-        to="/game/$id/table"
++        to="/game/$id/teach"
+         params={{ id: "1269" }}
+         className="text-center text-sm font-semibold text-sky"
+       >
+-        Teach me with Finn
++        Teach me
+       </Link>
+ 
+       <p className="stock-line">
+diff --git a/src/components/scan-games.tsx b/src/components/scan-games.tsx
+index 0dd992c..6cf7fec 100644
+--- a/src/components/scan-games.tsx
++++ b/src/components/scan-games.tsx
+@@ -1,4 +1,5 @@
+-import { useRef, useState } from "react";
++import { useEffect, useRef, useState } from "react";
++import { prepareScanPhoto } from "@/lib/scan-photo";
+ import { Camera, Search, X } from "lucide-react";
+ import { toast } from "sonner";
+ import { identifyShelf, type ScanHit } from "@/lib/scan";
+@@ -11,45 +12,78 @@ import { AddGameDialog } from "./add-game-dialog";
+ 
+ type Row = ScanHit & { selected: boolean };
+ 
+-export function ScanGames({
+-  open,
+-  onClose,
+-}: {
+-  open: boolean;
+-  onClose: () => void;
+-}) {
++export function ScanGames({ open, onClose }: { open: boolean; onClose: () => void }) {
+   const inputRef = useRef<HTMLInputElement>(null);
+   const [busy, setBusy] = useState(false);
+   const [rows, setRows] = useState<Row[] | null>(null);
+   const [manual, setManual] = useState(false);
++  const request = useRef<AbortController | null>(null);
++  const [message, setMessage] = useState("");
+   const owned = useAppStore((s) => s.owned);
+   const addOwned = useAppStore((s) => s.addOwned);
+   const isPremium = useAppStore((s) => s.isPremium);
+   const setUpgradePrompt = useAppStore((s) => s.setUpgradePrompt);
+ 
++  useEffect(() => () => request.current?.abort(), []);
++
+   if (!open) return null;
+ 
++  function close() {
++    request.current?.abort();
++    setBusy(false);
++    setRows(null);
++    setManual(false);
++    onClose();
++  }
++
+   async function onFile(file: File) {
++    request.current?.abort();
++    const controller = new AbortController();
++    request.current = controller;
+     setBusy(true);
+-    const dataUrl = await readDataUrl(file);
++    setRows(null);
++    setMessage("");
++    let photo: string;
+     try {
+-      const result = await identifyShelf({ data: { image: dataUrl } });
+-      if (!result.ok) {
+-        toast("Finn couldn't read that photo. Try another angle, or search by title.");
++      photo = await prepareScanPhoto(file);
++    } catch {
++      if (!controller.signal.aborted) {
++        setMessage("This photo could not be opened. Try a JPEG or PNG.");
+         setRows([]);
+-      } else {
+-        setRows(
+-          result.hits.map((h) => ({
+-            ...h,
+-            selected: h.confidence !== "unknown" && Boolean(h.bggId) && !owned.includes(h.bggId ?? ""),
+-          })),
+-        );
++        setBusy(false);
++      }
++      return;
++    }
++    try {
++      if (controller.signal.aborted) return;
++      const remote = await identifyShelf({
++        data: { image: photo },
++        signal: controller.signal,
++      }).catch(() => null);
++      if (controller.signal.aborted) return;
++      let hits = remote?.ok ? remote.hits : [];
++      if (!hits.some((hit) => hit.bggId)) {
++        const { readBoxTitles } = await import("@/lib/box-ocr");
++        const local = await readBoxTitles(photo, controller.signal);
++        const ids = new Set(local.map((hit) => hit.name.toLowerCase()));
++        hits = [...local, ...hits.filter((hit) => !ids.has(hit.name.toLowerCase()))];
+       }
++      if (controller.signal.aborted) return;
++      setMessage("No catalog titles found. Try a closer photo with the box titles upright.");
++      setRows(
++        hits.map((hit) => ({
++          ...hit,
++          selected:
++            hit.confidence === "high" && Boolean(hit.bggId) && !owned.includes(hit.bggId ?? ""),
++        })),
++      );
+     } catch {
+-      toast("Scan failed. Search by title instead.");
+-      setRows([]);
++      if (!controller.signal.aborted) {
++        setMessage("Scanning is unavailable. Try again or search by title.");
++        setRows([]);
++      }
+     } finally {
+-      setBusy(false);
++      if (!controller.signal.aborted) setBusy(false);
+     }
+   }
+ 
+@@ -69,8 +103,7 @@ export function ScanGames({
+       if (res === "ok") added += 1;
+     }
+     if (added) toast(`Added ${added} to your vault.`);
+-    onClose();
+-    setRows(null);
++    close();
+   }
+ 
+   return (
+@@ -78,14 +111,11 @@ export function ScanGames({
+       <div className="flex max-h-[92dvh] w-full max-w-lg flex-col rounded-t-2xl bg-background shadow-lift sm:rounded-2xl">
+         <div className="flex items-center justify-between px-4 pt-4">
+           <h2 className="font-display text-xl">
+-            {rows ? "Review Games Found" : "Scan Games"}
++            {rows?.length ? "Review Games Found" : "Scan Games"}
+           </h2>
+           <button
+             type="button"
+-            onClick={() => {
+-              setRows(null);
+-              onClose();
+-            }}
++            onClick={close}
+             className="grid size-10 place-items-center rounded-button hover:bg-muted"
+             aria-label="Close"
+           >
+@@ -93,23 +123,25 @@ export function ScanGames({
+           </button>
+         </div>
+ 
++        <input
++          ref={inputRef}
++          type="file"
++          accept="image/*"
++          capture="environment"
++          className="hidden"
++          onChange={(e) => {
++            const file = e.target.files?.[0];
++            if (file) void onFile(file);
++            e.target.value = "";
++          }}
++        />
++
+         {!rows ? (
+           <div className="px-4 pb-8 pt-4">
+             <p className="text-sm text-muted-foreground">
+-              Photograph one box, a whole shelf, or a table. Finn identifies what's visible, then you confirm. Photos are not stored.
++              Photograph one box, a whole shelf, or a table. Finn identifies what's visible, then
++              you confirm. Photos are not stored.
+             </p>
+-            <input
+-              ref={inputRef}
+-              type="file"
+-              accept="image/*"
+-              capture="environment"
+-              className="hidden"
+-              onChange={(e) => {
+-                const file = e.target.files?.[0];
+-                if (file) void onFile(file);
+-                e.target.value = "";
+-              }}
+-            />
+             <Button
+               size="xl"
+               className="mt-6 w-full"
+@@ -131,9 +163,7 @@ export function ScanGames({
+           <div className="flex min-h-0 flex-1 flex-col">
+             <ul className="flex-1 overflow-y-auto px-3 pb-4">
+               {rows.length === 0 ? (
+-                <li className="px-2 py-8 text-center text-sm text-muted-foreground">
+-                  Nothing identified. Try another photo or search by title.
+-                </li>
++                <li className="px-2 py-8 text-center text-sm text-muted-foreground">{message}</li>
+               ) : (
+                 rows.map((row, i) => {
+                   const game = row.bggId ? getGame(row.bggId) : undefined;
+@@ -178,7 +208,12 @@ export function ScanGames({
+               )}
+             </ul>
+             <div className="space-y-2 border-t border-border px-4 py-4">
+-              <Button className="w-full" size="lg" onClick={addSelected}>
++              <Button
++                className="w-full"
++                size="lg"
++                disabled={!rows.some((row) => row.selected)}
++                onClick={addSelected}
++              >
+                 Add Selected to Vault
+               </Button>
+               <div className="flex gap-2">
+@@ -205,12 +240,3 @@ export function ScanGames({
+     </div>
+   );
+ }
+-
+-function readDataUrl(file: File): Promise<string> {
+-  return new Promise((resolve, reject) => {
+-    const reader = new FileReader();
+-    reader.onerror = () => reject(new Error("read"));
+-    reader.onload = () => resolve(String(reader.result));
+-    reader.readAsDataURL(file);
+-  });
+-}
+diff --git a/src/lib/box-ocr.ts b/src/lib/box-ocr.ts
+new file mode 100644
+index 0000000..d8449d4
+--- /dev/null
++++ b/src/lib/box-ocr.ts
+@@ -0,0 +1,27 @@
++import { createWorker, OEM, PSM } from "tesseract.js";
++import { standaloneGames } from "./catalog";
++import { boxTitleKey } from "./box-titles";
++import type { ScanHit } from "./scan";
++
++// Assets come from this app. The fallback reads the photo on the device.
++export async function readBoxTitles(image: string, signal: AbortSignal): Promise<ScanHit[]> {
++  const base = new URL(import.meta.env.BASE_URL + "scan-ocr/", location.origin);
++  const worker = await createWorker("eng", OEM.LSTM_ONLY, {
++    workerPath: new URL("worker.min.js", base).href,
++    corePath: new URL("tesseract-core-lstm.wasm.js", base).href,
++    langPath: base.href,
++    workerBlobURL: false,
++  });
++  try {
++    signal.throwIfAborted();
++    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
++    const result = await worker.recognize(image);
++    signal.throwIfAborted();
++    const lines = new Set(result.data.text.split(/\r?\n|\s*\|\s*| {2,}/).map(boxTitleKey));
++    return standaloneGames()
++      .filter((game) => lines.has(boxTitleKey(game.name)))
++      .map((game) => ({ bggId: game.bggId, name: game.name, confidence: "review" }));
++  } finally {
++    await worker.terminate();
++  }
++}
+diff --git a/src/lib/box-titles.ts b/src/lib/box-titles.ts
+new file mode 100644
+index 0000000..382c064
+--- /dev/null
++++ b/src/lib/box-titles.ts
+@@ -0,0 +1,10 @@
++// Older boxes can carry a different name for the same base game.
++export function boxTitleKey(title: string) {
++  const key = title
++    .normalize("NFKD")
++    .replace(/\p{M}/gu, "")
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, " ")
++    .trim();
++  return /^(the )?settlers of catan$/.test(key) ? "catan" : key;
++}
+diff --git a/src/lib/catalog.ts b/src/lib/catalog.ts
+index ae4da26..9c907c8 100644
+--- a/src/lib/catalog.ts
++++ b/src/lib/catalog.ts
+@@ -1,3 +1,4 @@
++import { boxTitleKey } from "./box-titles";
+ import type { Game, Rubric, VibeId } from "./types";
+ import { DIMENSIONS } from "./types";
+ import { autoVibeTags } from "./vibes";
+@@ -2174,7 +2175,7 @@ export function searchGames(query: string): Game[] {
+     .filter((g) => {
+       const hay =
+         `${g.name} ${g.designer} ${g.categories.join(" ")} ${g.vibes.join(" ")}`.toLowerCase();
+-      return hay.includes(q);
++      return hay.includes(q) || boxTitleKey(g.name) === boxTitleKey(q);
+     })
+     .sort((a, b) => b.bggRating - a.bggRating);
+ }
+diff --git a/src/lib/scan-photo.ts b/src/lib/scan-photo.ts
+new file mode 100644
+index 0000000..cfa0084
+--- /dev/null
++++ b/src/lib/scan-photo.ts
+@@ -0,0 +1,21 @@
++// Decode before uploading so a phone's full-resolution file does not exceed the server limit.
++export async function prepareScanPhoto(file: File): Promise<string> {
++  const url = URL.createObjectURL(file);
++  try {
++    const img = new Image();
++    img.src = url;
++    await img.decode();
++    const scale = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight));
++    const canvas = document.createElement("canvas");
++    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
++    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
++    const ctx = canvas.getContext("2d");
++    if (!ctx) throw new Error("Photo unavailable");
++    ctx.fillStyle = "white";
++    ctx.fillRect(0, 0, canvas.width, canvas.height);
++    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
++    return canvas.toDataURL("image/jpeg", 0.8);
++  } finally {
++    URL.revokeObjectURL(url);
++  }
++}
+diff --git a/src/lib/scan.ts b/src/lib/scan.ts
+index 63a223c..8dd9a20 100644
+--- a/src/lib/scan.ts
++++ b/src/lib/scan.ts
+@@ -1,4 +1,5 @@
+ import { createServerFn } from "@tanstack/react-start";
++import { boxTitleKey } from "./box-titles";
+ import { standaloneGames } from "./catalog";
+ 
+ export type ScanHit = {
+@@ -28,18 +29,20 @@ export const identifyShelf = createServerFn({ method: "POST" })
+ 
+     const res = await fetch("https://api.x.ai/v1/chat/completions", {
+       method: "POST",
++      signal: AbortSignal.timeout(20000),
+       headers: {
+         "Content-Type": "application/json",
+         Authorization: `Bearer ${key}`,
+       },
+       body: JSON.stringify({
+-        model: "grok-4.5",
++        model: process.env.XAI_SCAN_MODEL || "grok-4.7",
++        store: false,
+         temperature: 0.1,
+-        max_tokens: 900,
++        max_tokens: 3200,
+         messages: [
+           {
+             role: "system",
+-            content: `You identify published board games visible in a photo of a shelf, table, or boxes. Match only against this catalog. Return JSON only: {"games":[{"bggId":"id or null","name":"title","confidence":"high"|"review"|"unknown","possibleExpansion":false,"note":"short"}]}. If a box is an expansion, set possibleExpansion true. If you cannot match a catalog id, set bggId null and confidence unknown. Do not invent games that are not in the photo. Catalog:\n${catalog.join("\n")}`,
++            content: `You identify published board games visible in a photo of a shelf, table, or boxes. Match only against this catalog. Read box fronts and spine titles. The Settlers of Catan is the base game Catan. Return JSON only: {"games":[{"bggId":"id or null","name":"title","confidence":"high"|"review"|"unknown","possibleExpansion":false,"note":"short"}]}. If a box is an expansion, set possibleExpansion true. If you cannot match a catalog id, set bggId null and confidence unknown. Do not invent games that are not in the photo. Catalog:\n${catalog.join("\n")}`,
+           },
+           {
+             role: "user",
+@@ -73,11 +76,11 @@ export const identifyShelf = createServerFn({ method: "POST" })
+       return { ok: false as const, error: "parse", hits: [] as ScanHit[] };
+     }
+     const known = new Map(standaloneGames().map((g) => [g.bggId, g]));
+-    const byName = new Map(standaloneGames().map((g) => [g.name.toLowerCase(), g]));
++    const byName = new Map(standaloneGames().map((g) => [boxTitleKey(g.name), g]));
+     const hits: ScanHit[] = (parsed.games ?? []).slice(0, 40).map((h) => {
+       const byId = h.bggId ? known.get(String(h.bggId)) : undefined;
+-      const named = byName.get((h.name ?? "").toLowerCase());
+-      const game = byId ?? named;
++      const named = byName.get(boxTitleKey(h.name ?? ""));
++      const game = h.possibleExpansion ? undefined : named ?? byId;
+       const confidence = game
+         ? h.confidence === "high"
+           ? "high"
+diff --git a/src/routeTree.gen.ts b/src/routeTree.gen.ts
+index 836ea25..99297e5 100644
+--- a/src/routeTree.gen.ts
++++ b/src/routeTree.gen.ts
+@@ -32,6 +32,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+ import { Route as GameIdIndexRouteImport } from './routes/game.$id.index'
+ import { Route as GameIdScoreRouteImport } from './routes/game.$id.score'
+ import { Route as GameIdTableRouteImport } from './routes/game.$id.table'
++import { Route as GameIdTeachRouteImport } from './routes/game.$id.teach'
+ 
+ const IndexRoute = IndexRouteImport.update({
+   id: '/',
+@@ -148,6 +149,11 @@ const GameIdTableRoute = GameIdTableRouteImport.update({
+   path: '/table',
+   getParentRoute: () => GameIdRoute,
+ } as any)
++const GameIdTeachRoute = GameIdTeachRouteImport.update({
++  id: '/teach',
++  path: '/teach',
++  getParentRoute: () => GameIdRoute,
++} as any)
+ 
+ export interface FileRoutesByFullPath {
+   '/': typeof IndexRoute
+@@ -172,6 +178,7 @@ export interface FileRoutesByFullPath {
+   '/api/auth/$': typeof ApiAuthSplatRoute
+   '/game/$id/score': typeof GameIdScoreRoute
+   '/game/$id/table': typeof GameIdTableRoute
++  '/game/$id/teach': typeof GameIdTeachRoute
+   '/game/$id/': typeof GameIdIndexRoute
+ }
+ export interface FileRoutesByTo {
+@@ -195,6 +202,7 @@ export interface FileRoutesByTo {
+   '/api/auth/$': typeof ApiAuthSplatRoute
+   '/game/$id/score': typeof GameIdScoreRoute
+   '/game/$id/table': typeof GameIdTableRoute
++  '/game/$id/teach': typeof GameIdTeachRoute
+   '/game/$id': typeof GameIdIndexRoute
+ }
+ export interface FileRoutesById {
+@@ -221,6 +229,7 @@ export interface FileRoutesById {
+   '/api/auth/$': typeof ApiAuthSplatRoute
+   '/game/$id/score': typeof GameIdScoreRoute
+   '/game/$id/table': typeof GameIdTableRoute
++  '/game/$id/teach': typeof GameIdTeachRoute
+   '/game/$id/': typeof GameIdIndexRoute
+ }
+ export interface FileRouteTypes {
+@@ -248,6 +257,7 @@ export interface FileRouteTypes {
+     | '/api/auth/$'
+     | '/game/$id/score'
+     | '/game/$id/table'
++    | '/game/$id/teach'
+     | '/game/$id/'
+   fileRoutesByTo: FileRoutesByTo
+   to:
+@@ -271,6 +281,7 @@ export interface FileRouteTypes {
+     | '/api/auth/$'
+     | '/game/$id/score'
+     | '/game/$id/table'
++    | '/game/$id/teach'
+     | '/game/$id'
+   id:
+     | '__root__'
+@@ -296,6 +307,7 @@ export interface FileRouteTypes {
+     | '/api/auth/$'
+     | '/game/$id/score'
+     | '/game/$id/table'
++    | '/game/$id/teach'
+     | '/game/$id/'
+   fileRoutesById: FileRoutesById
+ }
+@@ -483,6 +495,13 @@ declare module '@tanstack/react-router' {
+       preLoaderRoute: typeof GameIdTableRouteImport
+       parentRoute: typeof GameIdRoute
+     }
++    '/game/$id/teach': {
++      id: '/game/$id/teach'
++      path: '/teach'
++      fullPath: '/game/$id/teach'
++      preLoaderRoute: typeof GameIdTeachRouteImport
++      parentRoute: typeof GameIdRoute
++    }
+   }
+ }
+ 
+@@ -502,12 +521,14 @@ const CircleRouteWithChildren =
+ interface GameIdRouteChildren {
+   GameIdScoreRoute: typeof GameIdScoreRoute
+   GameIdTableRoute: typeof GameIdTableRoute
++  GameIdTeachRoute: typeof GameIdTeachRoute
+   GameIdIndexRoute: typeof GameIdIndexRoute
+ }
+ 
+ const GameIdRouteChildren: GameIdRouteChildren = {
+   GameIdScoreRoute: GameIdScoreRoute,
+   GameIdTableRoute: GameIdTableRoute,
++  GameIdTeachRoute: GameIdTeachRoute,
+   GameIdIndexRoute: GameIdIndexRoute,
+ }
+ 
+diff --git a/src/routes/game.$id.index.tsx b/src/routes/game.$id.index.tsx
+index 6d75f67..429f1ee 100644
+--- a/src/routes/game.$id.index.tsx
++++ b/src/routes/game.$id.index.tsx
+@@ -163,9 +163,9 @@ function GamePage() {
+       ) : null}
+ 
+       <Button className="mt-3 w-full" variant="secondary" asChild>
+-        <Link to="/game/$id/table" params={{ id: game.bggId }}>
++        <Link to="/game/$id/teach" params={{ id: game.bggId }}>
+           <Mic className="size-4" />
+-          Teach me with Finn
++          Teach me
+         </Link>
+       </Button>
+       <FinnCoach game={game} />
+diff --git a/src/routes/game.$id.teach.tsx b/src/routes/game.$id.teach.tsx
+new file mode 100644
+index 0000000..1946c80
+--- /dev/null
++++ b/src/routes/game.$id.teach.tsx
+@@ -0,0 +1,155 @@
++import { useState } from "react";
++import { ensureLesson } from "@/lib/lesson-cache";
++import type { LessonPack } from "@/lib/coach";
++import { createFileRoute, Link } from "@tanstack/react-router";
++import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
++import { DESIGN_ASSESSMENTS } from "@/lib/ratings/design-assessments";
++import { getGame } from "@/lib/scoring";
++import { Button } from "@/components/ui/button";
++
++export const Route = createFileRoute("/game/$id/teach")({ component: TeachGame });
++
++type Guide = { setup: string; turn: string; win: string; rules?: string };
++const guides: Record<string, Guide | undefined> = {
++  Stockpile: {
++    setup:
++      "In the GameFinder card game, each player starts with a personal stock. Leave room for four shared building piles and four discard piles per player.",
++    turn: "Fill your hand to five. Build the shared piles from 1 to 12 using your hand or the top of a stock or discard pile. A wild takes the next number. Discard one card from your hand to end your turn.",
++    win: "Play the last card from your personal stock onto a building pile.",
++  },
++  Bank: {
++    setup:
++      "Choose the number of rounds and start everyone at zero. Pass two dice around the table and keep a shared running total.",
++    turn: "Add each roll to the pot. On the first three rolls, a seven adds 70. After that, doubles double the pot and a seven ends the round. Before the next roll, anyone still in can bank the pot’s current value and sit out.",
++    win: "Finish the last round with the most banked points.",
++  },
++  Catan: {
++    setup:
++      "Use the beginner island diagram in the rules below. Put each color’s two settlements and roads where shown, then take the starting resources listed for your color.",
++    turn: "Roll both dice. Everyone with a settlement beside a producing tile with that number takes its resource. A city earns two. On a 7, resolve the robber instead. Then trade and spend resources to build.",
++    win: "Reach 10 points on your turn. Each settlement gives you one point and each city gives you two. Some cards and awards also score.",
++    rules: "https://www.catan.com/sites/default/files/2021-06/catan_base_rules_2020_200707.pdf",
++  },
++  Sequence: {
++    setup:
++      "Choose chip colors and alternate seats by team. Shuffle and deal seven cards each for two players or six each for three or four. For larger groups, use the deal chart in the rules.",
++    turn: "Play one card, cover an open matching space with a chip, then draw a card. A two-eyed jack lets you choose any open space. A one-eyed jack removes an opponent’s chip outside a completed line.",
++    win: "Make five in a row across, down, or diagonally. With two sides you need two lines. With three sides you need one. A corner counts for every color.",
++  },
++  Uno: {
++    setup:
++      "Deal seven cards to each player. Stack the rest face down and turn one card over to start the discard pile.",
++    turn: "Match the top card’s color, number, or symbol, or play a legal wild. If you draw one card, you may play it immediately if it fits. Say “UNO” when you play down to one card.",
++    win: "Empty your hand to win the round. Under classic scoring, the winner scores the cards left in everyone else’s hands. The first player to reach 500 points wins.",
++  },
++  "Left Right Center": {
++    setup:
++      "Give everyone three chips. Pick a starting player and leave room in the middle for the pot.",
++    turn: "Roll one die per chip you hold, up to three. Each L sends one chip left, each R sends one right, and each C sends one to the center. Keep a chip for each dot, then pass the dice left.",
++    win: "Be the last player holding chips. If you run out, skip your roll. A neighbor can still pass you a chip on a later turn.",
++  },
++};
++
++function MoreTeaching({ id }: { id: string }) {
++  const [status, setStatus] = useState<"idle" | "loading" | "unavailable">("idle");
++  const [lesson, setLesson] = useState<LessonPack | null>(null);
++  if (lesson)
++    return (
++      <section className="space-y-3">
++        <p className="text-sm text-muted-foreground">
++          General AI guide · Check your edition for exact rules.
++        </p>
++        {(
++          [
++            ["Set up", lesson.setup],
++            ["On your turn", lesson.turn],
++            ["How to win", lesson.goal],
++          ] as const
++        ).map(([heading, text]) => (
++          <div key={heading}>
++            <h2 className="font-semibold">{heading}</h2>
++            <p>{text}</p>
++          </div>
++        ))}
++      </section>
++    );
++  if (status === "unavailable")
++    return (
++      <p role="status" className="text-sm">
++        A step-by-step guide is unavailable for this edition.
++      </p>
++    );
++  return (
++    <Button
++      variant="secondary"
++      disabled={status === "loading"}
++      onClick={async () => {
++        setStatus("loading");
++        const pack = await ensureLesson(id).catch(() => null);
++        if (pack) setLesson(pack);
++        else setStatus("unavailable");
++      }}
++    >
++      {status === "loading" ? "Loading guide…" : "Read a general AI guide"}
++    </Button>
++  );
++}
++
++function TeachGame() {
++  const { id } = Route.useParams();
++  const game = getGame(id);
++  if (!game) return <p>Game not found.</p>;
++  const ambiguous = CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === id);
++  const profile = DESIGN_ASSESSMENTS.find((row) => row.legacyId === id && row.title === game.name);
++  const guide = ambiguous ? undefined : guides[game.name];
++  const source = game.bggId === "1269" ? undefined : (guide?.rules ?? profile?.source);
++  return (
++    <main className="mx-auto max-w-xl space-y-5 pb-10">
++      <Link to="/game/$id" params={{ id }} className="text-sm font-semibold text-sky">
++        Back to {game.name}
++      </Link>
++      <h1 className="font-display text-3xl">How to play {game.name}</h1>
++      {guide ? (
++        <dl className="space-y-4 rounded-card bg-card p-5 shadow-card">
++          {(
++            [
++              ["Set up", guide.setup],
++              ["On your turn", guide.turn],
++              ["How to win", guide.win],
++            ] as const
++          ).map(([label, text]) => (
++            <div key={label}>
++              <dt className="font-semibold">{label}</dt>
++              <dd className="mt-1">{text}</dd>
++            </div>
++          ))}
++        </dl>
++      ) : (
++        <p>
++          {ambiguous
++            ? "Check the title and edition on your box before using the rules."
++            : profile
++              ? Object.values(profile.matchReasons)[0]
++              : "Use the instructions that came with this edition."}
++        </p>
++      )}
++      {source?.startsWith("https://") && (
++        <Button asChild>
++          <a href={source} target="_blank" rel="noreferrer">
++            {(guide && game.name !== "Bank") || /\.pdf(?:$|\?)/i.test(source)
++              ? "Open game rules"
++              : "Open game reference"}
++          </a>
++        </Button>
++      )}
++      {!guide && !ambiguous && <MoreTeaching key={id} id={id} />}
++      {!ambiguous && (
++        <div>
++          <Link to="/game/$id/table" params={{ id }} className="text-sm font-semibold text-sky">
++            Ask Finn by voice
++          </Link>
++        </div>
++      )}
++    </main>
++  );
++}
+diff --git a/src/routes/index.tsx b/src/routes/index.tsx
+index b109a2a..3bc9540 100644
+--- a/src/routes/index.tsx
++++ b/src/routes/index.tsx
+@@ -94,7 +94,7 @@ function Home() {
+                 </div>
+                 <Button
+                   className="mt-5 w-full"
+-                  onClick={() => navigate({ to: "/game/$id", params: { id: surprise.bggId } })}
++                  onClick={() => navigate({ to: "/game/$id/teach", params: { id: surprise.bggId } })}
+                 >
+                   <Mic className="size-4" />
+                   Teach me, then play
+diff --git a/vite.config.ts b/vite.config.ts
+index e9b2c01..fab0659 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -1,4 +1,4 @@
+-import { readdirSync } from "node:fs";
++import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+ import { join } from "node:path";
+ import type { Plugin } from "vite";
+ import { defineConfig } from "vite";
+@@ -158,6 +158,23 @@ export default defineConfig(({ command, isPreview }) => ({
+   },
+   resolve: { tsconfigPaths: true },
+   plugins: [
++    {
++      name: "scan-ocr-assets",
++      // Tesseract imports a classic worker and requests the language file by its exact name.
++      configResolved(config) {
++        const dir = join(config.publicDir, "scan-ocr");
++        mkdirSync(dir, { recursive: true });
++        for (const [source, name] of [
++          ["tesseract.js/dist/worker.min.js", "worker.min.js"],
++          ["tesseract.js/dist/worker.min.js.LICENSE.txt", "worker.min.js.LICENSE.txt"],
++          ["tesseract.js-core/LICENSE", "tesseract-core.LICENSE"],
++          ["tesseract.js-core/tesseract-core-lstm.wasm.js", "tesseract-core-lstm.wasm.js"],
++          ["@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz", "eng.traineddata.gz"],
++        ]) {
++          copyFileSync(join(config.root, "node_modules", source), join(dir, name));
++        }
++      },
++    },
+     pgliteBootstrapPlugin(),
+     // Before tanstackStart so /auth/popup never falls through to the SPA.
+     authPopupPlugin(),
+-- 
+2.56.1
+

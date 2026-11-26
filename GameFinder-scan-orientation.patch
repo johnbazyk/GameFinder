@@ -1,0 +1,159 @@
+From 28e0d7f87c60774eee504d183e6b63f39d79fb5f Mon Sep 17 00:00:00 2001
+From: Codex <codex@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 19:51:06 -0700
+Subject: [PATCH] Read box titles in all four orientations and retry diagonal
+ misses
+
+---
+ scripts/scan-and-teach.test.mjs | 27 ++++++++++++++++++++++++++
+ src/lib/box-ocr.ts              | 34 +++++++++++++++++++++++++--------
+ src/lib/scan-photo.ts           | 24 +++++++++++++++++++----
+ 3 files changed, 73 insertions(+), 12 deletions(-)
+
+diff --git a/scripts/scan-and-teach.test.mjs b/scripts/scan-and-teach.test.mjs
+index 83e7b45..d3feabc 100644
+--- a/scripts/scan-and-teach.test.mjs
++++ b/scripts/scan-and-teach.test.mjs
+@@ -93,3 +93,30 @@ test("all five Finn chapters have game-specific text and separate recordings", a
+   assert.equal(guidePassage(guides.Wingspan, "How do I score?").id, "score");
+   assert.equal(guidePassage(guides.Catan, "Can I tunnel underground?"), undefined);
+ });
++
++test("quarter turns preserve every corner of a rectangular photo", async () => {
++  const { rotateScanPhoto } = await server.ssrLoadModule("/src/lib/scan-photo.ts");
++  const photo = { width: 90, height: 40 };
++  const previous = globalThis.document;
++  try {
++    for (const turn of [1, -1, 2]) {
++      let offset, angle, drawn;
++      globalThis.document = { createElement: () => ({ getContext: () => ({
++        translate(x, y) { offset = [x, y]; },
++        rotate(value) { angle = value; },
++        drawImage(image) { drawn = image; },
++      }) }) };
++      const out = rotateScanPhoto(photo, turn);
++      assert.equal(drawn, photo);
++      assert.equal(angle, (turn * Math.PI) / 2);
++      const corners = [[0, 0], [90, 0], [0, 40], [90, 40]].map(([x, y]) => [
++        Math.round(offset[0] + x * Math.cos(angle) - y * Math.sin(angle)) || 0,
++        Math.round(offset[1] + x * Math.sin(angle) + y * Math.cos(angle)) || 0,
++      ]);
++      assert.deepEqual(corners.sort(), [[0, 0], [out.width, 0], [0, out.height], [out.width, out.height]].sort());
++    }
++  } finally {
++    if (previous === undefined) delete globalThis.document;
++    else globalThis.document = previous;
++  }
++});
+diff --git a/src/lib/box-ocr.ts b/src/lib/box-ocr.ts
+index e65b851..5868d5d 100644
+--- a/src/lib/box-ocr.ts
++++ b/src/lib/box-ocr.ts
+@@ -1,5 +1,5 @@
+ import { createWorker, OEM, PSM } from "tesseract.js";
+-import { enhancedScanPhoto, rotateScanPhoto, scanTitleBand } from "./scan-photo";
++import { diagonalScanPhoto, enhancedScanPhoto, rotateScanPhoto, scanTitleBand } from "./scan-photo";
+ import { GAMES } from "./catalog";
+ import { findBoxTitles } from "./box-titles";
+ import type { ScanHit } from "./scan";
+@@ -41,29 +41,47 @@ export async function createBoxReader(signal: AbortSignal) {
+         }
+       }
+       function* views() {
+-        yield photo;
+-        yield* temporary(scanTitleBand(photo, false));
+-        yield* temporary(scanTitleBand(photo, true));
+-        yield* temporary(rotateScanPhoto(photo, 1));
+-        yield* temporary(rotateScanPhoto(photo, -1));
++        for (const turn of [0, 1, -1, 2] as const) {
++          const upright = turn === 0 ? photo : rotateScanPhoto(photo, turn);
++          try {
++            yield upright;
++            yield* temporary(scanTitleBand(upright, false));
++            yield* temporary(scanTitleBand(upright, true));
++          } finally {
++            if (upright !== photo) upright.width = upright.height = 0;
++          }
++        }
+         for (const mode of ["red", "detail", "warm", "green"] as const) {
+           const enhanced = enhancedScanPhoto(photo, mode);
+           try {
+             yield enhanced;
+             yield* temporary(rotateScanPhoto(enhanced, -1));
+             yield* temporary(rotateScanPhoto(enhanced, 1));
++            yield* temporary(rotateScanPhoto(enhanced, 2));
+           } finally {
+             enhanced.width = enhanced.height = 0;
+           }
+         }
+       }
+-      for (const view of views()) {
++      async function recognize(view: HTMLCanvasElement, deskew = false) {
+         signal.throwIfAborted();
+-        const result = await worker.recognize(view);
++        const result = await worker.recognize(view, { rotateAuto: deskew });
+         for (const game of findBoxTitles(result.data.text, GAMES)) {
+           hits.set(game.bggId, { bggId: game.bggId, name: game.name, confidence: "review" });
+         }
+       }
++      for (const view of views()) await recognize(view);
++      if (!hits.size) {
++        const diagonal = diagonalScanPhoto(photo);
++        try {
++          await recognize(diagonal, true);
++          for (const turn of [1, -1, 2] as const) {
++            for (const view of temporary(rotateScanPhoto(diagonal, turn))) await recognize(view, true);
++          }
++        } finally {
++          diagonal.width = diagonal.height = 0;
++        }
++      }
+       return [...hits.values()];
+     },
+   };
+diff --git a/src/lib/scan-photo.ts b/src/lib/scan-photo.ts
+index 13c28c9..0c4eca8 100644
+--- a/src/lib/scan-photo.ts
++++ b/src/lib/scan-photo.ts
+@@ -34,18 +34,34 @@ export function remoteScanImage(photo: HTMLCanvasElement) {
+ }
+ 
+ // Swap width and height for spines. Rotating inside the original bounds clips titles.
+-export function rotateScanPhoto(photo: HTMLCanvasElement, direction: 1 | -1) {
++export function rotateScanPhoto(photo: HTMLCanvasElement, direction: 1 | -1 | 2) {
+   const copy = document.createElement("canvas");
+-  copy.width = photo.height;
+-  copy.height = photo.width;
++  copy.width = direction === 2 ? photo.width : photo.height;
++  copy.height = direction === 2 ? photo.height : photo.width;
+   const ctx = copy.getContext("2d");
+   if (!ctx) throw new Error("Photo unavailable");
+-  ctx.translate(direction === 1 ? copy.width : 0, direction === -1 ? copy.height : 0);
++  ctx.translate(direction > 0 ? copy.width : 0, direction !== 1 ? copy.height : 0);
+   ctx.rotate((direction * Math.PI) / 2);
+   ctx.drawImage(photo, 0, 0);
+   return copy;
+ }
+ 
++// A diagonal photograph needs padded bounds so the outermost titles survive rotation.
++export function diagonalScanPhoto(photo: HTMLCanvasElement) {
++  const side = Math.max(1, Math.ceil((photo.width + photo.height) / Math.SQRT2));
++  const copy = document.createElement("canvas");
++  copy.width = copy.height = Math.min(side, 2200);
++  const ctx = copy.getContext("2d");
++  if (!ctx) throw new Error("Photo unavailable");
++  ctx.fillStyle = "white";
++  ctx.fillRect(0, 0, copy.width, copy.height);
++  ctx.translate(copy.width / 2, copy.height / 2);
++  ctx.rotate(Math.PI / 4);
++  ctx.scale(copy.width / side, copy.height / side);
++  ctx.drawImage(photo, -photo.width / 2, -photo.height / 2);
++  return copy;
++}
++
+ // Isolating a band of artwork gives the text detector a different scale and local contrast.
+ export function scanTitleBand(photo: HTMLCanvasElement, bottom: boolean) {
+   const bandHeight = Math.max(1, Math.round(photo.height * (bottom ? 0.64 : 0.4)));
+-- 
+2.56.1
+

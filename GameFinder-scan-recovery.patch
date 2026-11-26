@@ -1,0 +1,145 @@
+From f5e8f130831c4fbc5d5ef1475623c7eb933c9553 Mon Sep 17 00:00:00 2001
+From: Codex <codex@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 09:25:04 -0700
+Subject: [PATCH] Keep recognized titles when a later scan pass fails
+
+---
+ src/components/scan-games.tsx | 31 ++++++++++++++++++++++---------
+ src/lib/box-ocr.ts            |  8 ++++++--
+ src/lib/scan-photo.ts         |  8 ++++++--
+ 3 files changed, 34 insertions(+), 13 deletions(-)
+
+diff --git a/src/components/scan-games.tsx b/src/components/scan-games.tsx
+index 03f2ae2..d1faaad 100644
+--- a/src/components/scan-games.tsx
++++ b/src/components/scan-games.tsx
+@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
+ import { Camera, Images, X } from "lucide-react";
+ import { toast } from "sonner";
+ import { openScanPhoto, remoteScanImage } from "@/lib/scan-photo";
+-import { identifyShelf } from "@/lib/scan";
++import { identifyShelf, type ScanHit } from "@/lib/scan";
+ import { mergeScanRows, type ScanRow } from "@/lib/scan-review";
+ import { boxTitleKey } from "@/lib/box-titles";
+ import type { createBoxReader } from "@/lib/box-ocr";
+@@ -48,7 +48,9 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+     void cancelled.catch(() => {});
+     let reader: Awaited<ReturnType<typeof createBoxReader>> | undefined;
+     let readerUnavailable = false;
+-    let unread = 0;
++    let unopened = 0;
++    let unavailable = 0;
++    let partial = 0;
+     let empty = 0;
+     try {
+       for (let index = 0; index < files.length; index++) {
+@@ -57,7 +59,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+         const file = files[index];
+         const photo = await openScanPhoto(file).catch(() => null);
+         if (!photo) {
+-          unread++;
++          unopened++;
+           continue;
+         }
+         const remoteTask = Promise.resolve()
+@@ -66,6 +68,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+             return identifyShelf({ data: { image: remoteScanImage(photo) }, signal });
+           })
+           .catch(() => null);
++        const localHits: ScanHit[] = [];
+         const localTask = (async () => {
+           if (readerUnavailable) return null;
+           if (!reader) {
+@@ -77,18 +80,26 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+               return null;
+             }
+           }
+-          return reader.read(photo);
++          try {
++            await reader.read(photo, (hit) => localHits.push(hit));
++            return true;
++          } catch {
++            reader.close();
++            reader = undefined;
++            return null;
++          }
+         })().catch(() => null);
+         const [remote, local] = await Promise.race([
+           Promise.all([remoteTask, localTask]),
+           cancelled,
+-        ]);
++        ]).finally(() => { photo.width = photo.height = 0; });
+         signal.throwIfAborted();
+-        const hits = [...(remote?.ok ? remote.hits : []), ...(local ?? [])];
++        const hits = [...(remote?.ok ? remote.hits : []), ...localHits];
+         if (hits.length) {
++          if (local === null && !remote?.ok) partial++;
+           setRows((prev) => mergeScanRows(prev, hits, useAppStore.getState().owned));
+         } else if (!remote?.ok && local === null) {
+-          unread++;
++          unavailable++;
+         } else {
+           empty++;
+         }
+@@ -96,9 +107,11 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+       signal.throwIfAborted();
+       setMessage(
+         [
+-          unread ? `Couldn’t read ${unread} photo${unread === 1 ? "" : "s"}.` : "",
++          unopened ? `Couldn’t open ${unopened} photo${unopened === 1 ? "" : "s"}. Try a JPEG or PNG copy.` : "",
++          unavailable ? `The scanner couldn’t finish ${unavailable} photo${unavailable === 1 ? "" : "s"}. Try the same photo again.` : "",
++          partial ? "Scanning stopped early. You can review the titles found so far." : "",
+           empty ? `No titles recognized in ${empty} photo${empty === 1 ? "" : "s"}.` : "",
+-          unread || empty ? "Add another angle or search for a missing title." : "",
++          empty ? "Add another angle or search for a missing title." : "",
+         ]
+           .filter(Boolean)
+           .join(" "),
+diff --git a/src/lib/box-ocr.ts b/src/lib/box-ocr.ts
+index 630bfe6..2f2ce33 100644
+--- a/src/lib/box-ocr.ts
++++ b/src/lib/box-ocr.ts
+@@ -31,7 +31,7 @@ export async function createBoxReader(signal: AbortSignal) {
+   }
+   return {
+     close,
+-    async read(photo: HTMLCanvasElement): Promise<ScanHit[]> {
++    async read(photo: HTMLCanvasElement, onHit?: (hit: ScanHit) => void): Promise<ScanHit[]> {
+       const hits = new Map<string, ScanHit>();
+       function* temporary(canvas: HTMLCanvasElement) {
+         try {
+@@ -74,7 +74,11 @@ export async function createBoxReader(signal: AbortSignal) {
+           const ids = directionHits.get(readingTurn) ?? new Set<string>();
+           ids.add(game.bggId);
+           directionHits.set(readingTurn, ids);
+-          hits.set(game.bggId, { bggId: game.bggId, name: game.name, confidence: "review" });
++          if (!hits.has(game.bggId)) {
++            const hit: ScanHit = { bggId: game.bggId, name: game.name, confidence: "review" };
++            hits.set(game.bggId, hit);
++            onHit?.(hit);
++          }
+         }
+       }
+       for (const view of views()) await recognize(view);
+diff --git a/src/lib/scan-photo.ts b/src/lib/scan-photo.ts
+index 93ebb4f..a750f6f 100644
+--- a/src/lib/scan-photo.ts
++++ b/src/lib/scan-photo.ts
+@@ -29,8 +29,12 @@ export function remoteScanImage(photo: HTMLCanvasElement) {
+   copy.height = Math.max(1, Math.round(photo.height * scale));
+   const ctx = copy.getContext("2d");
+   if (!ctx) throw new Error("Photo unavailable");
+-  ctx.drawImage(photo, 0, 0, copy.width, copy.height);
+-  return copy.toDataURL("image/jpeg", 0.8);
++  try {
++    ctx.drawImage(photo, 0, 0, copy.width, copy.height);
++    return copy.toDataURL("image/jpeg", 0.8);
++  } finally {
++    copy.width = copy.height = 0;
++  }
+ }
+ 
+ // Swap width and height for spines. Rotating inside the original bounds clips titles.
+-- 
+2.56.1
+

@@ -1,0 +1,1154 @@
+From b9d4143c8fe735d91ebfbbe856d08fc5c9c1e50e Mon Sep 17 00:00:00 2001
+From: Codex <codex@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 12:56:00 -0700
+Subject: [PATCH] Explain every qualifying Find vibe with a game-specific move
+
+---
+ docs/ratings/standard-0.4-design.md   |   4 +
+ scripts/design-ratings.test.mjs       |  13 ++
+ src/lib/ratings/design-assessments.ts | 293 ++++++++++++++++++++++++--
+ 3 files changed, 297 insertions(+), 13 deletions(-)
+
+diff --git a/docs/ratings/standard-0.4-design.md b/docs/ratings/standard-0.4-design.md
+index 60da403..2467ebe 100644
+--- a/docs/ratings/standard-0.4-design.md
++++ b/docs/ratings/standard-0.4-design.md
+@@ -32,6 +32,10 @@ Find applies player, youngest age, time, content and explicit advanced rating ta
+ 
+ The UI retains one seven-axis graph, integer ticks 1–5, half-point plotting, and a short provisional label. Evidence stays in the data rather than expanding the consumer interface. Personal rating overrides are not implemented by this patch.
+ 
++## Writing Find explanations
++
++For each ordinary Find vibe a game qualifies for, give one short sentence grounded in its recorded rules. Name something a player does or sees and show why it matters for that vibe. For Luck, describe what the draw or roll changes. For Strategy, show a choice and its consequence. For Family, show how someone participates. The first sentence in the record also appears when a search has no vibe preference, so it should make sense on its own. Keep the player count, age, time and scores in their existing fields.
++
+ ## Verification and remaining work
+ 
+ Automated checks cover all authored identities, eleven valid half-point values, provisional status, strict reviewed-mode exclusion, age-independent Family with separate hard age checks, supported scopes, all active game profiles rendering, shared Find/Discover filtering, and three-plus-three/reroll behavior. Passing software tests confirms implementation contracts, not the validity of every judgment.
+diff --git a/scripts/design-ratings.test.mjs b/scripts/design-ratings.test.mjs
+index 5c2293e..378d595 100644
+--- a/scripts/design-ratings.test.mjs
++++ b/scripts/design-ratings.test.mjs
+@@ -187,6 +187,19 @@ test("every catalog entry has distinct, short rules-based copy for Find", () =>
+   }
+ });
+ 
++test("every ordinary Find vibe a game matches has its own explanation", () => {
++  for (const game of catalog.AUTHORED_GAMES) {
++    const record = app.ratingRecord(game);
++    for (const vibe of Object.keys(vibes.VIBE_META)) {
++      const ctx = context({ vibes: [vibe] });
++      if (!app.gameMatchesRatings(game, ctx)) continue;
++      const reason = record.matchReasons[vibe];
++      assert.ok(reason, `${game.name} needs a reason for ${vibe}`);
++      assert.equal(app.ratingExplanation(game, ctx), reason);
++    }
++  }
++});
++
+ test("owned and unowned cards use the same evidence and prefer a matched vibe on closest fits", () => {
+   const game = catalog.GAMES.find((g) => g.name === "Carcassonne");
+   const ctx = context({ players: 2, vibes: ["luck", "board", "party"] });
+diff --git a/src/lib/ratings/design-assessments.ts b/src/lib/ratings/design-assessments.ts
+index aff0604..d117ef0 100644
+--- a/src/lib/ratings/design-assessments.ts
++++ b/src/lib/ratings/design-assessments.ts
+@@ -8,6 +8,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       party: "One clue can send your teammates debating which words belong together.",
+       strategy: "A clue can link several words, but one guess at the assassin ends the game.",
++      family: "Teammates can talk through a clue together before one of them points to a word.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8],
+@@ -22,7 +23,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     legacyId: "266192",
+     title: "Wingspan",
+     matchReasons: {
+-      strategy: "Each bird you add can make later turns in its habitat more productive.",
++      strategy:
++        "Add a bird to your forest and its power can help you the next time you gather food there.",
+       luck: "The birds you draw and the food dice available shape which birds you can play.",
+     },
+     edition: "Base game; standard rules; no expansions",
+@@ -40,6 +42,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       strategy: "Trade for the resources you need before someone builds along your planned route.",
+       luck: "A dice roll can supply the brick you need or send resources to a rival settlement.",
++      family: "When you’re short on brick, you can ask the table for a trade to finish your road.",
++      board:
++        "Place your settlement beside several terrain tiles to give it more ways to earn resources.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [3, 4],
+@@ -57,6 +62,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board: "A stretch of track can connect two cities on your ticket and block a rival’s route.",
+       strategy:
+         "Collecting more train cards gives you options, but someone may claim your route while you wait.",
++      family:
++        "On your turn you can take train cards or use a matching set to put your trains on the map.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -74,6 +81,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board: "A single tile can score in two directions where a row and column meet on your wall.",
+       family:
+         "Everyone uses the same draw-and-place turn, and the tile patterns take little reading.",
++      strategy:
++        "Taking all the blue tiles from a display can fill your row and leave a rival with tiles they can’t use.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -92,7 +101,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       family:
+         "You can plan a teammate’s next move together because everyone is working toward the same four cures.",
+       luck: "An infection draw can turn a city you thought was safe into the team’s next emergency.",
+-      board: "Where you travel matters when several cities need treatment at once.",
++      board:
++        "Move toward a cluster of infected cities so your next turn can help wherever the team needs treatment most.",
++      strategy:
++        "You can spend your turn treating a crowded city or meet a teammate to exchange a card you need for a cure.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -111,6 +123,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Finishing a city frees your follower to score elsewhere, while placing one on a farm ties it up.",
+       luck: "You draw one terrain tile, then choose where its roads and city edges fit.",
++      family:
++        "Everyone draws one tile per turn and can look at the growing map to see where its edges fit.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -144,7 +158,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       strategy:
+         "An upgrade can make future turns more efficient while rivals are moving into valuable territory.",
+-      board: "Where you move determines which territory and production spaces you can hold.",
++      board:
++        "Move workers onto the terrain that produces the resources you want for your next upgrade.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5],
+@@ -211,6 +226,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       luck: "Keep the claws you rolled or reroll them for the hearts your monster needs.",
+       party: "Taking Tokyo puts your monster in the middle of everyone else’s attacks.",
++      strategy:
++        "Choose which dice to keep as you weigh healing your monster against attacking your rivals.",
++      family:
++        "Everyone can see the claws and hearts on your dice while you decide which ones to roll again.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+@@ -243,6 +262,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       strategy: "Each discarded character narrows down what another player could be holding.",
+       luck: "You draw just one card before choosing which of your two character powers to play.",
++      family: "With one card in hand, you draw a second and choose which character to play.",
++      party:
++        "Name the character you think someone is holding and watch them reveal whether your guess knocks them out.",
+     },
+     edition: "2019 Z-Man base edition",
+     players: [2, 3, 4, 5, 6],
+@@ -296,6 +318,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       party: "You have to sense when a teammate will play a lower number without saying a word.",
+       family: "The whole table shares its lives as everyone tries to lay cards in order.",
++      luck: "A hand full of low numbers makes the silence feel different because someone has to decide when to play first.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -312,6 +335,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       party: "You can bid on a safe reveal while the disc you just put down is a skull.",
+       strategy: "Every higher bid commits you to turning over another hidden disc.",
++      family:
++        "Each turn you can lay one disc face down or start guessing how many flowers you can turn over safely.",
+     },
+     edition: "Base flowers/skulls rules; no Last Chance variant",
+     players: [3, 4, 5, 6],
+@@ -347,6 +372,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       board: "An awkward patch can be a bargain if its shape fills a gap in your quilt.",
+       strategy: "Buying a patch spends both buttons and time, which can change who moves next.",
++      family:
++        "You can hold a patch over your quilt to see where it fits before spending your buttons.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+@@ -364,6 +391,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board: "Each pick gives you a habitat tile and an animal, so one choice shapes two patterns.",
+       family:
+         "Players repeat the same tile-and-animal placement turn and can check the animal scoring patterns as they go.",
++      strategy:
++        "A habitat tile you want comes paired with an animal, so you weigh both against the landscape you’re building.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+@@ -415,6 +444,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "The card you play determines where you can send a worker and what you leave for later.",
+       luck: "An intrigue card can upset your estimate of how many troops a conflict will take.",
++      board:
++        "Each space your worker takes can block a rival who hoped to send an agent there this round.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+@@ -449,6 +480,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       luck: "Drawing one more ingredient can improve your potion or make the whole pot explode.",
+       strategy: "The ingredients you buy change the odds each time you reach into your bag.",
++      family:
++        "Everyone draws from their own bag and can stop brewing as soon as their pot feels too risky.",
++      party:
++        "Watch your neighbors pull another chip while you decide whether your own potion can survive one more.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -484,6 +519,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       luck: "Your dice roll gives you a cockpit problem to solve together without talking.",
+       strategy: "A die used to steady the aircraft is one you can’t assign to the engines.",
++      family:
++        "You share the landing with one partner, each placing dice on the cockpit controls while the other watches.",
++      board:
++        "Place a die on your side of the controls to keep the plane level with your partner’s help.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+@@ -501,6 +540,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       strategy: "Pushing through a corner costs heat you may need for the next bend.",
+       luck: "Playing a stress card means finding out your speed after you’ve committed to the move.",
++      family:
++        "Everyone chooses speed cards together, and even a driver who spins out gets to keep racing.",
++      board: "A car just ahead can give you a slipstream to carry you farther along the track.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5, 6],
+@@ -520,6 +562,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Moving one insect can close a gap around the queen, provided the hive stays connected.",
+       strategy:
+         "With every piece in view, you can work out which escape route your opponent could close next.",
++      family:
++        "Take turns adding or moving one insect while both players can see the ring forming around the queen.",
+     },
+     edition: "Original base insects; no expansion insects",
+     players: [2],
+@@ -537,6 +581,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board:
+         "A tower you build this turn can become your next step up or a wall in someone else’s way.",
+       strategy: "A dome can shut down a winning climb before the other worker reaches level three.",
++      family:
++        "Each turn follows a visible rhythm as you move a worker and add one block to the little town.",
+     },
+     edition: "Base game without God Powers",
+     players: [2, 3, 4],
+@@ -554,6 +600,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy: "The move card you use today will eventually give your opponent that same move.",
+       family:
+         "Each card diagrams its move, so you can see the options without memorizing how every piece travels.",
++      board:
++        "Slide a piece along one of the paths pictured on your cards to threaten the opposing master.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+@@ -589,6 +637,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "A seasonal alliance gives you a reason to negotiate with the same player you may face in battle.",
+       strategy:
+         "Secret war bids let you choose which outcomes matter most in a contested province.",
++      board:
++        "Moving one clan figure into a province can change who has the upper hand when that province goes to war.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [3, 4, 5],
+@@ -637,6 +687,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       family: "Matching one color or number gives each turn a familiar starting point.",
+       luck: "A wild card in your hand lets you change the color everyone has to follow.",
++      party:
++        "A Skip card sends play straight past your neighbor just when they thought it was their turn.",
+     },
+     edition: "Classic UNO; no custom wild rules",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+@@ -653,6 +705,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       luck: "One Flip card turns every hand over and reveals a different set of options.",
+       strategy: "Timing a Flip lets you change which side of your hand you’ll play next.",
++      family:
++        "Everyone turns their cards over together when a Flip appears, then resumes matching on the newly visible side.",
++      party:
++        "Flip the deck when a rival is down to one card and everyone has to rethink what they can play.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+@@ -670,6 +726,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "Pressing the launcher might add nothing to your hand or send a whole stack your way.",
+       family:
+         "Players follow familiar color and number matches until the launcher changes someone’s hand.",
++      party:
++        "Everyone gets to watch the launcher as you press the button and find out how many cards it spits out.",
+     },
+     edition: "GTX66 launcher edition",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+@@ -686,6 +744,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       luck: "A spin can swap your hand or let you discard cards just as the round looks settled.",
+       party: "A wheel result can put the hand you’ve been building into someone else’s hands.",
++      family:
++        "Most turns are a color or number match, and the wheel tells everyone when to do something different.",
+     },
+     edition: "Original J3719 2005 wheel edition; no house rules",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+@@ -703,6 +763,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       family: "You can match a number with one card or add two cards together to make it.",
+       strategy:
+         "Looking at both center cards gives you a choice of which number or color bonus to pursue.",
++      luck: "A fresh draw can give you the second number you need to make the total on a center card.",
+     },
+     edition: "Original 2018 edition",
+     players: [2, 3, 4],
+@@ -719,6 +780,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       strategy: "Two discard piles give you a choice of where to use a match or a wild two.",
+       family: "Each turn offers two visible piles where you can look for a match.",
++      luck: "With two discard piles in play, a card you draw has two chances to find a matching color or number.",
+     },
+     edition: "HNN01 second edition",
+     players: [2, 3, 4],
+@@ -736,6 +798,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       party:
+         "A zero sends everyone’s hand around the table, even when someone was about to go out.",
+       luck: "Stacked draw penalties can push a hand to the 25-card elimination limit.",
++      strategy:
++        "Holding a large draw card can let you pass a stack of penalties to the next player.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+@@ -769,6 +833,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       family: "Every card is wild, so you can play a card without checking its color or number.",
+       strategy: "Since every card is playable, the choice is when to use each action.",
++      luck: "Every draw gives you a playable wild, but the action on it can change whose turn comes next.",
++      party:
++        "A wild action can skip a neighbor or force a draw even when they’re one card from winning.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+@@ -785,7 +852,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       strategy: "Saving your flex power can give you a second color to play when you need it.",
+       family:
+-        "A power card shows when you can use the alternate effect on a familiar matching card.",
++        "Your power card shows when you can use a second color to play a card that would otherwise stay in your hand.",
++      luck: "The colors you draw can leave you choosing whether to spend your flex power to play a card a different way.",
++      party:
++        "A flex action can make several players draw at once, giving the whole table a stake in your turn.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8],
+@@ -803,6 +873,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "Adding a match to a lit pile can trigger an overload and a draw penalty.",
+       strategy:
+         "The lit discard piles narrow down where you can play the matching card you want to shed.",
++      family:
++        "The unit lights up the piles you can play on, so everyone can see where to look for a match.",
++      party:
++        "Everyone watches the pile you choose to see whether the unit overloads and hands you a penalty.",
+     },
+     edition: "GXV87 standard untimed mode",
+     players: [2, 3, 4, 5, 6],
+@@ -820,6 +894,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       party: "An exact match lets you jump in even during someone else’s turn.",
+       luck: "Linked draw penalties can make another player’s draw change your hand too.",
++      family:
++        "You can stay involved between turns by watching for an exact copy of the card on top of the pile.",
+     },
+     edition: "JJV58 edition",
+     players: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+@@ -834,9 +910,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     legacyId: "394783",
+     title: "UNO Quatro",
+     matchReasons: {
+-      board: "A tile has to fit the matching rules while it helps build a line of four.",
++      board:
++        "Drop a tile beside a matching number or color and look for a spot that brings you closer to four in a row.",
+       family:
+         "Players can follow the visible colors and numbers as they try to line up four tiles.",
++      strategy:
++        "Look for a slot that extends your own line of four while taking away a space a rival needs.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -853,6 +932,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       party: "A dare gives you a choice between performing the prompt and taking more cards.",
+       family: "A player who would rather skip a dare can choose to draw instead.",
++      luck: "A Dare card can leave the next player choosing between extra cards and whatever challenge the table is using.",
+     },
+     edition: "Printed Family dare list; no invented house-rule dares",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+@@ -868,7 +948,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     title: "UNO Blast",
+     matchReasons: {
+       luck: "The card you load into the unit might send the whole accumulated stack back to you.",
+-      family: "The usual matching turn has a visible payoff when the unit releases its stack.",
++      family:
++        "Match a color or number to discard, or load a card into the launcher and see whether the stack pops out.",
++      party:
++        "Everyone can watch as you choose a slot and find out whether the launcher sends its cards flying.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+@@ -885,6 +968,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       party: "The unit picks who goes next, so you have a reason to watch even after your turn.",
+       dexterity: "Timed plays and slap events make reacting quickly part of the round.",
++      luck: "The electronic unit chooses the next player, so your turn can come back sooner than you expect.",
++      family:
++        "The light shows whose turn it is, and that player has to spot a match before time runs out.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+@@ -902,6 +988,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "A Downpour can make several players draw even as someone gets close to going out.",
+       family:
+         "Color and symbol matching keeps most turns short, even with a shared Downpour penalty.",
++      party:
++        "One Downpour card makes the other players draw together, even if someone was down to their last card.",
+     },
+     edition: "H3263 edition with Downpour",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+@@ -919,6 +1007,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       party: "Play a card facedown, announce what it is, and see whether anyone calls your bluff.",
+       strategy:
+         "Challenging a facedown card makes you weigh the claim against the risk of a draw penalty.",
++      luck: "The cards you’re dealt can leave you with an honest match or a reason to try a bluff.",
++      family:
++        "Everyone can follow the announced color or number and decide whether to challenge it.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+@@ -952,6 +1043,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "Each draw gives you another chance at the last card your set or run needs.",
+       strategy:
+         "Your current phase determines which cards are worth holding and which you can discard.",
++      family:
++        "Your phase gives you a concrete target, such as collecting two sets of three cards with matching numbers.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+@@ -968,7 +1061,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       strategy:
+         "You can choose a phase after seeing your hand and save a useful card for a later one.",
+-      luck: "The deal helps determine which phase you want to attempt this round.",
++      luck: "A hand full of pairs can steer you toward collecting sets, while neighboring numbers give you a start on a run.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+@@ -986,6 +1079,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Taking a Twist phase can move you farther ahead, but failure can send you backward.",
+       board: "Your position on the board determines which phase you need to complete next.",
++      luck: "A draw that completes your set can pay off on the board if you chose the riskier Twist challenge.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+@@ -1034,7 +1128,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     title: "Candy Land",
+     matchReasons: {
+       family:
+-        "Match the color on your card to the path and you can take a turn with little reading or counting.",
++        "Match the color on your card to the path to take a turn with little reading or counting.",
+       luck: "The card you draw decides exactly where you move on the candy path.",
+     },
+     edition: "Base game; standard rules; no expansions",
+@@ -1054,6 +1148,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Everyone hunts for words in the same grid, and a word someone else found earns neither player points.",
+       board:
+         "A word has to trace a path through neighboring letters, so their arrangement matters.",
++      family:
++        "Everyone searches the same letter grid at once and can point out their word paths when time runs out.",
+     },
+     edition: "Classic 4x4 letter grid; three-minute rounds",
+     players: [1, 2, 3, 4, 5, 6, 7, 8],
+@@ -1071,6 +1167,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board:
+         "Crossing an existing word can turn one letter placement into points in two directions.",
+       luck: "The tiles you draw give you a fresh word puzzle on each changing rack.",
++      strategy:
++        "A short word across a bonus square can score more than a longer word elsewhere on the board.",
++      family:
++        "The words already on the board give everyone visible starting points for building a new one.",
+     },
+     edition: "Classic English-language Scrabble",
+     players: [2, 3, 4],
+@@ -1088,6 +1188,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Rearranging an existing run can open a spot for a tile that seemed stuck on your rack.",
+       family: "Players build visible groups and runs using the colors and numbers on their tiles.",
++      luck: "Drawing one tile can give you the missing number to finish a run you’ve been saving.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1105,6 +1206,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board: "One well-placed tile can finish a six-tile line for a bonus.",
+       family: "Everyone can follow the lines by color and shape without reading any card text.",
+       luck: "A fresh tile draw can give you the missing shape for a six-tile line.",
++      strategy:
++        "Finishing a line of six earns a bonus, so leaving the fifth space filled can hand the next player an opportunity.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1124,6 +1227,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "A corner contact can squeeze your next piece through a gap before another color blocks it.",
+       family:
+         "Every piece follows the same corner-touching rule, and the whole puzzle stays in view.",
++      strategy:
++        "Stretch a piece toward open space before opponents box in the corners you need for future moves.",
+     },
+     edition: "Classic four-color Blokus; standard player-count arrangements",
+     players: [2, 3, 4],
+@@ -1141,6 +1246,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "Keeping a promising pair leaves the other dice free for another shot at a bigger combination.",
+       strategy:
+         "Each scoring box is yours only once, so a decent roll can be a tough one to spend.",
++      family:
++        "Everyone follows the same roll-and-keep routine, with the open boxes on the score sheet showing what’s still possible.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+@@ -1157,6 +1264,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       party: "Your teammates call out guesses as the sketch takes shape and the clock runs down.",
+       dexterity: "You have to turn the prompt into a recognizable sketch before time runs out.",
++      family:
++        "One player sketches while everyone on their team can join in by calling out guesses.",
+     },
+     edition: "DKD47 classic team drawing rules",
+     players: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+@@ -1173,6 +1282,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       luck: "A spin sends you along a path where career and money events can change your fortunes.",
+       board: "A fork in the path lets you choose which set of life events to head toward.",
++      family:
++        "Spin and move your car along the path, then use the space you reach to see what happens next.",
+     },
+     edition: "E4304 edition with pets; 2–4 players",
+     players: [2, 3, 4],
+@@ -1187,10 +1298,13 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     legacyId: "4112",
+     title: "Sequence",
+     matchReasons: {
+-      luck: "The cards you draw decide where you can place a chip as you build a line of five.",
+-      board: "A well-placed chip can extend your line of five or cut off someone else’s.",
++      luck: "The cards you draw give you options, and you choose where to place a chip to build five in a row.",
++      board:
++        "Place your chip where it brings you closer to five in a row or cuts off a rival’s line.",
+       family:
+         "Each regular card points to a matching board space, giving players a visible choice on their turn.",
++      strategy:
++        "Play a card to extend your own row or use its matching space to block a rival who’s close to five.",
+     },
+     edition: "Sequence Classic; individual or evenly divided 2/3 teams",
+     players: [2, 3, 4, 6, 8, 9, 10, 12],
+@@ -1208,6 +1322,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       board: "A die has to fit both the window pattern and the dice already beside it.",
+       luck: "Each rolled pool gives you a new mix of colors and values to fit into your window.",
++      strategy:
++        "Saving a gap for the right die can protect a scoring pattern but leave you fewer places for your next roll.",
++      family:
++        "The colored spaces in your window show where matching dice belong, though neighboring dice add restrictions.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+@@ -1225,6 +1343,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board:
+         "You choose where to draw each terrain shape so it can count toward the season’s scoring goals.",
+       luck: "Everyone sees the same exploration card, but an ambush can disrupt an otherwise tidy map.",
++      strategy:
++        "Turn the shape before you draw it to see whether one patch of terrain can help with two scoring goals.",
++      family:
++        "Everyone draws on their own map from the same revealed card, so the whole table takes its turn together.",
+     },
+     edition: "Base game; standard competitive maps",
+     players: [
+@@ -1249,6 +1371,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Declare what’s in your bag and see whether you can talk the sheriff out of an inspection.",
+       strategy:
+         "Offering a bribe makes the sheriff weigh a sure payment against the risk of inspecting honest goods.",
++      luck: "The goods you draw may fill an honest bag or tempt you to slip contraband past the sheriff.",
++      family:
++        "Players take turns being sheriff, so everyone gets a chance to inspect a bag as well as explain their own.",
+     },
+     edition:
+       "Second edition core merchant/sheriff rules; no deputies, black market or extra modules",
+@@ -1268,6 +1393,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Everyone can debate the evidence while the forensic scientist can point only to limited clues.",
+       strategy:
+         "You have to connect the scientist’s clues to a particular weapon and piece of evidence.",
++      family:
++        "Everyone can point to the evidence cards and talk through the scientist’s clues as they piece together a guess.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [4, 5, 6, 7, 8, 9, 10, 11, 12],
+@@ -1285,6 +1412,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board: "Each rescued cat has a shape you have to fit around the other cats on your boat.",
+       strategy:
+         "Fish spent keeping a drafted card can leave you short when it’s time to rescue a cat.",
++      family:
++        "You can try a cat tile in different spots on your boat to see which gaps it leaves for the others.",
+     },
+     edition: "Standard game, not the separate simplified Family mode",
+     players: [1, 2, 3, 4],
+@@ -1302,6 +1431,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Taking a follower strengthens your ties to a faction while weakening its presence on the map.",
+       board: "Removing one follower can tip which faction controls a contested region.",
++      family:
++        "Everyone starts with the same eight action cards and can see which factions their choices strengthen on the map.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1319,6 +1450,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Withdrawing now can keep your next threat card from making the whole team lose the mission.",
+       luck: "Hidden hands mean even a threat you can handle might be the one your teammates were hoping to avoid.",
++      family:
++        "The team can survive a hard mission together if players withdraw before too many matching threats appear.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -1337,6 +1470,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Spice spent bidding for a treachery card is spice you can’t spend on the next contest.",
+       party:
+         "An alliance gives you someone to bargain with while secret battle plans keep intentions uncertain.",
++      luck: "A hidden traitor can turn a battle against you even when your forces look strong enough to win.",
++      board:
++        "Moving troops into a stronghold can put you closer to victory and in reach of a rival’s attack.",
+     },
+     edition: "Gale Force Nine 2019; basic game with standard alliances; no expansions",
+     players: [3, 4, 5, 6],
+@@ -1354,6 +1490,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Buying cards from the same faction can make them stronger when they turn up together.",
+       luck: "The changing trade row determines which ships you can add to your deck.",
++      family:
++        "Play the ships in your hand and use their trade symbols to see which new ship you can afford.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+@@ -1372,6 +1510,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Your last region scores first, so a late card can unlock a reward you planned on turn one.",
+       family:
+         "Everyone chooses a region at the same time before checking how the cards score in reverse.",
++      luck: "The regions you draw can supply a symbol you’ve been missing or make you reconsider which card to play next.",
++      board:
++        "Lay eight regions in a row and read them backward to see which later cards help the earlier ones score.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+@@ -1389,6 +1530,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "With just nine turns, one carefully chosen bridge die can set off a chain of castle actions.",
+       luck: "The values rolled on the bridges change what you can afford to do.",
++      board:
++        "The castle space you choose for your die determines which actions you can link together on this turn.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+@@ -1407,6 +1550,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "A single clue has to link two neighboring words well enough for teammates to reconstruct the pair.",
+       board:
+         "Rebuilding the clover means finding an arrangement where the neighboring words fit every clue.",
++      family:
++        "One player writes the clues, then the others can talk through how to fit the words back onto the clover.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [3, 4, 5, 6],
+@@ -1443,6 +1588,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "A curved flick can send your penguin through a doorway while keeping it out of the catcher’s path.",
+       board:
+         "Choosing which doorway to aim for changes the route your penguin takes past the catcher.",
++      family:
++        "Each turn starts with one finger flick, and the doorways show everyone where the penguin is trying to go.",
++      party:
++        "A penguin can curve through a doorway or bump a runner while everyone watches where the flick takes it.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1460,6 +1609,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       dexterity:
+         "A finger flick has to clear the pegs and, when an opposing disc is present, make contact.",
+       board: "The angle between two discs can open a shot toward the center hole.",
++      strategy:
++        "Knocking a rival’s disc out of a scoring ring can be worth aiming away from the center.",
++      family:
++        "Everyone takes turns flicking one disc at a time toward the same visible scoring rings.",
+     },
+     edition: "Standard singles or doubles; tournament-style contact rule",
+     players: [2, 4],
+@@ -1477,6 +1630,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       dexterity:
+         "The force of your flick matters just as much as the angle when your car reaches a curve.",
+       board: "The modular track sets up a different line to aim for through each bend.",
++      family: "You move your car with a finger flick, and the next bend shows you where to aim.",
++      party: "Everyone can see when a daring flick sends a car past the pack or off the course.",
+     },
+     edition: "Base track set; standard race rules; no expansion obstacles",
+     players: [2, 3, 4, 5, 6, 7, 8],
+@@ -1494,6 +1649,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "A private forecast can make a pile of stocks worth bidding on before anyone else sees its value.",
+       luck: "Buying a mixed pile means taking stocks whose future prices you can only partly foresee.",
++      family:
++        "Everyone can bid on the same piles of stock, even while each player holds a different clue about future prices.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -1530,6 +1687,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "A failed crisis check gives the crew something to argue about because a teammate may have sabotaged it.",
+       strategy:
+         "Your crew must decide which crises deserve its scarce resources while loyalties are still uncertain.",
++      luck: "The next crisis card can make the crew spend supplies they were saving for a different emergency.",
++      board:
++        "Move to a ship location to use its action, choosing which part of the fleet you’ll help this turn.",
+     },
+     edition: "Base game only; 3–6 players",
+     players: [3, 4, 5, 6],
+@@ -1548,6 +1708,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board: "An animal may need the right pattern of terrain and the right height beneath it.",
+       family:
+         "Players can compare the landscape they build directly with the patterns on their animal cards.",
++      strategy:
++        "Build a stack tall enough for one animal while leaving room for the terrain a second animal needs.",
+     },
+     edition: "Base game without Nature Spirits",
+     players: [1, 2, 3, 4],
+@@ -1566,6 +1728,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "You can’t reorder your hand, so inserting one scouted card can turn neighboring cards into a scoring run.",
+       luck: "The order of the cards you’re dealt matters because those cards have to stay in sequence.",
++      family:
++        "You keep your cards in their original order and scan neighboring numbers for sets or runs you can play.",
++      board:
++        "Slip a card between two others in your hand to build a longer run without rearranging the rest.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -1583,6 +1749,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "At seven points you can stop safely or risk a final comparison for a bigger payoff.",
+       luck: "A draw can complete a scoring pair and give you its effect on the same turn.",
++      family:
++        "On your turn you can take a card from a visible discard pile and look for a matching pair in your hand.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1601,6 +1769,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "You can see your teammates’ cards, so a well-timed clue can save them from playing the wrong one.",
+       family:
+         "Everyone works on the same fireworks display and can help by giving another player a clue.",
++      luck: "When you draw a replacement card, your teammates see it first and must decide whether it deserves a clue.",
+     },
+     edition: "Base five-color game; standard restricted communication",
+     players: [2, 3, 4, 5],
+@@ -1636,6 +1805,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Taking an exposed card can uncover the very card your opponent needs on the next turn.",
+       strategy:
+         "A military or scientific victory threat can force a reply even when you’re ahead on points.",
++      family:
++        "Both players can see the exposed cards and which new choices will open up when someone takes one.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+@@ -1651,7 +1822,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     title: "Terraforming Mars",
+     matchReasons: {
+       strategy: "A project that increases production early can pay for several later turns.",
+-      board: "Placing terrain on Mars gives you a map decision alongside the projects you play.",
++      board:
++        "Place greenery beside one of your cities to score for the forest and make that city worth more.",
++      luck: "The project cards you draw can give you a new way to use resources you’ve already started producing.",
+     },
+     edition: "Base game; standard corporations and projects; no expansions",
+     players: [1, 2, 3, 4, 5],
+@@ -1687,6 +1860,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Starting an expedition commits you to its cost before you know how many higher cards you’ll find.",
+       luck: "The next draw could extend your expedition or leave you holding a card too low to play.",
++      family:
++        "Each color starts its own expedition, so both players can see which numbers still fit as the rows grow.",
+     },
+     edition: "Card game; standard five expeditions, excluding sixth-expedition variant",
+     players: [2],
+@@ -1706,6 +1881,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Selling now earns a better price per good, while waiting for a bigger set can earn a bonus.",
+       family:
+         "The goods in the market stay visible as you choose whether to take, exchange or sell.",
++      luck: "Fresh goods in the market can complete the set you wanted to sell or tempt you to start collecting something else.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+@@ -1723,6 +1899,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board:
+         "Filling the spaces around a bonus can matter as much as finishing the star you started.",
+       strategy: "The wild color changes, giving you a reason to time which tile sets you spend.",
++      family:
++        "The colors and numbers on your player board show which tiles you need to fill each point of a star.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1741,6 +1919,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "Each battle draw can strengthen your side or push you into a bust.",
+       board:
+         "Tea-party recruitment sets up which regions you’ll be ready to contest when battles begin.",
++      strategy:
++        "Recruit allies at the tea party to change what you might pull from your bag in the next battle.",
++      party:
++        "You can wager on someone else’s battle and watch each draw to see whether your pick holds up.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -1759,6 +1941,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "You can bank your climb or roll again and risk losing every step you took this turn.",
+       strategy:
+         "Once you’ve committed to three columns, the dice pairs you choose have to keep one of those climbs going.",
++      family:
++        "After each roll you choose whether to keep climbing or save your progress, and everyone can see what’s at risk.",
++      party:
++        "The whole table can watch the climb as you decide whether to risk your progress on another roll.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1776,6 +1962,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       party:
+         "You have to read the table’s timing as one deck counts up and the other counts down in silence.",
+       luck: "Blind play hides information you would normally use to judge when your next number belongs.",
++      family:
++        "Everyone shares the same attempt to put the numbers in order, even in rounds where the cards land face down.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1793,6 +1981,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       family:
+         "Everyone can compare the same clue against the suspects and cross off possibilities together.",
+       luck: "A dice roll determines whether you can carry out your plan to reveal suspects or investigate a clue.",
++      board:
++        "Head toward a clue space to test a feature against the suspects before the fox reaches its exit.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1810,6 +2000,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board:
+         "Choosing which tile to shore up can preserve the route your teammates need to escape.",
+       luck: "The next flood card can threaten a tile the team was counting on.",
++      strategy:
++        "Spend an action saving a flooded tile or use it to reach a teammate who needs your treasure card.",
++      family:
++        "All players can look at the sinking island together and plan a route that gets everyone to safety.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -1828,6 +2022,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "A storm can shift the tiles, so your route to a buried part can change between turns.",
+       family:
+         "You can work out together who should clear sand and who should spend their actions digging.",
++      luck: "The next storm card can pile sand onto a tile you were about to dig up.",
++      strategy:
++        "Clearing a path for a thirsty teammate can matter more than uncovering the next piece of the flying machine.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -1845,6 +2042,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       family:
+         "Making a number combination lets you draw fresh cards while you look for a king to wake a queen.",
+       luck: "Drawing the right defense can protect a queen from a knight or a sleeping potion.",
++      party: "Playing a knight can snatch a queen unless her owner answers with a dragon.",
+     },
+     edition: "Original twelve-queen game; catalog identity collision must remain isolated",
+     players: [2, 3, 4, 5],
+@@ -1879,6 +2077,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy: "A survey can rule out several sectors, but gathering that information costs time.",
+       board:
+         "Knowing which sectors are still possible lets you narrow down the planet’s hiding place.",
++      family:
++        "Players can start with different amounts of information while everyone tackles the same hidden planet puzzle.",
+     },
+     edition: "Base game, standard 12-sector mode",
+     players: [1, 2, 3, 4],
+@@ -1896,6 +2096,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       party:
+         "Everyone votes on a government, then has to decide whether its explanation for a policy is believable.",
+       luck: "A policy draw can give an honest government the same story a saboteur would tell.",
++      strategy:
++        "Watch who nominated each government and how people voted before deciding whom to trust with the next policy.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [5, 6, 7, 8, 9, 10],
+@@ -1913,6 +2115,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "Drawing again could end your round unless you have a defuse ready.",
+       strategy:
+         "Peeking at or reordering the deck can turn a dangerous draw into someone else’s problem.",
++      family:
++        "A turn can be as short as drawing one card, though a kitten sends you looking for a defuse.",
++      party:
++        "Skip a draw after peeking at the deck and leave everyone wondering what you just saw.",
+     },
+     edition: "Original edition; no expansions or party pack",
+     players: [2, 3, 4, 5],
+@@ -1962,6 +2168,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       board: "A shrinking island makes you choose which explorers get a place in the boats first.",
+       luck: "Removing an island tile can reveal an event that changes an explorer’s escape route.",
++      strategy:
++        "Loading a boat now can save an explorer, but leaving it near a sea creature puts the passengers at risk.",
++      family:
++        "The shrinking island gives everyone a visible reason to move their explorers toward the boats.",
++      party:
++        "Move a sea creature toward a crowded boat and everyone with an explorer aboard has a reason to pay attention.",
+     },
+     edition: "Stronghold base game; no dolphin or dive-dice expansions",
+     players: [2, 3, 4],
+@@ -1997,6 +2209,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board: "The fences and buildings you place determine how many animals your farm can hold.",
+       strategy:
+         "Claiming livestock first helps only if you can make enough space for them to breed.",
++      family:
++        "Your farm shows where animals can live, so you can count the spaces before bringing more livestock home.",
+     },
+     edition: "Original base two-player game; no additional building expansions",
+     players: [2],
+@@ -2017,6 +2231,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Getting into the right room lets you test a new theory about where the crime happened.",
+       family:
+         "Each turn follows a familiar investigation pattern as players cross possibilities off their notes.",
++      luck: "Your dice roll can get you into the room you want to investigate or leave you waiting in the hallway.",
+     },
+     edition: "Classic mansion rules; no Boardwalk side or bonus-card variant",
+     players: [3, 4, 5, 6],
+@@ -2054,6 +2269,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Feeling for a loose block lets you test a move before committing the tower’s weight to it.",
+       family:
+         "Everyone can see the challenge after one turn of pulling a block and setting it on top.",
++      party:
++        "Everyone watches the same tower sway while the player taking a turn decides whether to keep pulling.",
++      board:
++        "Slide a block from one level and balance it on top, changing the shape of the tower for whoever plays next.",
+     },
+     edition: "Classic wooden tower, one-hand standard rules; practical app count range 1–13",
+     players: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+@@ -2070,6 +2289,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       luck: "The dice decide exactly where your chips go, and a neighbor’s roll can put you back in play.",
+       family: "A player who runs out of chips can still receive one and take another turn.",
++      party:
++        "Even with no chips left, you have a reason to watch both neighbors because either one can roll a chip your way.",
+     },
+     edition: "Standard L/C/R dice and tokens; no Wild variant or money required",
+     players: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+@@ -2088,6 +2309,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Everyone can debate what a strange image means while the ghost who chose it has to stay silent.",
+       family:
+         "The group can help one another read the pictures as they narrow down suspects and locations.",
++      luck: "The vision cards in the ghost’s hand shape which pictures the group gets to interpret.",
+     },
+     edition: "Base Mysterium, cooperative vision-card investigation",
+     players: [2, 3, 4, 5, 6, 7],
+@@ -2106,6 +2328,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "One clue has to connect several pictures without sending your teammates to the assassin.",
+       family:
+         "Players can discuss what they see in the pictures without having to read a grid of words.",
++      strategy:
++        "Choose a clue that links two of your pictures without pointing your teammates toward a rival’s picture.",
+     },
+     edition: "Standard two-team game; 4–8 players within app range",
+     players: [4, 5, 6, 7, 8],
+@@ -2124,6 +2348,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Choosing a route means checking which stretch of terrain your hand can actually get you through.",
+       strategy:
+         "A card spent moving today could instead buy a better card for the rest of the race.",
++      family:
++        "The symbols along the path show which cards you need to move your explorer through the next stretch of terrain.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+@@ -2142,6 +2368,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Keeping a species for its scoring effect means giving up the chance to use that card as payment.",
+       board:
+         "Each tree has limited attachment spaces, so where you place one species affects what can fit next.",
++      luck: "The animals you draw can turn a tree you already planted into a valuable place to play your next card.",
++      family:
++        "On each turn you choose between drawing cards and playing one onto your growing woodland.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -2159,6 +2388,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       family:
+         "Players share the work of curing three diseases and can decide together who should travel or treat a city.",
+       board: "The compact map lets you weigh which threatened city a teammate can reach in time.",
++      luck: "An infection draw can put another cube in a city your team thought it had under control.",
++      strategy:
++        "Sending one teammate to treat infections can buy another the turn they need to complete a cure.",
+     },
+     edition: "North America base game, standard difficulty; no mixed-region modules",
+     players: [2, 3, 4],
+@@ -2176,6 +2408,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Sending more workers to the same spot improves its return and makes the group a better target for capture.",
+       board: "A rival can capture workers you’ve gathered at one location on the board.",
++      family:
++        "You can see your workers gather at a site and count how many will help with your next visit.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5],
+@@ -2190,8 +2424,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     legacyId: "266192-asia",
+     title: "Apiary",
+     matchReasons: {
+-      strategy: "Working a bee harder can help now but brings it closer to hibernation.",
++      strategy:
++        "A stronger bee can do more with one action, but you have fewer chances to use it before it hibernates.",
+       board: "Exploring and developing your hive give you different places to commit a worker bee.",
++      family:
++        "Each time a worker bee returns stronger, you can see how much more it can do before it hibernates.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5],
+@@ -2208,6 +2445,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       dexterity: "Balancing the rhino on an upper floor can test the walls everyone just built.",
+       family: "The shared tower shows the result of every turn as players add walls and roofs.",
++      party:
++        "Everyone watches the card tower wobble when the next player moves the rhino up a floor.",
++      board:
++        "Follow the roof pattern when you place the next walls so they can support the floor above.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -2225,6 +2466,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       board: "A crown is worth more when you connect it to a larger stretch of the same terrain.",
+       strategy: "Taking the stronger domino now can leave you picking later in the next round.",
++      family:
++        "Match the pictures along the edge of a new domino to terrain already in your kingdom.",
+     },
+     edition: "Base 5x5 kingdom rules",
+     players: [2, 3, 4],
+@@ -2242,6 +2485,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Excavating the right cave space sets up a dragon whose ability can join a later chain.",
+       board: "The spaces you excavate determine where your next dragon can settle.",
++      luck: "The dragons you draw can change which cave you want to excavate next.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5],
+@@ -2277,6 +2521,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Holding cash can protect a property set when someone plays a card demanding payment.",
+       luck: "A single action card can move a property from a rival’s set into yours.",
++      family:
++        "You can lay your properties in colored groups so everyone can see which sets are close to complete.",
++      party:
++        "Demand rent when a rival is short on cash and they may have to hand you a property instead.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+@@ -2293,6 +2541,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     matchReasons: {
+       luck: "Bank the pot now or stay in for a double and risk losing it all on a seven after the protected rolls.",
+       party: "Everyone watches the same pot grow while each player decides when to cash out.",
++      family:
++        "Everyone sees the same roll and can decide when to save their own points before the pot disappears.",
+     },
+     edition: "Thunderhive BANK; standard 20 rounds, first three rolls protected",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+@@ -2310,6 +2560,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       board: "A village you establish now gives you somewhere to start exploring in a later era.",
+       family:
+         "Everyone explores at the same time from the same card, with a separate map to fill in.",
++      strategy:
++        "Reach a spot where you can build a village now to give your explorers a head start in the next era.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+@@ -2327,6 +2579,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "Your two cards set your initiative and your actions, so acting early can cost you the combination you wanted.",
+       board: "Where you end a move affects which attacks your other card can carry out.",
++      luck: "An attack modifier card can turn a carefully planned hit into a miss after you’ve already chosen your actions.",
+     },
+     edition: "Original 2017 edition; standard campaign scenarios; no expansions",
+     players: [1, 2, 3, 4],
+@@ -2345,6 +2598,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "Every command token spent moving a fleet is one fewer available for another action.",
+       party:
+         "Negotiating over territory and objectives gives rivals something to discuss beyond the next battle.",
++      luck: "A volley of combat dice can change which ships survive a fight over a system.",
++      board:
++        "Move your fleet toward an objective while watching which neighboring systems your rivals can reach.",
+     },
+     edition: "Fourth edition base game; ten-point victory; no Prophecy of Kings",
+     players: [3, 4, 5, 6],
+@@ -2362,6 +2618,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       party: "A failed mission gives everyone a new reason to question who voted for that team.",
+       strategy:
+         "Comparing team votes with mission outcomes lets you narrow down which players could be spies.",
++      family:
++        "Everyone can join the vote on a proposed team, even players who would stay behind on that mission.",
+     },
+     edition: "Base missions without plot-card expansion",
+     players: [5, 6, 7, 8, 9, 10],
+@@ -2377,8 +2635,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+     title: "Root",
+     matchReasons: {
+       board:
+-        "Holding the same clearing can mean something different to each faction fighting over it.",
++        "Move warriors out of a clearing to threaten a rival, and you may lose the numbers you need to rule the space you left.",
+       luck: "Combat dice can upset a plan to take a clearing even after you’ve moved your forces into place.",
++      strategy:
++        "Check which clearings your faction needs before committing warriors to a battle that might leave another clearing exposed.",
+     },
+     edition: "Base game, original four factions, standard competitive setup",
+     players: [2, 3, 4],
+@@ -2396,6 +2656,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       strategy:
+         "With every piece in view, you can plan a sacrifice and work through the replies before moving.",
+       board: "A single move can open one line of attack on the king while closing another.",
++      family: "Both players can see every piece and take time to trace what a move would threaten.",
+     },
+     edition: "Orthodox untimed chess; no variants",
+     players: [2],
+@@ -2413,6 +2674,9 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "Your roll gives you several scoring options, but picking a high die hands the lower ones to other players.",
+       strategy:
+         "Choosing the right scoring space can trigger another mark and start a chain of bonuses.",
++      family:
++        "The unused dice give other players a scoring choice while they wait for their own roll.",
++      board: "Where you mark a number on your sheet can open a bonus in another scoring area.",
+     },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+@@ -2431,6 +2695,7 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+         "The symbols you connect in a card sequence shape what you can do next in combat or diplomacy.",
+       board:
+         "Choosing where to explore means budgeting the supplies you’ll need to survive the journey.",
++      luck: "An encounter you draw on the road can force you to spend supplies you meant to save for the journey.",
+     },
+     edition: "The Fall of Avalon original base campaign; standard mode, not Kings of Ruin",
+     players: [1, 2, 3, 4],
+@@ -2448,6 +2713,8 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+       luck: "Horror dice can send a rescue attempt off plan just as the killer closes in.",
+       strategy:
+         "Time spent on actions now limits which action cards you can buy for your next turn.",
++      board:
++        "Move toward a victim to set up a rescue while keeping track of how close the killer is on the map.",
+     },
+     edition:
+       "Series 1 core mechanisms; requires a Feature Film; film-specific modifiers not assessed",
+-- 
+2.56.1
+

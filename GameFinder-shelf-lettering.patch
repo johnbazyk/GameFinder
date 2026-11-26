@@ -1,0 +1,116 @@
+From 3652ddb5b83a97ab54fe76a42e1aa64122090aa1 Mon Sep 17 00:00:00 2001
+From: Codex <codex@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 09:40:02 -0700
+Subject: [PATCH] Read colored shelf titles and recover corroborated OCR
+ matches
+
+---
+ scripts/scan-and-teach.test.mjs |  4 ++++
+ src/lib/box-ocr.ts              |  2 +-
+ src/lib/box-titles.ts           | 13 +++++++++++--
+ src/lib/scan-contrast.ts        | 11 ++++++++++-
+ src/lib/scan-photo.ts           |  3 ++-
+ 5 files changed, 28 insertions(+), 5 deletions(-)
+
+diff --git a/scripts/scan-and-teach.test.mjs b/scripts/scan-and-teach.test.mjs
+index d3feabc..6e9936d 100644
+--- a/scripts/scan-and-teach.test.mjs
++++ b/scripts/scan-and-teach.test.mjs
+@@ -45,6 +45,10 @@ test("read catalog titles among box text and keep distinct editions", () => {
+   assert.deepEqual(find("CLE\nWYRM\nMYSTERIOUS"), []);
+   assert.deepEqual(find("FICRET 10 RIDE"), ["Ticket to Ride"]);
+   assert.deepEqual(find("FICRET 10 RIDE RAILS & SAILS"), []);
++  assert.deepEqual(find("IICRET 19 RIDE,"), ["Ticket to Ride"]);
++  assert.deepEqual(find("SETTLERS]\nCATANE"), ["Catan"]);
++  assert.deepEqual(find("SETTLERS\nCATA\n5–6 PLAYER EXTENSION"), []);
++  assert.deepEqual(find("CATA"), []);
+   assert.deepEqual(find("CATANIA"), []);
+   assert.deepEqual(find("AZUL SUMMER PAVILION"), ["Azul: Summer Pavilion"]);
+   assert.deepEqual(find("Outfoxed! | CATAN THE GAME"), ["Catan", "Outfoxed!"]);
+diff --git a/src/lib/box-ocr.ts b/src/lib/box-ocr.ts
+index 2f2ce33..2e234aa 100644
+--- a/src/lib/box-ocr.ts
++++ b/src/lib/box-ocr.ts
+@@ -54,7 +54,7 @@ export async function createBoxReader(signal: AbortSignal) {
+             if (upright !== photo) upright.width = upright.height = 0;
+           }
+         }
+-        for (const mode of ["red", "detail", "warm", "green"] as const) {
++        for (const mode of ["compactRed", "redInk", "red", "detail", "warm", "green"] as const) {
+           const enhanced = enhancedScanPhoto(photo, mode);
+           try {
+             for (const turn of [0, -1, 1, 2] as const) {
+diff --git a/src/lib/box-titles.ts b/src/lib/box-titles.ts
+index 5dcd48f..001fc41 100644
+--- a/src/lib/box-titles.ts
++++ b/src/lib/box-titles.ts
+@@ -63,7 +63,7 @@ export function findBoxTitles<T extends { name: string }>(
+         const normalized = words
+           .map((word, i) =>
+             /^\d+$/.test(word) && /^[a-z]+$/.test(tokens[i])
+-              ? word.replace(/1/g, "t").replace(/0/g, "o")
++              ? word.replace(/1/g, "t").replace(/[09]/g, "o")
+               : word,
+           )
+           .join(" ");
+@@ -93,7 +93,16 @@ export function findBoxTitles<T extends { name: string }>(
+     }
+   }
+   for (let i = 0; i < lines.length; i++) {
+-    match(lines[i]);
++    // Older Catan boxes put SETTLERS directly above the outlined CATAN lettering.
++    const line = lines[i];
++    if (
++      /^(the )?settlers( of)?$/.test(lines[i - 1] ?? "") &&
++      /^cata[a-z]{0,2}$/.test(line) &&
++      titleDistance(line, "catan") <= 1
++    ) {
++      match("catan " + (lines[i + 1] ?? ""));
++    }
++    match(line);
+     if (i && lines[i - 1].length + lines[i].length <= 85) {
+       // Only join when the break actually splits a catalog title.
+       const combined = lines[i - 1] + " " + lines[i];
+diff --git a/src/lib/scan-contrast.ts b/src/lib/scan-contrast.ts
+index 7f36317..bf37d86 100644
+--- a/src/lib/scan-contrast.ts
++++ b/src/lib/scan-contrast.ts
+@@ -1,4 +1,4 @@
+-export type ScanContrastMode = "red" | "detail" | "warm" | "green";
++export type ScanContrastMode = "red" | "detail" | "warm" | "green" | "redInk" | "compactRed";
+ 
+ // Use a single colour channel to separate coloured lettering from similarly bright artwork.
+ // For embossed or outlined lettering, subtract a local average to highlight the strokes.
+@@ -8,6 +8,15 @@ export function scanContrast(
+   height: number,
+   mode: ScanContrastMode,
+ ) {
++  if (mode === "redInk" || mode === "compactRed") {
++    for (let j = 0; j < pixels.length; j += 4) {
++      const red = pixels[j];
++      const ink = red - Math.max(pixels[j + 1], pixels[j + 2]) > 18;
++      const value = mode === "compactRed" ? red : ink ? 0 : 255;
++      pixels[j] = pixels[j + 1] = pixels[j + 2] = value;
++    }
++    return;
++  }
+   if (mode === "green") {
+     for (let j = 0; j < pixels.length; j += 4) pixels[j] = pixels[j + 2] = pixels[j + 1];
+     return;
+diff --git a/src/lib/scan-photo.ts b/src/lib/scan-photo.ts
+index a750f6f..7725ad8 100644
+--- a/src/lib/scan-photo.ts
++++ b/src/lib/scan-photo.ts
+@@ -81,7 +81,8 @@ export function scanTitleBand(photo: HTMLCanvasElement, bottom: boolean) {
+ }
+ 
+ export function enhancedScanPhoto(photo: HTMLCanvasElement, mode: ScanContrastMode) {
+-  const scale = Math.min(1, (mode === "green" ? 1200 : 1600) / Math.max(photo.width, photo.height));
++  const longestEdge = mode === "compactRed" ? 800 : mode === "green" ? 1200 : 1600;
++  const scale = Math.min(1, longestEdge / Math.max(photo.width, photo.height));
+   const canvas = document.createElement("canvas");
+   canvas.width = Math.max(1, Math.round(photo.width * scale));
+   canvas.height = Math.max(1, Math.round(photo.height * scale));
+-- 
+2.56.1
+

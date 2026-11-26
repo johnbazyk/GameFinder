@@ -1,0 +1,1959 @@
+diff --git a/.github/workflows/stabilization-verification.yml b/.github/workflows/stabilization-verification.yml
+index b5b4ee9..4651c17 100644
+--- a/.github/workflows/stabilization-verification.yml
++++ b/.github/workflows/stabilization-verification.yml
+@@ -4,6 +4,7 @@ on:
+   push:
+     branches:
+       - 'stabilization/07-*'
++      - 'stabilization/08-*'
+ permissions:
+   contents: read
+ jobs:
+@@ -18,4 +19,5 @@ jobs:
+           cache: npm
+       - run: npm ci
+       - run: npm run typecheck
++      - run: npm test
+       - run: npm run test:postgres
+diff --git a/docs/release/PHASE_08_ACCEPTANCE.md b/docs/release/PHASE_08_ACCEPTANCE.md
+new file mode 100644
+index 0000000..a888c98
+--- /dev/null
++++ b/docs/release/PHASE_08_ACCEPTANCE.md
+@@ -0,0 +1,27 @@
++# Phase 08 — Product corrections integration candidate
++
++Baseline: 9b48310e1a9ff7c4811d365fa55aacb44e2e99e5. Branch: stabilization/08-product-corrections.
++
++## Local evidence
++- TypeScript and production beta build passed.
++- Full automated inventory: 452 cases; 441 passed, 0 failed, 11 PostgreSQL-only cases skipped locally. CI must independently run all 11 against PostgreSQL 16. Phase 07 results do not certify Phase 08.
++- Profile subscription browser: Free/Premium/Actual modes, pricing lock, ads, 50/51-game limit, downgrade preservation, scoreboard, exact filters and Finn passed.
++- Product browser: empty Wishlist, expanded Splendor details, move to Owned, Discover title and optional players, scanner Finn and cancellation passed before final browsing-state refinements. One transient dependency optimization error recovered. Latest browsing-state refinements passed TypeScript and automated suite; repeat browser checks on integrated version.
++- Eight additional automated tests cover evidence aggregation, conflicts, split text, barcode checks, expansion veto and Discover hard constraints.
++- Browser tests use disposable auth-off loopback servers, synthetic data, blocked external traffic. Restart the server between subscription and product suites. Do not run Vite build and dev concurrently.
++
++## Scope and open gates
++- This candidate is for owner testing, not public deployment. Free cap remains 50; paid activation unchanged.
++- Local scanner uses OCR and optional platform barcode detection; approved barcode reference table is empty. No barcode-to-game coverage is claimed.
++- Visual provider remains gated and unapproved. No licensed reference-image matching implemented. No external image transfer in tests. No real-photo accuracy, latency or precision claim.
++- All recognized candidates require explicit selection. Game identity conflicts/expansion evidence can suppress candidates rather than guessing.
++- Search state is in-memory, cleared on account switch/reload. Scroll restoration enabled; real device verification pending.
++- Finn processing on scanner, app initialization, recommendations, guide and rules requests. Account cloud sync feedback and full recovery/celebration integration remain open.
++- Owner build-version display not yet implemented.
++- No production changes, paid provider calls, photo retention, or deployment authorized.
++
++## Real-photo benchmark
++Use owner-provided, consented photos locally; record expected catalog identities and editions before scanning. Include single boxes (Catan, Codenames, Splendor, Carcassonne), shelves with exact visible count, alternate orientations, glare, partial obstruction, expansions, uncatalogued games and blank negatives. No reference images may be retained or repurposed without rights. Record per-photo true positives, false positives, missed titles, unknowns, processing time, device, and method. Compute recall = TP/(TP+FN), precision = TP/(TP+FP); do not present tiny fixture results as production performance. Proposed gates: single-box recall >=95%, shelf recall >=90%, high-confidence precision >=99% on a representative held-out set. No calibrated high-confidence tier yet. Provider approval, rights, cost and data handling must precede any external visual testing.
++
++## Integration
++Use the exact baseline and a clean branch. Apply the binary patch with git apply --check first; typecheck and test before committing. Push only the Phase 08 branch; CI workflow runs standard and disposable PostgreSQL suites. No merge or deployment until owner acceptance.
+diff --git a/scripts/phase08-discover.test.mjs b/scripts/phase08-discover.test.mjs
+new file mode 100644
+index 0000000..4b5e58e
+--- /dev/null
++++ b/scripts/phase08-discover.test.mjs
+@@ -0,0 +1,38 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { createServer } from "vite";
++let server, discoverGames, discoverAlternatives, passesHardConstraints;
++const base = {
++  players: null,
++  ageBand: null,
++  maxTimeMin: null,
++  timeOver60: false,
++  vibes: [],
++  exactTraits: null,
++};
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    server: { middlewareMode: true },
++    cacheDir: "node_modules/.vite-phase08-discover",
++  });
++  ({ discoverGames, discoverAlternatives } = await server.ssrLoadModule("/src/lib/scoring.ts"));
++  ({ passesHardConstraints } = await server.ssrLoadModule("/src/lib/vibes.ts"));
++});
++after(async () => server?.close());
++test("Discover alternatives retain title, hard age/time/player limits and exact-score targets", () => {
++  const ctx = { ...base, players: 2, ageBand: "11-13", maxTimeMin: 45, vibes: ["dexterity"] };
++  const query = "Splendor";
++  assert.equal(discoverGames(ctx, query).length, 0);
++  const result = discoverAlternatives(ctx, query);
++  assert.ok(result.some((g) => g.name === "Splendor"));
++  assert.ok(
++    result.every((g) => passesHardConstraints(g, ctx) && g.name.toLowerCase().includes("splendor")),
++  );
++  assert.deepEqual(discoverAlternatives({ ...ctx, players: 13 }, query), []);
++  assert.deepEqual(discoverAlternatives({ ...ctx, exactTraits: { dexterity: 5 } }, query), []);
++});
++test("Discover never adds alternatives when exact results already exist", () => {
++  assert.ok(discoverGames(base, "Splendor").length > 0);
++  assert.deepEqual(discoverAlternatives(base, "Splendor"), []);
++});
+diff --git a/scripts/phase08-product-browser.mjs b/scripts/phase08-product-browser.mjs
+new file mode 100644
+index 0000000..e56ed33
+--- /dev/null
++++ b/scripts/phase08-product-browser.mjs
+@@ -0,0 +1,90 @@
++/** Disposable isolated auth-off development browser; no external requests. */
++import { chromium } from "playwright";
++import assert from "node:assert/strict";
++// Requires a FRESH disposable in-memory server, not the subscription test server.
++const base = "http://127.0.0.1:8110";
++const browser = await chromium.launch({ channel: "chrome", headless: true });
++try {
++  const page = await browser.newPage({
++    viewport: { width: 390, height: 844 },
++    serviceWorkers: "block",
++  });
++  page.setDefaultTimeout(30000);
++  page.on("pageerror", (e) => console.error("PAGE ERROR", e.message));
++  await page.route("**/*", (r) =>
++    r
++      .request()
++      .url()
++      .startsWith(base + "/")
++      ? r.continue()
++      : r.abort(),
++  );
++  const go = async (path) => {
++    assert.equal((await page.goto(base + path, { waitUntil: "domcontentloaded" })).status(), 200);
++  };
++  await go("/vault");
++  await page.getByRole("heading", { name: "What's on your shelf?" }).waitFor();
++  await page.getByRole("button", { name: "Wishlist", exact: true }).click();
++  await page.getByRole("button", { name: "Add to Wishlist", exact: true }).click();
++  await page.getByRole("textbox", { name: "Search the catalog" }).fill("Splendor");
++  await page.getByRole("button", { name: "Details for Splendor", exact: true }).click();
++  await page.getByRole("heading", { name: "GameFinder Vibes" }).waitFor();
++  await page.getByText("Mechanics:", { exact: true }).waitFor();
++  await page
++    .getByRole("dialog")
++    .getByRole("button", { name: "Add to Wishlist", exact: true })
++    .click();
++  await page.getByRole("button", { name: "Wishlisted", exact: true }).waitFor();
++  await page.getByRole("button", { name: "Close", exact: true }).click();
++  await page.getByRole("link", { name: "Splendor", exact: true }).waitFor();
++  console.log("PASS empty wishlist catalog search, expanded profile, addition");
++  await page.getByRole("link", { name: "Splendor", exact: true }).click();
++  await page.getByRole("button", { name: "Add to Vault", exact: true }).click();
++  await page.getByRole("button", { name: "In Your Vault", exact: true }).waitFor();
++  await go("/vault");
++  await page.getByRole("link", { name: "Splendor", exact: true }).waitFor();
++  await page.getByRole("button", { name: "Wishlist", exact: true }).click();
++  assert.equal(await page.getByRole("link", { name: "Splendor", exact: true }).count(), 0);
++  console.log("PASS move Wishlist to Owned");
++  await go("/discover");
++  await page.getByRole("button", { name: "Any number", exact: true }).waitFor();
++  assert.equal(await page.getByRole("button", { name: /Skip/ }).count(), 0);
++  await page.getByRole("button", { name: "Set player count" }).click();
++  await page.getByRole("button", { name: "More players" }).waitFor();
++  await page.getByRole("button", { name: "Any number", exact: true }).click();
++  assert.equal(await page.getByRole("button", { name: "More players" }).count(), 0);
++  await page.getByRole("searchbox").fill("Splendor");
++  await page
++    .getByRole("link", { name: /Splendor/ })
++    .first()
++    .waitFor();
++  console.log("PASS Discover title search and optional count");
++  await go("/vault");
++  await page.getByRole("button", { name: "Scan Games", exact: true }).click();
++  await page.getByText("Scan details", { exact: true }).waitFor();
++  const photo = await page.evaluate(() => {
++    const c = document.createElement("canvas");
++    c.width = 800;
++    c.height = 400;
++    const ctx = c.getContext("2d");
++    ctx.fillStyle = "white";
++    ctx.fillRect(0, 0, 800, 400);
++    ctx.fillStyle = "black";
++    ctx.font = "bold 90px Arial";
++    ctx.fillText("CATAN", 40, 150);
++    return c.toDataURL("image/png").split(",")[1];
++  });
++  await page
++    .locator("input[type=file][multiple]")
++    .setInputFiles({
++      name: "synthetic.png",
++      mimeType: "image/png",
++      buffer: Buffer.from(photo, "base64"),
++    });
++  await page.getByText("Finn is exploring your shelf…", { exact: true }).waitFor();
++  await page.getByRole("button", { name: "Close scanner" }).click();
++  assert.equal(await page.getByRole("dialog").count(), 0);
++  console.log("PASS Finn scanning state and cancellation");
++} finally {
++  await browser.close();
++}
+diff --git a/scripts/phase08-scanner.test.mjs b/scripts/phase08-scanner.test.mjs
+new file mode 100644
+index 0000000..463950e
+--- /dev/null
++++ b/scripts/phase08-scanner.test.mjs
+@@ -0,0 +1,80 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { createServer } from "vite";
++let server, resolve, barcode, find;
++const catalog = [
++  { bggId: "1", name: "Splendor" },
++  { bggId: "2", name: "Carcassonne" },
++  { bggId: "3", name: "Catan" },
++];
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    server: { middlewareMode: true },
++    cacheDir: "node_modules/.vite-phase08-unit",
++  });
++  ({ resolveScanEvidence: resolve } = await server.ssrLoadModule("/src/lib/scan-evidence.ts"));
++  barcode = await server.ssrLoadModule("/src/lib/scan-barcode.ts");
++  ({ findBoxTitles: find } = await server.ssrLoadModule("/src/lib/box-titles.ts"));
++});
++after(async () => server?.close());
++const ev = (source, id, name, more = {}) => ({
++  source,
++  hit: { bggId: id, name, confidence: "high", ...more },
++});
++test("independent recognition signals deduplicate but never bypass review", () => {
++  const r = resolve(
++    [ev("ocr", "1", "Splendor"), ev("visual", "1", "Splendor"), ev("ocr", "1", "Splendor")],
++    catalog,
++  );
++  assert.equal(r.length, 1);
++  assert.deepEqual(r[0].sources, ["ocr", "visual"]);
++  assert.equal(r[0].confidence, "review");
++});
++test("wrong provider identifiers and expansions never resolve to a base game", () => {
++  for (const e of [
++    ev("visual", "1", "Catan"),
++    ev("visual", "3", "Catan", { possibleExpansion: true }),
++  ]) {
++    assert.equal(resolve([e], catalog)[0].bggId, null);
++  }
++});
++test("blocked or duplicate identities are not accepted", () => {
++  assert.deepEqual(resolve([ev("ocr", "3", "Catan")], catalog, new Set(["3"])), []);
++  assert.equal(
++    resolve([ev("ocr", "3", "Catan")], [...catalog, { bggId: "3", name: "Other" }])[0].bggId,
++    null,
++  );
++});
++test("distinctive split lettering uses exact whole-title identity", () => {
++  assert.deepEqual(
++    find("SPL ENDOR\nCAR CASSONNE", catalog)
++      .map((g) => g.name)
++      .sort(),
++    ["Carcassonne", "Splendor"],
++  );
++  assert.deepEqual(find("I LOVE SPL ENDOR", catalog), []);
++});
++test("GTIN checksum and authorized product mapping are required", () => {
++  assert.equal(barcode.normalizeGtin("036000291452"), "00036000291452");
++  assert.equal(barcode.normalizeGtin("036000291453"), null);
++  const ref = {
++    gtin: "036000291452",
++    bggId: "1",
++    name: "Synthetic game",
++    source: "Synthetic fixture only",
++  };
++  assert.equal(barcode.matchBarcode(ref.gtin, [ref]).bggId, "1");
++  assert.equal(barcode.matchBarcode(ref.gtin, []), null);
++  assert.equal(barcode.matchBarcode(ref.gtin, [ref, ref]), null);
++  assert.equal(barcode.APPROVED_BARCODE_REFERENCES.length, 0);
++});
++
++test("expansion evidence vetoes same-title base recognition across sources", () => {
++  const r = resolve(
++    [ev("ocr", "3", "Catan"), ev("visual", "3", "Catan", { possibleExpansion: true })],
++    catalog,
++  );
++  assert.equal(r.length, 1);
++  assert.equal(r[0].bggId, null);
++});
+diff --git a/scripts/phase08-subscription-browser.mjs b/scripts/phase08-subscription-browser.mjs
+new file mode 100644
+index 0000000..026415d
+--- /dev/null
++++ b/scripts/phase08-subscription-browser.mjs
+@@ -0,0 +1,172 @@
++/**
++ * Local-only acceptance test. Run against the isolated, explicitly enabled
++ * auth-off development server. Never point this at a deployed environment.
++ * Uses a disposable browser context, no real accounts or provider calls.
++ */
++import { chromium } from "playwright";
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++const base = "http://127.0.0.1:8110";
++const ids = [
++  ...new Set(
++    [
++      ...readFileSync(new URL("../src/lib/catalog.ts", import.meta.url), "utf8").matchAll(
++        /bggId: "(\d+)"/g,
++      ),
++    ].map((x) => x[1]),
++  ),
++]
++  .filter((x) => !["13", "178900"].includes(x))
++  .slice(0, 50);
++assert.equal(ids.length, 50);
++const browser = await chromium.launch({ channel: "chrome", headless: true });
++try {
++  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
++  page.setDefaultTimeout(30000);
++  await page.route("**/*", (route) =>
++    route.request().url().startsWith(base) ? route.continue() : route.abort(),
++  );
++  await page.addInitScript((ids) => {
++    if (!sessionStorage.getItem("fixture-seeded")) {
++      localStorage.setItem(
++        "gamefinder-v2",
++        JSON.stringify({ state: { owned: ids, vaultOwnerId: "dev-user" }, version: 2 }),
++      );
++      sessionStorage.setItem("fixture-seeded", "1");
++    }
++  }, ids);
++  const go = async (path) => {
++    const response = await page.goto(base + path, { waitUntil: "domcontentloaded" });
++    assert.equal(response.status(), 200);
++  };
++  const mode = async (m) => {
++    await go("/profile");
++    await page.getByRole("heading", { name: "Subscription testing" }).waitFor();
++    await page.getByRole("button", { name: m, exact: true }).click();
++    await page.waitForFunction(
++      (m) =>
++        [...document.querySelectorAll("button")].some(
++          (b) => b.textContent.trim() === m && b.getAttribute("aria-pressed") === "true",
++        ),
++      m,
++    );
++    console.log("PASS mode", m);
++  };
++  const count = async (n) => {
++    await page.waitForFunction(
++      (n) => JSON.parse(localStorage.getItem("gamefinder-v2") || "{}").state?.owned?.length === n,
++      n,
++    );
++  };
++  const advanceWizard = async () => {
++    await go("/wizard");
++    for (const [before, after] of [
++      ["How many people are playing?", "How old is the youngest player?"],
++      ["How old is the youngest player?", "How much time do you want to play?"],
++      ["How much time do you want to play?", "What kind of game are you in the mood for?"],
++    ]) {
++      await page.getByRole("heading", { name: before, exact: true }).waitFor();
++      // SSR can expose a button before hydration attaches its click handler.
++      const next = page.getByRole("button", { name: "Skip", exact: true });
++      for (let attempt = 0; attempt < 5; attempt++) {
++        await next.click();
++        if (
++          await page
++            .getByRole("heading", { name: after, exact: true })
++            .waitFor({ timeout: 2000 })
++            .then(
++              () => true,
++              () => false,
++            )
++        )
++          break;
++        if (attempt === 4) throw new Error("Wizard did not advance from " + before);
++      }
++    }
++  };
++  await mode("Free");
++  await go("/premium");
++  await page
++    .getByText(
++      "Checkout is disabled until Stripe pricing and subscription management are configured.",
++    )
++    .waitFor();
++  assert.equal(await page.getByRole("button", { name: /Monthly.*4\.99/ }).isDisabled(), true);
++  assert.equal(await page.getByRole("button", { name: /Annual.*44\.99/ }).isDisabled(), true);
++  console.log("PASS locked pricing");
++  await go("/vault");
++  await count(50);
++  await page.getByText(/50\s*\/\s*50 owned/).waitFor();
++  await page.getByText("Ad · GameFinder Free", { exact: true }).waitFor();
++  console.log("PASS Free Vault and banner");
++  await go("/game/13");
++  await page.getByRole("button", { name: "Add to Vault", exact: true }).click();
++  console.log(
++    "AFTER ADD",
++    await page.evaluate(() => ({
++      count: JSON.parse(localStorage.getItem("gamefinder-v2") || "{}").state?.owned?.length,
++      text: document.body.innerText.slice(-1000),
++    })),
++  );
++  await page.getByText("Free vaults hold up to 50 games.", { exact: false }).waitFor();
++  await count(50);
++  console.log("PASS Free 51st game rejected");
++  await go("/scoreboard");
++  await page.getByRole("heading", { name: "Scores & Win History is Premium" }).waitFor();
++  console.log("PASS Free scoreboard locked");
++  await advanceWizard();
++  await page.getByRole("button", { name: "Premium · Exact-score filters" }).waitFor();
++  console.log("PASS Free exact filters locked");
++  await go("/game/13/teach");
++  await page.getByRole("heading", { name: "Learn with Finn is Premium" }).waitFor();
++  console.log("PASS Free Finn locked");
++  await mode("Premium");
++  await go("/vault");
++  await page.getByText(/^50 owned/).waitFor();
++  assert.equal(await page.getByText("Ad · GameFinder Free", { exact: true }).count(), 0);
++  console.log("PASS Premium banner hidden");
++  await go("/game/13");
++  await page.getByRole("button", { name: "Add to Vault", exact: true }).click();
++  console.log(
++    "AFTER ADD",
++    await page.evaluate(() => ({
++      count: JSON.parse(localStorage.getItem("gamefinder-v2") || "{}").state?.owned?.length,
++      text: document.body.innerText.slice(-1000),
++    })),
++  );
++  await page.getByRole("button", { name: "In Your Vault" }).waitFor();
++  await count(51);
++  await go("/vault");
++  await page.getByText(/^51 owned/).waitFor();
++  console.log("PASS Premium 51st game accepted");
++  await go("/scoreboard");
++  await page.getByRole("heading", { name: "Lifetime standings" }).waitFor();
++  console.log("PASS Premium scoreboard");
++  await advanceWizard();
++  await page.getByRole("button", { name: "Advanced exact-score filters", exact: true }).click();
++  console.log("PASS Premium advanced control opened");
++  await go("/game/13/teach");
++  await page.getByRole("heading", { name: "Learn with Finn" }).waitFor();
++  console.log("PASS Premium Finn unlocked");
++  await mode("Free");
++  await go("/vault");
++  await count(51);
++  await page.getByText(/51\s*\/\s*50 owned/).waitFor();
++  console.log("PASS downgrade preserves all 51");
++  await go("/game/178900");
++  await page.getByRole("button", { name: "Add to Vault", exact: true }).click();
++  console.log(
++    "AFTER ADD",
++    await page.evaluate(() => ({
++      count: JSON.parse(localStorage.getItem("gamefinder-v2") || "{}").state?.owned?.length,
++      text: document.body.innerText.slice(-1000),
++    })),
++  );
++  await page.getByText("Free vaults hold up to 50 games.", { exact: false }).waitFor();
++  await count(51);
++  console.log("PASS downgrade additional game blocked");
++  await mode("Actual");
++  console.log("ALL PASS");
++} finally {
++  await browser.close();
++}
+diff --git a/src/components/account-sync.tsx b/src/components/account-sync.tsx
+index d8c9071..d3e8e79 100644
+--- a/src/components/account-sync.tsx
++++ b/src/components/account-sync.tsx
+@@ -8,7 +8,7 @@ import {
+   replaceCloudVault,
+   syncCloudCatalogGames,
+ } from "@/lib/social";
+-import { useAppStore, DEFAULT_WIZARD } from "@/lib/store";
++import { useAppStore, DEFAULT_WIZARD, EMPTY_BROWSE } from "@/lib/store";
+ import { accountVaultKey, switchVault, mergeVaultDelta, sameVault } from "@/lib/account-vault";
+ import { DEFAULT_USER_WEIGHTS } from "@/lib/vibes";
+ import { DEFAULT_PIECE_COLOR } from "@/lib/piece-color";
+@@ -90,6 +90,7 @@ export function AccountSync() {
+         vibeWeights: target?.vibeWeights ?? { ...DEFAULT_USER_WEIGHTS },
+         customGames: target?.customGames ?? [],
+         customGamesOwnerId: userId,
++        ...EMPTY_BROWSE,
+         wizard: { ...DEFAULT_WIZARD },
+         lastResults: null,
+         shownIds: [],
+diff --git a/src/components/add-game-dialog.tsx b/src/components/add-game-dialog.tsx
+index b40f1ed..e1a1780 100644
+--- a/src/components/add-game-dialog.tsx
++++ b/src/components/add-game-dialog.tsx
+@@ -1,13 +1,40 @@
+ import * as Dialog from "@radix-ui/react-dialog";
+ import { useMemo, useState } from "react";
+-import { Search, X } from "lucide-react";
++import { ChevronDown, Search, X } from "lucide-react";
+ import { searchGames, standaloneGames } from "@/lib/catalog";
+ import { useAppStore } from "@/lib/store";
++import { GameCharacterDetails } from "./game-character-details";
++import { amazonSearchUrl } from "@/lib/affiliate";
++import { useFlag } from "@/lib/flags";
++import { DEFAULT_WIZARD } from "@/lib/store";
+ import { GameCover } from "./game-cover";
+ import { Button } from "./ui/button";
+ import { toast } from "sonner";
+ 
+-export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
++export function AddGameDialog({
++  open,
++  onClose,
++  collection = "owned",
++}: {
++  open: boolean;
++  onClose: () => void;
++  collection?: "owned" | "wish";
++}) {
++  const [expanded, setExpanded] = useState<string | null>(null);
++  const wishlist = useAppStore((s) => s.wishlist);
++  const toggleWishlist = useAppStore((s) => s.toggleWishlist);
++  const wishMode = collection === "wish";
++  const amazonOn = useFlag("amazon_cta");
++  function add(id: string) {
++    if (wishMode) {
++      if (!owned.includes(id) && !wishlist.includes(id)) {
++        toggleWishlist(id);
++        return "ok";
++      }
++      return "exists";
++    }
++    return addOwned(id);
++  }
+   const [q, setQ] = useState("");
+   const ready = useAppStore((s) => s.entitlementReady);
+   const owned = useAppStore((s) => s.owned);
+@@ -51,7 +78,9 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
+           className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full max-w-lg flex-col rounded-t-2xl bg-background shadow-lift sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+         >
+           <div className="flex items-center justify-between px-4 pt-4">
+-            <Dialog.Title className="font-display text-xl">Search by title</Dialog.Title>
++            <Dialog.Title className="font-display text-xl">
++              {wishMode ? "Add to Wishlist" : "Search by title"}
++            </Dialog.Title>
+             <button
+               type="button"
+               onClick={onClose}
+@@ -88,9 +117,13 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
+                   if (!ready) return;
+                   try {
+                     const game = addCustomGame(customTitle);
+-                    const result = addOwned(game.id);
++                    const result = add(game.id);
+                     if (result === "ok") {
+-                      toast("Custom game added to your Vault");
++                      toast(
++                        wishMode
++                          ? "Custom game added to your Wishlist"
++                          : "Custom game added to your Vault",
++                      );
+                       setCustomTitle("");
+                       setCustomEntryOpen(false);
+                       onClose();
+@@ -127,7 +160,7 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
+           </div>
+           <ul className="mt-2 flex-1 overflow-y-auto px-2 pb-6">
+             {customResults.map((game) => {
+-              const onShelf = owned.includes(game.id);
++              const onShelf = owned.includes(game.id) || (wishMode && wishlist.includes(game.id));
+               return (
+                 <li key={game.id} className="flex items-center gap-3 px-2 py-2">
+                   <div className="grid h-14 w-10 shrink-0 place-items-center rounded-card bg-muted text-[10px] font-semibold text-muted-foreground">
+@@ -140,31 +173,87 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
+                   <Button
+                     size="sm"
+                     variant={onShelf ? "moss" : "primary"}
+-                    onClick={() => addOwned(game.id)}
++                    onClick={() => add(game.id)}
+                     disabled={!ready || onShelf}
+                   >
+-                    {onShelf ? "Owned" : "Add"}
++                    {onShelf
++                      ? wishMode && !owned.includes(game.id)
++                        ? "Wishlisted"
++                        : "Owned"
++                      : "Add"}
+                   </Button>
+                 </li>
+               );
+             })}
+             {results.map((g) => {
+-              const onShelf = owned.includes(g.bggId);
++              const onShelf = owned.includes(g.bggId) || (wishMode && wishlist.includes(g.bggId));
+               return (
+-                <li key={g.bggId} className="flex items-center gap-3 px-2 py-2">
+-                  <GameCover game={g} className="h-14 w-10" />
+-                  <div className="min-w-0 flex-1">
+-                    <p className="truncate font-semibold">{g.name}</p>
+-                    <p className="text-xs text-muted-foreground">{g.yearPublished}</p>
++                <li key={g.bggId} className="px-2 py-2">
++                  <div className="flex items-center gap-3">
++                    <button
++                      type="button"
++                      aria-expanded={expanded === g.bggId}
++                      aria-label={`Details for ${g.name}`}
++                      onClick={() => setExpanded(expanded === g.bggId ? null : g.bggId)}
++                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
++                    >
++                      <GameCover game={g} className="h-14 w-10 shrink-0" />
++                      <span className="min-w-0 flex-1">
++                        <span className="block truncate font-semibold">{g.name}</span>
++                        <span className="block text-xs text-muted-foreground">
++                          {g.yearPublished}
++                        </span>
++                      </span>
++                      <ChevronDown
++                        className={`size-4 shrink-0 ${expanded === g.bggId ? "rotate-180" : ""}`}
++                      />
++                    </button>
++                    <Button
++                      size="sm"
++                      variant={onShelf ? "moss" : "primary"}
++                      onClick={() => add(g.bggId)}
++                      disabled={!ready || onShelf}
++                    >
++                      {onShelf
++                        ? wishMode && !owned.includes(g.bggId)
++                          ? "Wishlisted"
++                          : "Owned"
++                        : "Add"}
++                    </Button>
+                   </div>
+-                  <Button
+-                    size="sm"
+-                    variant={onShelf ? "moss" : "primary"}
+-                    onClick={() => addOwned(g.bggId)}
+-                    disabled={!ready || onShelf}
+-                  >
+-                    {onShelf ? "Owned" : "Add"}
+-                  </Button>
++                  {expanded === g.bggId && (
++                    <div className="mt-2 rounded-card bg-muted p-3 text-sm">
++                      <GameCharacterDetails
++                        game={g}
++                        context={{
++                          ...DEFAULT_WIZARD,
++                          players: null,
++                          ageBand: null,
++                          maxTimeMin: null,
++                        }}
++                        compact
++                      />
++                      {amazonOn && !owned.includes(g.bggId) && (
++                        <a
++                          className="mt-3 block text-center font-semibold text-sky"
++                          href={amazonSearchUrl(g.name)}
++                          target="_blank"
++                          rel="noreferrer"
++                        >
++                          Search Amazon for this game
++                        </a>
++                      )}
++                      {!owned.includes(g.bggId) && (
++                        <Button
++                          className="mt-3 w-full"
++                          variant="outline"
++                          onClick={() => toggleWishlist(g.bggId)}
++                        >
++                          {wishlist.includes(g.bggId) ? "Remove from Wishlist" : "Add to Wishlist"}
++                        </Button>
++                      )}
++                    </div>
++                  )}
+                 </li>
+               );
+             })}
+diff --git a/src/components/app-shell.tsx b/src/components/app-shell.tsx
+index 519a672..1ba5aae 100644
+--- a/src/components/app-shell.tsx
++++ b/src/components/app-shell.tsx
+@@ -6,6 +6,7 @@ import { useAppStore } from "@/lib/store";
+ import { markFlagsHydrated } from "@/lib/flags";
+ import { useCurrentUserState } from "@/lib/auth/use-current-user";
+ import { UpgradeSheet } from "@/components/upgrade-sheet";
++import { FinnProcessing } from "./finn-processing";
+ import { AccountSync } from "@/components/account-sync";
+ 
+ const NAV = [
+@@ -78,7 +79,7 @@ export function AppShell({ children }: { children: ReactNode }) {
+       <div className="paper-grain min-h-dvh text-foreground">
+         <AccountSync />
+         <main className="mx-auto max-w-3xl p-6">
+-          <p role="status">Loading your table…</p>
++          <FinnProcessing title="Loading your table…" mood="shelf" />
+         </main>
+       </div>
+     );
+diff --git a/src/components/finn-processing.tsx b/src/components/finn-processing.tsx
+new file mode 100644
+index 0000000..64da3ce
+--- /dev/null
++++ b/src/components/finn-processing.tsx
+@@ -0,0 +1,27 @@
++import { FoxAvatar, type FoxMood } from "./fox-avatar";
++
++/** A genuine busy state, never a timed animation pretending to be progress. */
++export function FinnProcessing({
++  title,
++  detail,
++  mood = "sniffing",
++}: {
++  title: string;
++  detail?: string;
++  mood?: FoxMood;
++}) {
++  return (
++    <div
++      role="status"
++      aria-live="polite"
++      className="flex flex-col items-center gap-3 px-4 py-6 text-center"
++    >
++      <FoxAvatar mood={mood} size="lg" />
++      <p className="font-display text-xl">{title}</p>
++      {detail && <p className="text-sm text-muted-foreground">{detail}</p>}
++      <div aria-hidden="true" className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
++        <div className="h-full w-1/3 rounded-full bg-fox motion-safe:animate-pulse" />
++      </div>
++    </div>
++  );
++}
+diff --git a/src/components/finn-questions.tsx b/src/components/finn-questions.tsx
+index 0da936e..383f752 100644
+--- a/src/components/finn-questions.tsx
++++ b/src/components/finn-questions.tsx
+@@ -12,6 +12,7 @@ import { lessonRecording, previewAnswer } from "@/lib/catan-voice-preview";
+ import { guidePassage, directGuideChapter } from "@/lib/guide-chapters";
+ import type { Guide } from "@/lib/written-guides";
+ import type { Game } from "@/lib/types";
++import { FinnProcessing } from "./finn-processing";
+ import { Button } from "./ui/button";
+ 
+ type Dictation = {
+@@ -304,7 +305,9 @@ export function FinnQuestions({
+         </Button>
+       </form>
+       <div aria-live="polite" className="mx-auto max-w-lg text-sm">
+-        {phase === "busy" && !answer && <p>Checking your question…</p>}
++        {phase === "busy" && !answer && (
++          <FinnProcessing mood="thinking" title="Finn is checking your question…" />
++        )}
+         {message && <p>{message}</p>}
+         {answer && (
+           <div className="space-y-2 rounded-card bg-card p-4">
+diff --git a/src/components/game-character-details.tsx b/src/components/game-character-details.tsx
+new file mode 100644
+index 0000000..5199633
+--- /dev/null
++++ b/src/components/game-character-details.tsx
+@@ -0,0 +1,53 @@
++import { gameRating } from "@/lib/application-ratings";
++import { formatAge, formatPlayers, formatPlaytime } from "@/lib/scoring";
++import type { Game, WizardContext, VibeId } from "@/lib/types";
++import { VIBE_META } from "@/lib/vibes";
++import { RatingProfile } from "./rating-profile";
++
++/** Shared profile content: no fabricated metadata or independent score calculation. */
++export function GameCharacterDetails({
++  game,
++  context,
++  compact = false,
++}: {
++  game: Game;
++  context: WizardContext;
++  compact?: boolean;
++}) {
++  return (
++    <section className="space-y-3">
++      {compact && (
++        <>
++          <p>
++            {formatPlayers(game)} players · {formatAge(game)} · {formatPlaytime(game)}
++          </p>
++          <p>{game.description}</p>
++        </>
++      )}
++      <p className="text-sm">
++        <strong>Mechanics:</strong> {game.mechanics.join(", ") || "Not documented"}
++      </p>
++      <RatingProfile game={game} initialContext={context} />
++      <section className="rounded-card bg-card p-4">
++        <h2 className="font-display text-xl">GameFinder Vibes</h2>
++        <dl className="mt-2 space-y-2">
++          {(Object.keys(VIBE_META) as VibeId[]).map((vibe) => {
++            const rating = gameRating(game, vibe, {
++              ...context,
++              ratingMode: context.ratingMode === "reviewed" ? "reviewed" : "beta",
++            });
++            return (
++              <div key={vibe} className="flex items-center justify-between gap-2 text-sm">
++                <dt>{VIBE_META[vibe].label}</dt>
++                <dd>
++                  {rating.value === null ? "Not assessed" : rating.value + " / 5"}{" "}
++                  <span className="text-xs text-muted-foreground">{rating.label}</span>
++                </dd>
++              </div>
++            );
++          })}
++        </dl>
++      </section>
++    </section>
++  );
++}
+diff --git a/src/components/scan-games.tsx b/src/components/scan-games.tsx
+index 17e3506..a998cf9 100644
+--- a/src/components/scan-games.tsx
++++ b/src/components/scan-games.tsx
+@@ -4,12 +4,19 @@ import { Camera, Images, X } from "lucide-react";
+ import { toast } from "sonner";
+ import { openScanPhoto, remoteScanImage } from "@/lib/scan-photo";
+ import { identifyShelf, remoteScanAvailable, type ScanHit } from "@/lib/scan";
++import { resolveScanEvidence } from "@/lib/scan-evidence";
++import { readLocalBarcodes } from "@/lib/scan-barcode";
++import { GAMES, CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
+ import { mergeScanRows, type ScanRow } from "@/lib/scan-review";
+ import { boxTitleKey } from "@/lib/box-titles";
+ import type { createBoxReader } from "@/lib/box-ocr";
+ import { useAppStore } from "@/lib/store";
+ import { FREE_VAULT_LIMIT } from "@/lib/types";
+ import { Button } from "./ui/button";
++import { GameCharacterDetails } from "./game-character-details";
++import { getGame } from "@/lib/scoring";
++import { DEFAULT_WIZARD } from "@/lib/store";
++import { FinnProcessing } from "./finn-processing";
+ import { AddGameDialog } from "./add-game-dialog";
+ 
+ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => void }) {
+@@ -21,10 +28,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+   const [progress, setProgress] = useState("");
+   const [message, setMessage] = useState("");
+   const [report, setReport] = useState("");
+-  const diagnostics =
+-    import.meta.env.DEV &&
+-    typeof window !== "undefined" &&
+-    new URLSearchParams(window.location.search).get("scanDebug") === "1";
++  const diagnostics = import.meta.env.DEV;
+   const [manual, setManual] = useState(false);
+   const [remoteAvailable, setRemoteAvailable] = useState(false);
+   const [remoteConsent, setRemoteConsent] = useState(false);
+@@ -96,6 +100,8 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+           continue;
+         }
+         const dimensions = photo.width + " × " + photo.height;
++        const barcodeTask = readLocalBarcodes(photo, signal);
++
+         const remoteTask =
+           remoteAvailable && remoteConsent
+             ? Promise.resolve()
+@@ -152,17 +158,19 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+               (hit) => {
+                 if (!stopped && !signal.aborted) localHits.push(hit);
+               },
+-              diagnostics
+-                ? (stage, text, titles) => {
+-                    passes.push(
+-                      stage +
+-                        " · " +
+-                        (titles.join(", ") || "no match") +
+-                        "\n" +
+-                        text.trim().slice(0, 2000),
+-                    );
+-                  }
+-                : undefined,
++              (stage, text, titles) => {
++                if (stopped || signal.aborted) return;
++                setProgress(`Reading photo ${index + 1} of ${files.length} · ${stage}`);
++                if (diagnostics) {
++                  passes.push(
++                    stage +
++                      " · " +
++                      (titles.join(", ") || "no match") +
++                      "\n" +
++                      text.trim().slice(0, 2000),
++                  );
++                }
++              },
+               (id) => {
+                 if (!stopped && !signal.aborted) conflicts.add(id);
+               },
+@@ -175,8 +183,8 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+             return null;
+           }
+         })().catch(() => null);
+-        const [remote, local] = await Promise.race([
+-          Promise.all([remoteTask, Promise.race([localTask, localStopped])]),
++        const [remote, local, barcodes] = await Promise.race([
++          Promise.all([remoteTask, Promise.race([localTask, localStopped]), barcodeTask]),
+           cancelled,
+         ]).finally(() => {
+           window.clearTimeout(timer);
+@@ -195,12 +203,26 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+               "Phone reader · " + phoneStatus + " · " + passes.length + " passes",
+               "Phone matches · " + names(localHits),
+               "Server matches · " + (remote?.ok ? names(remote.hits) : "unavailable"),
++              "Barcode reader · " +
++                (barcodes.supported
++                  ? barcodes.count + " valid codes · " + names(barcodes.hits)
++                  : "unavailable"),
+               ...passes,
+             ].join("\n\n"),
+           );
+         }
+-        const hits = [...(remote?.ok ? remote.hits : []), ...localHits].filter(
+-          (hit) => !hit.bggId || !conflicts.has(hit.bggId),
++        const blocked = new Set([
++          ...conflicts,
++          ...CATALOG_EXTERNAL_ID_CONFLICTS.map((c) => c.externalId),
++        ]);
++        const hits = resolveScanEvidence(
++          [
++            ...localHits.map((hit) => ({ source: "ocr" as const, hit })),
++            ...(remote?.ok ? remote.hits.map((hit) => ({ source: "visual" as const, hit })) : []),
++            ...barcodes.hits.map((hit) => ({ source: "barcode" as const, hit })),
++          ],
++          GAMES,
++          blocked,
+         );
+         if (hits.length) {
+           if (local === null) partial++;
+@@ -289,7 +311,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+         >
+           <header className="flex items-center justify-between">
+             <Dialog.Title className="font-display text-xl">
+-              {rows.length ? "Review games found" : "Scan games"}
++              {progress ? "Finn is scanning" : rows.length ? "Review games found" : "Scan games"}
+             </Dialog.Title>
+             <button
+               onClick={close}
+@@ -315,49 +337,56 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+             ref={gallery}
+             onChange={(e) => pick(e.target)}
+           />
+-          {!rows.length && (
+-            <p className="text-sm">
+-              Photograph a box or add several shelf photos. Review the games together. By default,
+-              recognition stays on this device. GameFinder does not save the photos to your Vault.
+-            </p>
+-          )}
+-          {remoteAvailable && (
+-            <label className="flex items-start gap-2 rounded-card bg-muted p-3 text-sm">
+-              <input
+-                type="checkbox"
+-                className="mt-1"
+-                checked={remoteConsent}
+-                disabled={!!progress}
+-                onChange={(event) => setRemoteConsent(event.target.checked)}
+-              />
+-              <span>
+-                Optional external recognition: send selected photos to xAI to help identify games.
+-                Provider processing is subject to its privacy terms. Leave unchecked to scan
+-                locally.
+-              </span>
+-            </label>
++          {progress ? (
++            <FinnProcessing title="Finn is exploring your shelf…" detail={progress} />
++          ) : (
++            <>
++              {!rows.length && (
++                <p className="text-sm">
++                  Photograph a box or add several shelf photos. Review the games together. By
++                  default, recognition stays on this device. GameFinder does not save the photos to
++                  your Vault.
++                </p>
++              )}
++              {remoteAvailable && (
++                <label className="flex items-start gap-2 rounded-card bg-muted p-3 text-sm">
++                  <input
++                    type="checkbox"
++                    className="mt-1"
++                    checked={remoteConsent}
++                    disabled={!!progress}
++                    onChange={(event) => setRemoteConsent(event.target.checked)}
++                  />
++                  <span>
++                    Optional external recognition: send selected photos to xAI to help identify
++                    games. Provider processing is subject to its privacy terms. Leave unchecked to
++                    scan locally.
++                  </span>
++                </label>
++              )}
++              <div className="flex gap-2">
++                <Button
++                  variant="secondary"
++                  disabled={!!progress}
++                  onClick={() => camera.current?.click()}
++                >
++                  <Camera />
++                  Take photo
++                </Button>
++                <Button
++                  variant="secondary"
++                  disabled={!!progress}
++                  onClick={() => gallery.current?.click()}
++                >
++                  <Images />
++                  Add photos
++                </Button>
++              </div>
++              <p role="status" className="empty:hidden text-sm text-muted-foreground">
++                {message}
++              </p>
++            </>
+           )}
+-          <div className="flex gap-2">
+-            <Button
+-              variant="secondary"
+-              disabled={!!progress}
+-              onClick={() => camera.current?.click()}
+-            >
+-              <Camera />
+-              Take photo
+-            </Button>
+-            <Button
+-              variant="secondary"
+-              disabled={!!progress}
+-              onClick={() => gallery.current?.click()}
+-            >
+-              <Images />
+-              Add photos
+-            </Button>
+-          </div>
+-          <p role="status" className="empty:hidden text-sm text-muted-foreground">
+-            {progress || message}
+-          </p>
+           {progress && (
+             <button
+               type="button"
+@@ -375,7 +404,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+               </pre>
+             </details>
+           )}
+-          {rows.length > 0 && (
++          {!progress && rows.length > 0 && (
+             <>
+               <div className="flex items-center justify-between text-sm">
+                 <span>
+@@ -406,7 +435,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+                           {row.bggId && owned.includes(row.bggId)
+                             ? "Already in vault"
+                             : !row.bggId
+-                              ? "Outside catalog · Add as custom game"
++                              ? "Unverified identity · Check before adding as custom game"
+                               : row.confidence === "high"
+                                 ? "Catalog match"
+                                 : "Check this match"}
+@@ -426,6 +455,23 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+                         />
+                       )}
+                     </label>
++                    {row.bggId && getGame(row.bggId) && (
++                      <details className="mb-2 text-sm">
++                        <summary className="cursor-pointer font-semibold text-sky">
++                          Game details
++                        </summary>
++                        <GameCharacterDetails
++                          game={getGame(row.bggId)!}
++                          context={{
++                            ...DEFAULT_WIZARD,
++                            players: null,
++                            ageBand: null,
++                            maxTimeMin: null,
++                          }}
++                          compact
++                        />
++                      </details>
++                    )}
+                   </li>
+                 ))}
+               </ul>
+@@ -436,6 +482,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+           )}
+           <button
+             type="button"
++            disabled={!!progress}
+             className="text-sm font-semibold text-sky"
+             onClick={() => setManual(true)}
+           >
+diff --git a/src/components/subscription-test-control.tsx b/src/components/subscription-test-control.tsx
+new file mode 100644
+index 0000000..0fdb210
+--- /dev/null
++++ b/src/components/subscription-test-control.tsx
+@@ -0,0 +1,64 @@
++import { useEffect, useState } from "react";
++import { getSubscriptionTestMode, setSubscriptionTestMode } from "@/lib/social";
++import { Button } from "./ui/button";
++import { toast } from "sonner";
++export function SubscriptionTestControl() {
++  const [mode, setMode] = useState<"actual" | "free" | "premium" | null>(null);
++  const [busy, setBusy] = useState(false);
++  const [status, setStatus] = useState("Checking test environment…");
++  useEffect(() => {
++    if (import.meta.env.DEV)
++      void getSubscriptionTestMode()
++        .then((result) => {
++          if (result.enabled) setMode(result.mode);
++          else
++            setStatus(
++              "Testing unavailable. Start a private development server with auth off, an empty DATABASE_URL and GAMEFINDER_LOCAL_TEST_PLAN=1.",
++            );
++        })
++        .catch(() =>
++          setStatus("Cannot reach subscription testing. Check the development server and retry."),
++        );
++  }, []);
++  if (!import.meta.env.DEV) return null;
++  if (mode === null)
++    return (
++      <section className="mt-5 rounded-card bg-card p-4">
++        <h2 className="font-display text-xl">Owner testing mode</h2>
++        <p role="status" className="text-sm">
++          {status}
++        </p>
++      </section>
++    );
++  return (
++    <section className="mt-5 rounded-card bg-card p-4 shadow-card">
++      <h2 className="font-display text-xl">Subscription testing</h2>
++      <p className="mt-1 text-sm text-muted-foreground">
++        Local test account only. No purchases or billing changes. Switching reloads the app and
++        preserves your Vault.
++      </p>
++      <div className="mt-3 flex flex-wrap gap-2">
++        {(["actual", "free", "premium"] as const).map((value) => (
++          <Button
++            key={value}
++            disabled={busy}
++            variant={mode === value ? "primary" : "outline"}
++            aria-pressed={mode === value}
++            onClick={async () => {
++              setBusy(true);
++              try {
++                await setSubscriptionTestMode({ data: { mode: value } });
++                window.location.reload();
++              } catch {
++                toast.error("Could not change test subscription");
++                setBusy(false);
++              }
++            }}
++          >
++            {value === "actual" ? "Actual" : value === "free" ? "Free" : "Premium"}
++          </Button>
++        ))}
++      </div>
++    </section>
++  );
++}
+diff --git a/src/lib/box-titles.ts b/src/lib/box-titles.ts
+index e933d3a..9fb6a68 100644
+--- a/src/lib/box-titles.ts
++++ b/src/lib/box-titles.ts
+@@ -53,6 +53,15 @@ export function findBoxTitles<T extends { name: string }>(
+   const found = new Set<T>();
+   function match(line: string) {
+     let rest = " " + line.replace(/\b(?:cat an|c atan|c4tan|cat4n)\b/g, "catan") + " ";
++    // Decorative lettering sometimes inserts spaces between glyphs. Require an
++    // exact, distinctive whole-title match after removing spaces, never a substring.
++    const compact = line.replace(/ /g, "");
++    if (compact.length >= 7 && line.includes(" ")) {
++      const splitMatches = candidates.filter(
++        ({ key }) => /^[a-z]{7,}$/.test(key) && key === compact,
++      );
++      if (splitMatches.length === 1) found.add(splitMatches[0].game);
++    }
+     // Restrict approximate matches to a whole, distinctive word and a unique
+     // catalog candidate. Short labels and edition subtitles still require exact evidence.
+     if (line.length >= 7 && !candidates.some(({ key }) => key === line)) {
+diff --git a/src/lib/scan-barcode.ts b/src/lib/scan-barcode.ts
+new file mode 100644
+index 0000000..5d82d99
+--- /dev/null
++++ b/src/lib/scan-barcode.ts
+@@ -0,0 +1,58 @@
++import type { ScanHit } from "./scan";
++
++export type BarcodeReference = { gtin: string; bggId: string; name: string; source: string };
++/** Only publisher/authorized, edition-specific product mappings belong here. */
++export const APPROVED_BARCODE_REFERENCES: readonly BarcodeReference[] = [];
++
++export function normalizeGtin(raw: string): string | null {
++  const code = raw.trim();
++  if (!/^\d+$/.test(code) || ![8, 12, 13, 14].includes(code.length)) return null;
++  const digits = code.split("").map(Number);
++  const check = digits.pop()!;
++  const sum = digits.reverse().reduce((acc, n, i) => acc + n * (i % 2 === 0 ? 3 : 1), 0);
++  return (10 - (sum % 10)) % 10 === check ? code.padStart(14, "0") : null;
++}
++export function matchBarcode(raw: string, refs: readonly BarcodeReference[]): ScanHit | null {
++  const key = normalizeGtin(raw);
++  if (!key) return null;
++  const matches = refs.filter((r) => r.source.trim() && normalizeGtin(r.gtin) === key);
++  if (matches.length !== 1) return null;
++  const { bggId, name } = matches[0];
++  return { bggId, name, confidence: "review" };
++}
++export async function readLocalBarcodes(photo: HTMLCanvasElement, signal: AbortSignal) {
++  const Detector = (
++    globalThis as typeof globalThis & {
++      BarcodeDetector?: new (options: { formats: string[] }) => {
++        detect(image: HTMLCanvasElement): Promise<{ rawValue: string }[]>;
++      };
++    }
++  ).BarcodeDetector;
++  if (!Detector) return { supported: false, count: 0, hits: [] as ScanHit[] };
++  try {
++    signal.throwIfAborted();
++    let timer: ReturnType<typeof setTimeout> | undefined;
++    const detection = new Detector({ formats: ["ean_8", "ean_13", "upc_a"] }).detect(photo);
++    const detected = await Promise.race([
++      detection,
++      new Promise<never>((_, reject) => {
++        timer = setTimeout(() => reject(new Error("Barcode timeout")), 2500);
++      }),
++    ]).finally(() => clearTimeout(timer));
++    signal.throwIfAborted();
++    const codes = [
++      ...new Set(
++        detected.map((d) => normalizeGtin(d.rawValue)).filter((v): v is string => v !== null),
++      ),
++    ];
++    return {
++      supported: true,
++      count: codes.length,
++      hits: codes
++        .map((c) => matchBarcode(c, APPROVED_BARCODE_REFERENCES))
++        .filter((h): h is ScanHit => h !== null),
++    };
++  } catch {
++    return { supported: false, count: 0, hits: [] as ScanHit[] };
++  }
++}
+diff --git a/src/lib/scan-evidence.ts b/src/lib/scan-evidence.ts
+new file mode 100644
+index 0000000..e8e678d
+--- /dev/null
++++ b/src/lib/scan-evidence.ts
+@@ -0,0 +1,53 @@
++import { boxTitleKey } from "./box-titles";
++import type { ScanHit } from "./scan";
++
++export type RecognitionSource = "ocr" | "visual" | "reference" | "barcode";
++export type ScanEvidence = { source: RecognitionSource; hit: ScanHit };
++export type ScanCatalogIdentity = { bggId: string; name: string };
++export type ReviewCandidate = ScanHit & { sources: RecognitionSource[] };
++
++/** Provider-independent identity resolution. No uncalibrated signal is auto-selected. */
++export function resolveScanEvidence(
++  evidence: readonly ScanEvidence[],
++  catalog: readonly ScanCatalogIdentity[],
++  blockedIds: ReadonlySet<string> = new Set(),
++): ReviewCandidate[] {
++  const results = new Map<string, ReviewCandidate>();
++  // Explicit same-title expansion evidence prevents a base-game candidate from
++  // being offered for this photo. A user can still search for the correct edition.
++  const expansionTitles = new Set(
++    evidence.filter((e) => e.hit.possibleExpansion === true).map((e) => boxTitleKey(e.hit.name)),
++  );
++  for (const { source, hit } of evidence) {
++    const name = hit.name.trim();
++    if (!name || name.length > 120) continue;
++    const title = boxTitleKey(name);
++    if (!title) continue;
++    const named = catalog.filter((game) => boxTitleKey(game.name) === title);
++    const game =
++      named.length === 1 &&
++      !hit.possibleExpansion &&
++      !expansionTitles.has(title) &&
++      (!hit.bggId || hit.bggId === named[0].bggId) &&
++      !blockedIds.has(named[0].bggId) &&
++      catalog.filter((g) => g.bggId === named[0].bggId).length === 1
++        ? named[0]
++        : undefined;
++    // A known conflicting base title is deliberately not offered as an automatic/custom match.
++    if (named.some((g) => blockedIds.has(g.bggId))) continue;
++    const key = game ? "id:" + game.bggId : "title:" + title;
++    const previous = results.get(key);
++    if (previous) {
++      if (!previous.sources.includes(source)) previous.sources.push(source);
++      continue;
++    }
++    results.set(key, {
++      bggId: game?.bggId ?? null,
++      name: game?.name ?? name,
++      confidence: game ? "review" : "unknown",
++      possibleExpansion: hit.possibleExpansion,
++      sources: [source],
++    });
++  }
++  return [...results.values()];
++}
+diff --git a/src/lib/scan-photo.ts b/src/lib/scan-photo.ts
+index 7725ad8..06cfd81 100644
+--- a/src/lib/scan-photo.ts
++++ b/src/lib/scan-photo.ts
+@@ -70,7 +70,7 @@ export function diagonalScanPhoto(photo: HTMLCanvasElement) {
+ export function scanTitleBand(photo: HTMLCanvasElement, bottom: boolean) {
+   const bandHeight = Math.max(1, Math.round(photo.height * (bottom ? 0.64 : 0.4)));
+   const y = bottom ? photo.height - bandHeight : 0;
+-  const scale = Math.min(1, 640 / photo.width);
++  const scale = Math.min(1, 1280 / photo.width);
+   const copy = document.createElement("canvas");
+   copy.width = Math.max(1, Math.round(photo.width * scale));
+   copy.height = Math.max(1, Math.round(bandHeight * scale));
+@@ -112,20 +112,26 @@ export function* shelfRegions(photo: HTMLCanvasElement) {
+       try {
+         const ctx = region.getContext("2d");
+         if (!ctx) throw new Error("Photo unavailable");
+-        const x = Math.round(col * (photo.width - w) / (cols - 1));
+-        const y = Math.round(row * (photo.height - h) / (rows - 1));
++        const x = Math.round((col * (photo.width - w)) / (cols - 1));
++        const y = Math.round((row * (photo.height - h)) / (rows - 1));
+         ctx.drawImage(photo, x, y, w, h, 0, 0, region.width, region.height);
+         const image = ctx.getImageData(0, 0, region.width, region.height);
+-        let low = 255, high = 0;
++        let low = 255,
++          high = 0;
+         const pixels = image.data;
+         for (let i = 0; i < pixels.length; i += 4) {
+-          const gray = Math.round(0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]);
++          const gray = Math.round(
++            0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2],
++          );
+           pixels[i] = gray;
+           low = Math.min(low, gray);
+           high = Math.max(high, gray);
+         }
+         for (let i = 0; i < pixels.length; i += 4) {
+-          pixels[i] = pixels[i + 1] = pixels[i + 2] = 255 * (pixels[i] - low) / Math.max(1, high - low);
++          pixels[i] =
++            pixels[i + 1] =
++            pixels[i + 2] =
++              (255 * (pixels[i] - low)) / Math.max(1, high - low);
+         }
+         ctx.putImageData(image, 0, 0);
+         yield region;
+diff --git a/src/lib/scoring.ts b/src/lib/scoring.ts
+index 1e3745c..64fb524 100644
+--- a/src/lib/scoring.ts
++++ b/src/lib/scoring.ts
+@@ -129,6 +129,12 @@ export function discoverGames(
+   );
+ }
+ 
++/** Alternatives relax only ordinary Vibe preferences, never hard limits or exact targets. */
++export function discoverAlternatives(ctx: WizardContext, query = "", limit = 6): Game[] {
++  if (!ctx.vibes.length || discoverGames(ctx, query).length) return [];
++  return discoverGames({ ...ctx, vibes: [] }, query).slice(0, limit);
++}
++
+ export function runWizard(
+   ctx: WizardContext,
+   user: UserSignals,
+diff --git a/src/lib/store.ts b/src/lib/store.ts
+index 81586a1..4d33d4d 100644
+--- a/src/lib/store.ts
++++ b/src/lib/store.ts
+@@ -33,7 +33,27 @@ export const DEFAULT_WIZARD: WizardContext = {
+   exactTraits: null,
+ };
+ 
+-type AppState = {
++export const DEFAULT_DISCOVER: WizardContext = {
++  ...DEFAULT_WIZARD,
++  players: null,
++  maxTimeMin: null,
++};
++type BrowseState = {
++  discoverQuery: string;
++  discoverFilters: WizardContext;
++  discoverAll: boolean;
++  vaultTab: "owned" | "wish";
++  vaultQueries: { owned: string; wish: string };
++};
++export const EMPTY_BROWSE: BrowseState = {
++  discoverQuery: "",
++  discoverFilters: DEFAULT_DISCOVER,
++  discoverAll: false,
++  vaultTab: "owned",
++  vaultQueries: { owned: "", wish: "" },
++};
++
++type AppState = BrowseState & {
+   wizard: WizardContext;
+   setWizard: (patch: Partial<WizardContext>) => void;
+   resetWizard: () => void;
+@@ -120,6 +140,7 @@ function nid() {
+ export const useAppStore = create<AppState>()(
+   persist(
+     (set, get) => ({
++      ...EMPTY_BROWSE,
+       wizard: { ...DEFAULT_WIZARD },
+       setWizard: (patch) => {
+         haptic(get().haptics);
+@@ -394,6 +415,7 @@ export const useAppStore = create<AppState>()(
+       merge: (persistedState, currentState) => ({
+         ...currentState,
+         ...(persistedState as Partial<AppState>),
++        ...EMPTY_BROWSE,
+         isPremium: false,
+         entitlementReady: false,
+       }),
+diff --git a/src/router.tsx b/src/router.tsx
+index a0e7546..34f7b77 100644
+--- a/src/router.tsx
++++ b/src/router.tsx
+@@ -3,5 +3,9 @@ import { AppErrorComponent } from "@/lib/error-component";
+ import { routeTree } from "./routeTree.gen";
+ 
+ export function getRouter() {
+-  return createRouter({ routeTree, defaultErrorComponent: AppErrorComponent });
++  return createRouter({
++    routeTree,
++    defaultErrorComponent: AppErrorComponent,
++    scrollRestoration: true,
++  });
+ }
+diff --git a/src/routes/discover.tsx b/src/routes/discover.tsx
+index ba163c4..6b2e1e0 100644
+--- a/src/routes/discover.tsx
++++ b/src/routes/discover.tsx
+@@ -1,33 +1,39 @@
+ import { RatingNotice } from "@/components/rating-controls";
+ import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
+ import { createFileRoute, Link } from "@tanstack/react-router";
+-import { useMemo, useState } from "react";
++import { useMemo } from "react";
+ import { Search, X } from "lucide-react";
+ import { GameCover } from "@/components/game-cover";
+ import { AdBanner } from "@/components/ad-banner";
+ import { VibeGrid } from "@/components/vibe-grid";
+ import { AgeBands, PlayerPicker, TimeChips, WIZARD_QUESTIONS } from "@/components/wizard-controls";
+ import { STARTER_SHELF_IDS, standaloneGames } from "@/lib/catalog";
+-import { discoverGames, formatPlaytime, formatPlayers, getGame } from "@/lib/scoring";
+-import { useAppStore } from "@/lib/store";
++import {
++  discoverAlternatives,
++  discoverGames,
++  formatPlaytime,
++  formatPlayers,
++  getGame,
++} from "@/lib/scoring";
++import { useAppStore, DEFAULT_DISCOVER } from "@/lib/store";
+ import type { Game, VibeId, WizardContext } from "@/lib/types";
+ 
+ export const Route = createFileRoute("/discover")({ component: DiscoverPage });
+ 
+-const EMPTY_FILTERS: WizardContext = {
+-  players: null,
+-  ageBand: null,
+-  maxTimeMin: null,
+-  timeOver60: false,
+-  vibes: [],
+-  exactTraits: null,
+-};
+-
+ function DiscoverPage() {
+   const owned = useAppStore((s) => s.owned);
+-  const [q, setQ] = useState("");
+-  const [filters, setFilters] = useState<WizardContext>(() => ({ ...EMPTY_FILTERS }));
+-  const [browseAll, setBrowseAll] = useState(false);
++  const q = useAppStore((s) => s.discoverQuery);
++  const filters = useAppStore((s) => s.discoverFilters);
++  const browseAll = useAppStore((s) => s.discoverAll);
++  const setQ = (q: string) => useAppStore.setState({ discoverQuery: q });
++  const setFilters = (update: WizardContext | ((prev: WizardContext) => WizardContext)) =>
++    useAppStore.setState((s) => ({
++      discoverFilters: typeof update === "function" ? update(s.discoverFilters) : update,
++    }));
++  const setBrowseAll = (update: boolean | ((prev: boolean) => boolean)) =>
++    useAppStore.setState((s) => ({
++      discoverAll: typeof update === "function" ? update(s.discoverAll) : update,
++    }));
+ 
+   const filtered =
+     Boolean(q.trim()) ||
+@@ -50,11 +56,16 @@ function DiscoverPage() {
+       .slice(0, 10);
+   }, []);
+ 
++  const alternatives = useMemo(
++    () =>
++      results.length === 0 && filters.vibes.length > 0 ? discoverAlternatives(filters, q) : [],
++    [filters, q, results.length],
++  );
+   const list = filtered || browseAll ? results : popular;
+ 
+   function clear() {
+     setQ("");
+-    setFilters({ ...EMPTY_FILTERS });
++    setFilters({ ...DEFAULT_DISCOVER });
+     setBrowseAll(false);
+   }
+ 
+@@ -105,15 +116,29 @@ function DiscoverPage() {
+           <p className="text-sm text-muted-foreground">
+             {filters.players == null ? "No player-count limit" : WIZARD_QUESTIONS[0].hint}
+           </p>
+-          <SkipFilter
+-            label="player count"
+-            onClick={() => setFilters((current) => ({ ...current, players: null }))}
+-          />
+         </div>
+-        <PlayerPicker
+-          value={filters.players}
+-          onChange={(players) => setFilters((current) => ({ ...current, players }))}
+-        />
++        <button
++          type="button"
++          aria-pressed={filters.players === null}
++          className="min-h-11 font-semibold text-sky"
++          onClick={() => setFilters((current) => ({ ...current, players: null }))}
++        >
++          Any number
++        </button>
++        {filters.players === null ? (
++          <button
++            type="button"
++            className="ml-4 min-h-11 font-semibold text-sky"
++            onClick={() => setFilters((current) => ({ ...current, players: 4 }))}
++          >
++            Set player count
++          </button>
++        ) : (
++          <PlayerPicker
++            value={filters.players}
++            onChange={(players) => setFilters((current) => ({ ...current, players }))}
++          />
++        )}
+       </fieldset>
+ 
+       <fieldset className="mt-5">
+@@ -122,15 +147,16 @@ function DiscoverPage() {
+         </legend>
+         <div className="mt-1 flex items-center justify-between gap-3">
+           <p className="text-sm text-muted-foreground">{WIZARD_QUESTIONS[1].hint}</p>
+-          <SkipFilter
+-            label="youngest age"
+-            onClick={() => setFilters((current) => ({ ...current, ageBand: null }))}
+-          />
+         </div>
+         <div className="mt-3">
+           <AgeBands
+             value={filters.ageBand}
+-            onChange={(ageBand) => setFilters((current) => ({ ...current, ageBand }))}
++            onChange={(ageBand) =>
++              setFilters((current) => ({
++                ...current,
++                ageBand: current.ageBand === ageBand ? null : ageBand,
++              }))
++            }
+           />
+         </div>
+       </fieldset>
+@@ -141,19 +167,17 @@ function DiscoverPage() {
+         </legend>
+         <div className="mt-1 flex items-center justify-between gap-3">
+           <p className="text-sm text-muted-foreground">{WIZARD_QUESTIONS[2].hint}</p>
+-          <SkipFilter
+-            label="maximum playtime"
+-            onClick={() =>
+-              setFilters((current) => ({ ...current, maxTimeMin: null, timeOver60: false }))
+-            }
+-          />
+         </div>
+         <div className="mt-3">
+           <TimeChips
+             value={filters.maxTimeMin}
+             over60={filters.timeOver60}
+             onChange={(maxTimeMin, timeOver60) =>
+-              setFilters((current) => ({ ...current, maxTimeMin, timeOver60 }))
++              setFilters((current) =>
++                current.maxTimeMin === maxTimeMin && current.timeOver60 === timeOver60
++                  ? { ...current, maxTimeMin: null, timeOver60: false }
++                  : { ...current, maxTimeMin, timeOver60 },
++              )
+             }
+           />
+         </div>
+@@ -165,10 +189,6 @@ function DiscoverPage() {
+         </legend>
+         <div className="mt-1 flex items-center justify-between gap-3">
+           <p className="text-sm text-muted-foreground">{WIZARD_QUESTIONS[3].hint}</p>
+-          <SkipFilter
+-            label="vibe preferences"
+-            onClick={() => setFilters((current) => ({ ...current, vibes: [] }))}
+-          />
+         </div>
+         <div className="mt-3">
+           <VibeGrid selected={filters.vibes} onToggle={toggleVibe} />
+@@ -233,10 +253,10 @@ function DiscoverPage() {
+         </ul>
+       ) : (
+         <div className="mt-6 rounded-card bg-card p-5 text-center shadow-card">
+-          <p className="font-display text-xl">Nothing with those knobs</p>
++          <p className="font-display text-xl">Finn couldn’t find an exact match</p>
+           <p className="mt-1 text-sm text-muted-foreground">
+-            A selected vibe may lack an applicable assessment. Family needs an assessed age context.
+-            Adjust filters explicitly or search a name.
++            No games in the current catalog match all selected filters. Family needs an assessed age
++            context. Adjust filters or search by title.
+           </p>
+           <button type="button" className="mt-3 min-h-11 font-semibold text-fox" onClick={clear}>
+             Start over
+@@ -244,6 +264,31 @@ function DiscoverPage() {
+         </div>
+       )}
+ 
++      {alternatives.length > 0 && (
++        <section className="mt-5 space-y-2">
++          <h2 className="font-display text-xl">Other games that fit your limits</h2>
++          <p className="text-sm text-muted-foreground">
++            These meet your selected player, age and time constraints, but are not confirmed matches
++            for every selected Vibe.
++          </p>
++          {alternatives.map((g) => (
++            <Link
++              key={g.bggId}
++              to="/game/$id"
++              params={{ id: g.bggId }}
++              className="flex items-center gap-3 rounded-card bg-card p-3"
++            >
++              <GameCover game={g} className="h-16 w-12" />
++              <span>
++                {g.name}
++                <span className="block text-sm text-muted-foreground">
++                  {formatPlayers(g)} players · {formatPlaytime(g)}
++                </span>
++              </span>
++            </Link>
++          ))}
++        </section>
++      )}
+       <p className="mt-6 text-center text-sm text-muted-foreground">
+         Tonight’s pick is on Home. This is the whole shelf.
+       </p>
+@@ -251,16 +296,3 @@ function DiscoverPage() {
+     </div>
+   );
+ }
+-
+-function SkipFilter({ label, onClick }: { label: string; onClick: () => void }) {
+-  return (
+-    <button
+-      type="button"
+-      onClick={onClick}
+-      aria-label={`Skip ${label} filter`}
+-      className="min-h-11 px-2 text-sm font-semibold text-sky"
+-    >
+-      Skip
+-    </button>
+-  );
+-}
+diff --git a/src/routes/game.$id.index.tsx b/src/routes/game.$id.index.tsx
+index 63bbdd7..a25437a 100644
+--- a/src/routes/game.$id.index.tsx
++++ b/src/routes/game.$id.index.tsx
+@@ -1,4 +1,4 @@
+-import { RatingProfile } from "@/components/rating-profile";
++import { GameCharacterDetails } from "@/components/game-character-details";
+ import { createFileRoute, Link } from "@tanstack/react-router";
+ import { useState } from "react";
+ import { ExternalLink, Heart, Library, Mic, Play, Trophy } from "lucide-react";
+@@ -170,10 +170,10 @@ function GamePage() {
+       </Button>
+       <FinnCoach game={game} />
+ 
+-      <RatingProfile
++      <GameCharacterDetails
+         key={game.bggId}
+         game={game}
+-        initialContext={match?.ratingContext ?? wizardContext}
++        context={match?.ratingContext ?? wizardContext}
+       />
+ 
+       <section className="mt-6 rounded-card bg-card p-4 shadow-card">
+diff --git a/src/routes/game.$id.teach.tsx b/src/routes/game.$id.teach.tsx
+index a5f5c12..e3168b4 100644
+--- a/src/routes/game.$id.teach.tsx
++++ b/src/routes/game.$id.teach.tsx
+@@ -6,6 +6,7 @@ import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
+ import { DESIGN_ASSESSMENTS } from "@/lib/ratings/design-assessments";
+ import { getGame } from "@/lib/scoring";
+ import { PremiumGate } from "@/components/premium-gate";
++import { FinnProcessing } from "@/components/finn-processing";
+ import { FinnCoach } from "@/components/finn-coach";
+ import { guides } from "@/lib/written-guides";
+ import { Button } from "@/components/ui/button";
+@@ -37,6 +38,8 @@ function MoreTeaching({ id }: { id: string }) {
+         ))}
+       </section>
+     );
++  if (status === "loading")
++    return <FinnProcessing mood="teaching" title="Finn is studying the rules…" />;
+   if (status === "unavailable")
+     return (
+       <p role="status" className="text-sm">
+@@ -46,7 +49,6 @@ function MoreTeaching({ id }: { id: string }) {
+   return (
+     <Button
+       variant="secondary"
+-      disabled={status === "loading"}
+       onClick={async () => {
+         setStatus("loading");
+         const pack = await ensureLesson(id).catch(() => null);
+@@ -54,7 +56,7 @@ function MoreTeaching({ id }: { id: string }) {
+         else setStatus("unavailable");
+       }}
+     >
+-      {status === "loading" ? "Loading guide…" : "Read a general AI guide"}
++      Read a general AI guide
+     </Button>
+   );
+ }
+diff --git a/src/routes/internal.flags.tsx b/src/routes/internal.flags.tsx
+index a666a2a..71ec157 100644
+--- a/src/routes/internal.flags.tsx
++++ b/src/routes/internal.flags.tsx
+@@ -1,5 +1,4 @@
+-import { useEffect, useState } from "react";
+-import { getSubscriptionTestMode, setSubscriptionTestMode } from "@/lib/social";
++import { SubscriptionTestControl } from "@/components/subscription-test-control";
+ import { createFileRoute, Link } from "@tanstack/react-router";
+ import {
+   FLAG_DEFS,
+@@ -28,51 +27,6 @@ function InternalFlagsPage() {
+ 
+ const STEPS = [0, 5, 10, 25, 50, 100];
+ 
+-function SubscriptionTestControl() {
+-  const [mode, setMode] = useState<"actual" | "free" | "premium" | null>(null);
+-  const [busy, setBusy] = useState(false);
+-  useEffect(() => {
+-    if (import.meta.env.DEV)
+-      void getSubscriptionTestMode()
+-        .then((result) => {
+-          if (result.enabled) setMode(result.mode);
+-        })
+-        .catch(() => {});
+-  }, []);
+-  if (mode === null) return null;
+-  return (
+-    <section className="mt-5 rounded-card bg-card p-4 shadow-card">
+-      <h2 className="font-display text-xl">Subscription testing</h2>
+-      <p className="mt-1 text-sm text-muted-foreground">
+-        Local test account only. No purchases or billing changes. Switching reloads the app and
+-        preserves your Vault.
+-      </p>
+-      <div className="mt-3 flex flex-wrap gap-2">
+-        {(["actual", "free", "premium"] as const).map((value) => (
+-          <Button
+-            key={value}
+-            disabled={busy}
+-            variant={mode === value ? "primary" : "outline"}
+-            aria-pressed={mode === value}
+-            onClick={async () => {
+-              setBusy(true);
+-              try {
+-                await setSubscriptionTestMode({ data: { mode: value } });
+-                window.location.reload();
+-              } catch {
+-                toast.error("Could not change test subscription");
+-                setBusy(false);
+-              }
+-            }}
+-          >
+-            {value === "actual" ? "Actual" : value === "free" ? "Free" : "Premium"}
+-          </Button>
+-        ))}
+-      </div>
+-    </section>
+-  );
+-}
+-
+ function FlagsConsole() {
+   const deviceId = useFlagStore((s) => s.deviceId);
+   const flags = useFlagStore((s) => s.flags);
+diff --git a/src/routes/profile.tsx b/src/routes/profile.tsx
+index d89ea0f..9ba2edd 100644
+--- a/src/routes/profile.tsx
++++ b/src/routes/profile.tsx
+@@ -1,3 +1,4 @@
++import { SubscriptionTestControl } from "@/components/subscription-test-control";
+ import { createFileRoute, Link } from "@tanstack/react-router";
+ import type { ReactNode } from "react";
+ import { Camera, Users } from "lucide-react";
+@@ -83,6 +84,7 @@ function ProfilePage() {
+         </div>
+       </div>
+ 
++      {import.meta.env.DEV && <SubscriptionTestControl />}
+       <dl className="mt-8 grid grid-cols-3 gap-3">
+         <Stat label="On the shelf" value={owned.length} />
+         <Stat label="Plays logged" value={plays.length} />
+diff --git a/src/routes/vault.tsx b/src/routes/vault.tsx
+index 01dab7a..cf44581 100644
+--- a/src/routes/vault.tsx
++++ b/src/routes/vault.tsx
+@@ -25,8 +25,11 @@ function VaultPage() {
+   const stockStarterShelf = useAppStore((s) => s.stockStarterShelf);
+   const [scan, setScan] = useState(false);
+   const [manual, setManual] = useState(false);
+-  const [tab, setTab] = useState<"owned" | "wish">("owned");
+-  const [q, setQ] = useState("");
++  const tab = useAppStore((s) => s.vaultTab);
++  const q = useAppStore((s) => s.vaultQueries[s.vaultTab]);
++  const setTab = (value: "owned" | "wish") => useAppStore.setState({ vaultTab: value });
++  const setQ = (value: string) =>
++    useAppStore.setState((s) => ({ vaultQueries: { ...s.vaultQueries, [s.vaultTab]: value } }));
+   const scanOn = useFlag("scan_games");
+ 
+   const games = useMemo(() => {
+@@ -45,9 +48,17 @@ function VaultPage() {
+       )
+     : games;
+ 
+-  if (owned.length === 0 && wishlist.length === 0) {
++  if (owned.length === 0 && wishlist.length === 0 && tab === "owned") {
+     return (
+       <>
++        <div className="mb-4 flex gap-2">
++          <Tab on={true} onClick={() => setTab("owned")}>
++            Owned
++          </Tab>
++          <Tab on={false} onClick={() => setTab("wish")}>
++            Wishlist
++          </Tab>
++        </div>
+         <EmptyState
+           pageHeading
+           mood="shelf"
+@@ -77,7 +88,7 @@ function VaultPage() {
+         </div>
+         {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
+         <ScanGames open={scan} onClose={() => setScan(false)} />
+-        <AddGameDialog open={manual} onClose={() => setManual(false)} />
++        <AddGameDialog open={manual} collection={tab} onClose={() => setManual(false)} />
+       </>
+     );
+   }
+@@ -93,7 +104,12 @@ function VaultPage() {
+             {wishlist.length} wishlisted
+           </p>
+         </div>
+-        {scanOn ? (
++        {tab === "wish" ? (
++          <Button onClick={() => setManual(true)}>
++            <Plus className="size-4" />
++            Add to Wishlist
++          </Button>
++        ) : scanOn ? (
+           <Button onClick={() => setScan(true)}>
+             <Camera className="size-4" />
+             Scan Games
+@@ -109,10 +125,20 @@ function VaultPage() {
+       {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
+ 
+       <div className="mt-4 flex gap-2">
+-        <Tab on={tab === "owned"} onClick={() => setTab("owned")}>
++        <Tab
++          on={tab === "owned"}
++          onClick={() => {
++            setTab("owned");
++          }}
++        >
+           Owned
+         </Tab>
+-        <Tab on={tab === "wish"} onClick={() => setTab("wish")}>
++        <Tab
++          on={tab === "wish"}
++          onClick={() => {
++            setTab("wish");
++          }}
++        >
+           Wishlist
+         </Tab>
+       </div>
+@@ -122,11 +148,21 @@ function VaultPage() {
+         <input
+           value={q}
+           onChange={(e) => setQ(e.target.value)}
+-          placeholder="Search your vault"
++          aria-label={tab === "owned" ? "Search your vault" : "Search your wishlist"}
++          placeholder={tab === "owned" ? "Search your vault" : "Search your wishlist"}
+           className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+         />
+       </label>
+ 
++      {!filtered.length && (
++        <p className="mt-5 text-sm text-muted-foreground">
++          {q.trim()
++            ? "No saved games match your search."
++            : tab === "wish"
++              ? "Your Wishlist is empty. Search the catalog to add games."
++              : "Your Vault is empty."}
++        </p>
++      )}
+       <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4">
+         {filtered.map((game) => {
+           const isLegacyGame = "bggId" in game;
+@@ -149,11 +185,11 @@ function VaultPage() {
+         onClick={() => setManual(true)}
+       >
+         <Plus className="size-4" />
+-        Can't scan it? Search by title.
++        {tab === "wish" ? "Search catalog to add to Wishlist" : "Can’t scan it? Search by title."}
+       </button>
+       <AdBanner />
+       <ScanGames open={scan} onClose={() => setScan(false)} />
+-      <AddGameDialog open={manual} onClose={() => setManual(false)} />
++      <AddGameDialog open={manual} collection={tab} onClose={() => setManual(false)} />
+     </div>
+   );
+ }
+@@ -194,6 +230,7 @@ function Tab({
+     <button
+       type="button"
+       onClick={onClick}
++      aria-pressed={on}
+       className={
+         on
+           ? "rounded-full bg-fox px-4 py-1.5 text-sm font-semibold text-cream"
+diff --git a/src/routes/wizard.tsx b/src/routes/wizard.tsx
+index 3a06d6f..07b5284 100644
+--- a/src/routes/wizard.tsx
++++ b/src/routes/wizard.tsx
+@@ -3,6 +3,7 @@ import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
+ import { createFileRoute, useNavigate } from "@tanstack/react-router";
+ import { useEffect, useState } from "react";
+ import { ArrowLeft, ArrowRight } from "lucide-react";
++import { FinnProcessing } from "@/components/finn-processing";
+ import { FoxAvatar } from "@/components/fox-avatar";
+ import { Button } from "@/components/ui/button";
+ import { VibeGrid } from "@/components/vibe-grid";
+@@ -21,8 +22,6 @@ export const Route = createFileRoute("/wizard")({
+   component: WizardPage,
+ });
+ 
+-const SNIFF_DISPLAY_MS = 1600;
+-
+ function WizardPage() {
+   const navigate = useNavigate();
+   const [step, setStep] = useState(0);
+@@ -40,8 +39,7 @@ function WizardPage() {
+ 
+   useEffect(() => {
+     if (!sniffing) return;
+-    const timer = window.setTimeout(() => void navigate({ to: "/results" }), SNIFF_DISPLAY_MS);
+-    return () => window.clearTimeout(timer);
++    void navigate({ to: "/results" });
+   }, [sniffing, navigate]);
+ 
+   function finish() {
+@@ -77,8 +75,8 @@ function WizardPage() {
+ 
+   if (sniffing) {
+     return (
+-      <div role="status" className="flex min-h-[70dvh] flex-col items-center justify-center">
+-        <FoxAvatar mood="sniffing" size="hero" caption="Sniffing the shelf…" />
++      <div className="flex min-h-[70dvh] flex-col items-center justify-center">
++        <FinnProcessing title="Sniffing the shelf…" />
+       </div>
+     );
+   }

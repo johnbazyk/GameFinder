@@ -1,0 +1,158 @@
+From 587535a2f349992fb93d251dc5fbad9b1312c62f Mon Sep 17 00:00:00 2001
+From: Codex <codex@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 09:54:07 -0700
+Subject: [PATCH] Show opt-in scan diagnostics in the development preview
+
+---
+ src/components/scan-games.tsx | 32 +++++++++++++++++++++++++++++++-
+ src/lib/box-ocr.ts            | 12 ++++++++++--
+ 2 files changed, 41 insertions(+), 3 deletions(-)
+
+diff --git a/src/components/scan-games.tsx b/src/components/scan-games.tsx
+index d1faaad..02d1bfe 100644
+--- a/src/components/scan-games.tsx
++++ b/src/components/scan-games.tsx
+@@ -18,6 +18,8 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+   const [rows, setRows] = useState<ScanRow[]>([]);
+   const [progress, setProgress] = useState("");
+   const [message, setMessage] = useState("");
++  const [report, setReport] = useState("");
++  const diagnostics = import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("scanDebug") === "1";
+   const [manual, setManual] = useState(false);
+   const owned = useAppStore((s) => s.owned);
+   const premium = useAppStore((s) => s.isPremium);
+@@ -31,6 +33,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+     request.current = null;
+     setProgress("");
+     setMessage("");
++    setReport("");
+     setRows([]);
+     setManual(false);
+     onClose();
+@@ -57,11 +60,16 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+         signal.throwIfAborted();
+         setProgress(`Reading photo ${index + 1} of ${files.length}…`);
+         const file = files[index];
++        const passes: string[] = [];
++        let phoneStatus = "Reader unavailable";
++        if (diagnostics) setReport("");
+         const photo = await openScanPhoto(file).catch(() => null);
+         if (!photo) {
++          if (diagnostics && !signal.aborted) setReport("Photo could not be opened.");
+           unopened++;
+           continue;
+         }
++        const dimensions = photo.width + " × " + photo.height;
+         const remoteTask = Promise.resolve()
+           .then(() => {
+             signal.throwIfAborted();
+@@ -81,7 +89,11 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+             }
+           }
+           try {
+-            await reader.read(photo, (hit) => localHits.push(hit));
++            phoneStatus = "Stopped during text recognition";
++            await reader.read(photo, (hit) => localHits.push(hit), diagnostics ? (stage, text, titles) => {
++              passes.push(stage + " · " + (titles.join(", ") || "no match") + "\n" + text.trim().slice(0, 2000));
++            } : undefined);
++            phoneStatus = "Completed";
+             return true;
+           } catch {
+             reader.close();
+@@ -94,6 +106,16 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+           cancelled,
+         ]).finally(() => { photo.width = photo.height = 0; });
+         signal.throwIfAborted();
++        if (diagnostics) {
++          const names = (items: ScanHit[]) => items.map(hit => hit.name).join(", ") || "none";
++          setReport([
++            "Photo " + (index + 1) + " · " + dimensions,
++            "Phone reader · " + phoneStatus + " · " + passes.length + " passes",
++            "Phone matches · " + names(localHits),
++            "Server matches · " + (remote?.ok ? names(remote.hits) : "unavailable"),
++            ...passes,
++          ].join("\n\n"));
++        }
+         const hits = [...(remote?.ok ? remote.hits : []), ...localHits];
+         if (hits.length) {
+           if (local === null && !remote?.ok) partial++;
+@@ -220,6 +242,14 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+         <p role="status" className="empty:hidden text-sm text-muted-foreground">
+           {progress || message}
+         </p>
++        {diagnostics && (
++          <details className="text-sm">
++            <summary>Scan details</summary>
++            <pre className="max-h-[25dvh] overflow-auto whitespace-pre-wrap select-text">
++              {report || "Choose a photo to see what the scanner reads."}
++            </pre>
++          </details>
++        )}
+         {rows.length > 0 && (
+           <>
+             <div className="flex items-center justify-between text-sm">
+diff --git a/src/lib/box-ocr.ts b/src/lib/box-ocr.ts
+index 2e234aa..17bd4fa 100644
+--- a/src/lib/box-ocr.ts
++++ b/src/lib/box-ocr.ts
+@@ -31,7 +31,7 @@ export async function createBoxReader(signal: AbortSignal) {
+   }
+   return {
+     close,
+-    async read(photo: HTMLCanvasElement, onHit?: (hit: ScanHit) => void): Promise<ScanHit[]> {
++    async read(photo: HTMLCanvasElement, onHit?: (hit: ScanHit) => void, onPass?: (stage: string, text: string, titles: string[]) => void): Promise<ScanHit[]> {
+       const hits = new Map<string, ScanHit>();
+       function* temporary(canvas: HTMLCanvasElement) {
+         try {
+@@ -42,6 +42,7 @@ export async function createBoxReader(signal: AbortSignal) {
+       }
+       let readingTurn: 0 | 1 | -1 | 2 = 0;
+       const directionHits = new Map<0 | 1 | -1 | 2, Set<string>>();
++      let stage = "Original and title bands";
+       function* views() {
+         for (const turn of [0, 1, -1, 2] as const) {
+           readingTurn = turn;
+@@ -55,6 +56,7 @@ export async function createBoxReader(signal: AbortSignal) {
+           }
+         }
+         for (const mode of ["compactRed", "redInk", "red", "detail", "warm", "green"] as const) {
++          stage = mode;
+           const enhanced = enhancedScanPhoto(photo, mode);
+           try {
+             for (const turn of [0, -1, 1, 2] as const) {
+@@ -70,7 +72,9 @@ export async function createBoxReader(signal: AbortSignal) {
+       async function recognize(view: HTMLCanvasElement, deskew = false) {
+         signal.throwIfAborted();
+         const result = await worker.recognize(view, { rotateAuto: deskew });
+-        for (const game of findBoxTitles(result.data.text, GAMES)) {
++        const games = findBoxTitles(result.data.text, GAMES);
++        onPass?.(stage + " " + readingTurn * 90 + "°", result.data.text, games.map(game => game.name));
++        for (const game of games) {
+           const ids = directionHits.get(readingTurn) ?? new Set<string>();
+           ids.add(game.bggId);
+           directionHits.set(readingTurn, ids);
+@@ -84,6 +88,7 @@ export async function createBoxReader(signal: AbortSignal) {
+       for (const view of views()) await recognize(view);
+       if (hits.size >= 2) {
+         // Limit extra mobile OCR work to the two orientations with the most catalog evidence.
++        stage = "Shelf region";
+         const directions = [...directionHits].sort((a, b) => b[1].size - a[1].size).slice(0, 2);
+         for (const [turn] of directions) {
+           readingTurn = turn;
+@@ -96,10 +101,13 @@ export async function createBoxReader(signal: AbortSignal) {
+         }
+       }
+       if (!hits.size) {
++        stage = "Diagonal";
++        readingTurn = 0;
+         const diagonal = diagonalScanPhoto(photo);
+         try {
+           await recognize(diagonal, true);
+           for (const turn of [1, -1, 2] as const) {
++            readingTurn = turn;
+             for (const view of temporary(rotateScanPhoto(diagonal, turn))) await recognize(view, true);
+           }
+         } finally {
+-- 
+2.56.1
+

@@ -1,0 +1,229 @@
+From d42ea4da1075079a5c1dfe81edf46c04566a91c2 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 23 Nov 2026 09:35:08 -0700
+Subject: [PATCH] =?UTF-8?q?Audition=20Finn=E2=80=99s=20chosen=20voice=20in?=
+ =?UTF-8?q?=20the=20Catan=20lesson=20and=20rules=20answer?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .gitignore                        |  2 +
+ package.json                      |  1 +
+ scripts/preview-finn.mjs          | 78 +++++++++++++++++++++++++++++++
+ src/components/finn-coach.tsx     |  5 +-
+ src/components/finn-questions.tsx |  9 ++--
+ src/lib/catan-voice-preview.ts    | 37 +++++++++++++++
+ 6 files changed, 126 insertions(+), 6 deletions(-)
+ create mode 100644 scripts/preview-finn.mjs
+ create mode 100644 src/lib/catan-voice-preview.ts
+
+diff --git a/.gitignore b/.gitignore
+index 0dc89a2..9ed6d0a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -16,3 +16,5 @@ dist-ssr
+ .grok
+ 
+ /public/scan-ocr/
++
++/src/assets/finn-catan-preview/
+diff --git a/package.json b/package.json
+index 4615417..092f221 100644
+--- a/package.json
++++ b/package.json
+@@ -9,6 +9,7 @@
+   "scripts": {
+     "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
+     "build": "node scripts/with-app-env.mjs vite build",
++    "preview:finn": "node scripts/preview-finn.mjs",
+     "db:migrate": "node scripts/migrate.mjs",
+     "audit:catalog": "node scripts/catalog-audit.mjs",
+     "audit:catalog-identity": "node scripts/catalog-identity-dry-run.mjs",
+diff --git a/scripts/preview-finn.mjs b/scripts/preview-finn.mjs
+new file mode 100644
+index 0000000..49d6508
+--- /dev/null
++++ b/scripts/preview-finn.mjs
+@@ -0,0 +1,78 @@
++import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
++import { randomUUID } from "node:crypto";
++import { createServer } from "vite";
++
++const directory = "src/assets/finn-catan-preview";
++const voice = "Fpv7tRpijRKcLHlr0BAF";
++
++function isMp3(bytes) {
++  return (
++    bytes.length > 1000 &&
++    (bytes.toString("ascii", 0, 3) === "ID3" || (bytes[0] === 255 && (bytes[1] & 224) === 224))
++  );
++}
++
++async function generate() {
++  const vite = await createServer({
++    configFile: false,
++    server: { middlewareMode: true, watch: null },
++  });
++  let clips;
++  try {
++    const { guides } = await vite.ssrLoadModule("/src/lib/written-guides.ts");
++    const { chapters } = await vite.ssrLoadModule("/src/lib/guide-chapters.ts");
++    const { sevenAnswer } = await vite.ssrLoadModule("/src/lib/catan-voice-preview.ts");
++    clips = chapters.map(({ id, field }) => [id, guides.Catan[field]]);
++    clips.push(["seven", sevenAnswer]);
++  } finally {
++    await vite.close();
++  }
++
++  await mkdir(directory, { recursive: true });
++  for (const [id, text] of clips) {
++    const path = directory + "/" + id + ".mp3";
++    const existing = await readFile(path).catch((error) => {
++      if (error.code !== "ENOENT") throw error;
++    });
++    if (existing && isMp3(existing)) continue;
++    const key = process.env.ELEVENLABS_API_KEY;
++    if (!key)
++      throw new Error("Set ELEVENLABS_API_KEY in your terminal to generate Finn’s recordings.");
++    const response = await fetch(
++      "https://api.elevenlabs.io/v1/text-to-speech/" + voice + "?output_format=mp3_44100_128",
++      {
++        method: "POST",
++        headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/mpeg" },
++        body: JSON.stringify({ text, model_id: "eleven_multilingual_v2" }),
++        signal: AbortSignal.timeout(90000),
++      },
++    );
++    if (!response.ok) {
++      const detail = (await response.json().catch(() => null))?.detail;
++      throw new Error(
++        "ElevenLabs returned HTTP " +
++          response.status +
++          " for " +
++          id +
++          (typeof detail?.status === "string" ? " (" + detail.status + ")" : "") +
++          ". Check your key, voice access and credits, then rerun to resume.",
++      );
++    }
++    const bytes = Buffer.from(await response.arrayBuffer());
++    if (!isMp3(bytes)) throw new Error("ElevenLabs returned invalid audio for " + id);
++    const temp = path + "." + randomUUID() + ".tmp";
++    try {
++      await writeFile(temp, bytes);
++      await rename(temp, path);
++    } finally {
++      await rm(temp, { force: true });
++    }
++    console.log("Saved Finn’s " + id + " recording.");
++  }
++  console.log("Finn’s six recordings are ready. Open Catan → Teach me.");
++}
++
++generate().catch((error) => {
++  console.error(error.message);
++  process.exitCode = 1;
++});
+diff --git a/src/components/finn-coach.tsx b/src/components/finn-coach.tsx
+index a243c3f..2a055e7 100644
+--- a/src/components/finn-coach.tsx
++++ b/src/components/finn-coach.tsx
+@@ -2,7 +2,8 @@ import { Link } from "@tanstack/react-router";
+ import { useRef, useState } from "react";
+ import { Play } from "lucide-react";
+ import type { Game } from "@/lib/types";
+-import { chapters, chapterAudio } from "@/lib/guide-chapters";
++import { lessonRecording } from "@/lib/catan-voice-preview";
++import { chapters } from "@/lib/guide-chapters";
+ import { guides, type Guide } from "@/lib/written-guides";
+ import { cn } from "@/lib/utils";
+ import { FoxAvatar } from "./fox-avatar";
+@@ -31,7 +32,7 @@ function Lesson({ game, guide, variant }: Props & { guide?: Guide }) {
+     setStarted(true);
+     setError(false);
+     setIndex(next);
+-    player.src = chapterAudio(guide, chapters[next]);
++    player.src = lessonRecording(guide, chapters[next]);
+     void player.play().catch((err) => {
+       if (err.name !== "AbortError") setError(true);
+     });
+diff --git a/src/components/finn-questions.tsx b/src/components/finn-questions.tsx
+index aa7dfe0..67bdf3d 100644
+--- a/src/components/finn-questions.tsx
++++ b/src/components/finn-questions.tsx
+@@ -8,7 +8,8 @@ import {
+   type CoachMessage,
+ } from "@/lib/coach";
+ import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
+-import { guidePassage, chapterAudio } from "@/lib/guide-chapters";
++import { lessonRecording, previewAnswer } from "@/lib/catan-voice-preview";
++import { guidePassage } from "@/lib/guide-chapters";
+ import type { Guide } from "@/lib/written-guides";
+ import type { Game } from "@/lib/types";
+ import { Button } from "./ui/button";
+@@ -100,8 +101,8 @@ export function FinnQuestions({
+     answerAudio.current?.pause();
+     onAsk();
+     try {
+-      let result: Answer | undefined;
+-      if (live) {
++      let result: Answer | undefined = previewAnswer(game.bggId, text);
++      if (!result && live) {
+         const messages: CoachMessage[] = [...history.current, { role: "user", content: text }];
+         const reply = await askFinn({
+           data: { gameId: game.bggId, mode: "table", messages },
+@@ -127,7 +128,7 @@ export function FinnQuestions({
+           guide && chapter
+             ? {
+                 text: guide[chapter.field],
+-                audio: chapterAudio(guide, chapter),
++                audio: lessonRecording(guide, chapter),
+                 label: "From the guide · " + chapter.title,
+               }
+             : {
+diff --git a/src/lib/catan-voice-preview.ts b/src/lib/catan-voice-preview.ts
+new file mode 100644
+index 0000000..a9aa0b8
+--- /dev/null
++++ b/src/lib/catan-voice-preview.ts
+@@ -0,0 +1,37 @@
++import { chapters, chapterAudio } from "./guide-chapters";
++import type { Guide } from "./written-guides";
++
++export const sevenAnswer =
++  "Nobody collects resources on a seven. Anyone with eight or more resource cards discards half, rounding down. Move the robber to a different land hex. Choose an opponent who has a settlement or city beside that hex and has resource cards, and take one random resource card from them if you can.";
++
++const recordings = import.meta.glob<string>("../assets/finn-catan-preview/*.mp3", {
++  eager: true,
++  import: "default",
++  query: "?url",
++});
++
++function recording(id: string) {
++  return recordings["../assets/finn-catan-preview/" + id + ".mp3"];
++}
++
++const ready = chapters.every((chapter) => recording(chapter.id)) && Boolean(recording("seven"));
++
++export function lessonRecording(guide: Guide, chapter: (typeof chapters)[number]) {
++  if (ready && guide.audio === "/lessons/catan.mp3") return recording(chapter.id);
++  return chapterAudio(guide, chapter);
++}
++
++export function previewAnswer(gameId: string, question: string) {
++  if (!ready || gameId !== "13") return;
++  const wording = question
++    .toLowerCase()
++    .trim()
++    .replace(/[.?!]+$/, "");
++  if (
++    /^what happens (?:on |(?:when|if) (?:i|we|you|someone) roll(?:s)? )(?:a )?(?:7|seven)$/.test(
++      wording,
++    )
++  ) {
++    return { text: sevenAnswer, label: "From the Catan rules", audio: recording("seven") };
++  }
++}
+-- 
+2.56.1
+
