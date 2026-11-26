@@ -1,3 +1,4 @@
+import { SubscriptionTestControl } from "@/components/subscription-test-control";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Camera, Users } from "lucide-react";
@@ -83,6 +84,7 @@ function ProfilePage() {
         </div>
       </div>
 
+      {import.meta.env.DEV && <SubscriptionTestControl />}
       <dl className="mt-8 grid grid-cols-3 gap-3">
         <Stat label="On the shelf" value={owned.length} />
         <Stat label="Plays logged" value={plays.length} />

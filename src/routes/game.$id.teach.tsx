@@ -6,6 +6,7 @@ import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
 import { DESIGN_ASSESSMENTS } from "@/lib/ratings/design-assessments";
 import { getGame } from "@/lib/scoring";
 import { PremiumGate } from "@/components/premium-gate";
+import { FinnProcessing } from "@/components/finn-processing";
 import { FinnCoach } from "@/components/finn-coach";
 import { guides } from "@/lib/written-guides";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,8 @@ function MoreTeaching({ id }: { id: string }) {
         ))}
       </section>
     );
+  if (status === "loading")
+    return <FinnProcessing mood="teaching" title="Finn is studying the rules…" />;
   if (status === "unavailable")
     return (
       <p role="status" className="text-sm">
@@ -46,7 +49,6 @@ function MoreTeaching({ id }: { id: string }) {
   return (
     <Button
       variant="secondary"
-      disabled={status === "loading"}
       onClick={async () => {
         setStatus("loading");
         const pack = await ensureLesson(id).catch(() => null);
@@ -54,7 +56,7 @@ function MoreTeaching({ id }: { id: string }) {
         else setStatus("unavailable");
       }}
     >
-      {status === "loading" ? "Loading guide…" : "Read a general AI guide"}
+      Read a general AI guide
     </Button>
   );
 }

@@ -1,4 +1,4 @@
-import { RatingProfile } from "@/components/rating-profile";
+import { GameCharacterDetails } from "@/components/game-character-details";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ExternalLink, Heart, Library, Mic, Play, Trophy } from "lucide-react";
@@ -170,10 +170,10 @@ function GamePage() {
       </Button>
       <FinnCoach game={game} />
 
-      <RatingProfile
+      <GameCharacterDetails
         key={game.bggId}
         game={game}
-        initialContext={match?.ratingContext ?? wizardContext}
+        context={match?.ratingContext ?? wizardContext}
       />
 
       <section className="mt-6 rounded-card bg-card p-4 shadow-card">

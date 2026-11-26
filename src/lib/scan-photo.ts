@@ -70,7 +70,7 @@ export function diagonalScanPhoto(photo: HTMLCanvasElement) {
 export function scanTitleBand(photo: HTMLCanvasElement, bottom: boolean) {
   const bandHeight = Math.max(1, Math.round(photo.height * (bottom ? 0.64 : 0.4)));
   const y = bottom ? photo.height - bandHeight : 0;
-  const scale = Math.min(1, 640 / photo.width);
+  const scale = Math.min(1, 1280 / photo.width);
   const copy = document.createElement("canvas");
   copy.width = Math.max(1, Math.round(photo.width * scale));
   copy.height = Math.max(1, Math.round(bandHeight * scale));
@@ -112,20 +112,26 @@ export function* shelfRegions(photo: HTMLCanvasElement) {
       try {
         const ctx = region.getContext("2d");
         if (!ctx) throw new Error("Photo unavailable");
-        const x = Math.round(col * (photo.width - w) / (cols - 1));
-        const y = Math.round(row * (photo.height - h) / (rows - 1));
+        const x = Math.round((col * (photo.width - w)) / (cols - 1));
+        const y = Math.round((row * (photo.height - h)) / (rows - 1));
         ctx.drawImage(photo, x, y, w, h, 0, 0, region.width, region.height);
         const image = ctx.getImageData(0, 0, region.width, region.height);
-        let low = 255, high = 0;
+        let low = 255,
+          high = 0;
         const pixels = image.data;
         for (let i = 0; i < pixels.length; i += 4) {
-          const gray = Math.round(0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]);
+          const gray = Math.round(
+            0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2],
+          );
           pixels[i] = gray;
           low = Math.min(low, gray);
           high = Math.max(high, gray);
         }
         for (let i = 0; i < pixels.length; i += 4) {
-          pixels[i] = pixels[i + 1] = pixels[i + 2] = 255 * (pixels[i] - low) / Math.max(1, high - low);
+          pixels[i] =
+            pixels[i + 1] =
+            pixels[i + 2] =
+              (255 * (pixels[i] - low)) / Math.max(1, high - low);
         }
         ctx.putImageData(image, 0, 0);
         yield region;

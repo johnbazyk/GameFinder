@@ -8,7 +8,7 @@ import {
   replaceCloudVault,
   syncCloudCatalogGames,
 } from "@/lib/social";
-import { useAppStore, DEFAULT_WIZARD } from "@/lib/store";
+import { useAppStore, DEFAULT_WIZARD, EMPTY_BROWSE } from "@/lib/store";
 import { accountVaultKey, switchVault, mergeVaultDelta, sameVault } from "@/lib/account-vault";
 import { DEFAULT_USER_WEIGHTS } from "@/lib/vibes";
 import { DEFAULT_PIECE_COLOR } from "@/lib/piece-color";
@@ -90,6 +90,7 @@ export function AccountSync() {
         vibeWeights: target?.vibeWeights ?? { ...DEFAULT_USER_WEIGHTS },
         customGames: target?.customGames ?? [],
         customGamesOwnerId: userId,
+        ...EMPTY_BROWSE,
         wizard: { ...DEFAULT_WIZARD },
         lastResults: null,
         shownIds: [],

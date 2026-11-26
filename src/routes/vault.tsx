@@ -25,8 +25,11 @@ function VaultPage() {
   const stockStarterShelf = useAppStore((s) => s.stockStarterShelf);
   const [scan, setScan] = useState(false);
   const [manual, setManual] = useState(false);
-  const [tab, setTab] = useState<"owned" | "wish">("owned");
-  const [q, setQ] = useState("");
+  const tab = useAppStore((s) => s.vaultTab);
+  const q = useAppStore((s) => s.vaultQueries[s.vaultTab]);
+  const setTab = (value: "owned" | "wish") => useAppStore.setState({ vaultTab: value });
+  const setQ = (value: string) =>
+    useAppStore.setState((s) => ({ vaultQueries: { ...s.vaultQueries, [s.vaultTab]: value } }));
   const scanOn = useFlag("scan_games");
 
   const games = useMemo(() => {
@@ -45,9 +48,17 @@ function VaultPage() {
       )
     : games;
 
-  if (owned.length === 0 && wishlist.length === 0) {
+  if (owned.length === 0 && wishlist.length === 0 && tab === "owned") {
     return (
       <>
+        <div className="mb-4 flex gap-2">
+          <Tab on={true} onClick={() => setTab("owned")}>
+            Owned
+          </Tab>
+          <Tab on={false} onClick={() => setTab("wish")}>
+            Wishlist
+          </Tab>
+        </div>
         <EmptyState
           pageHeading
           mood="shelf"
@@ -77,7 +88,7 @@ function VaultPage() {
         </div>
         {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
         <ScanGames open={scan} onClose={() => setScan(false)} />
-        <AddGameDialog open={manual} onClose={() => setManual(false)} />
+        <AddGameDialog open={manual} collection={tab} onClose={() => setManual(false)} />
       </>
     );
   }
@@ -93,7 +104,12 @@ function VaultPage() {
             {wishlist.length} wishlisted
           </p>
         </div>
-        {scanOn ? (
+        {tab === "wish" ? (
+          <Button onClick={() => setManual(true)}>
+            <Plus className="size-4" />
+            Add to Wishlist
+          </Button>
+        ) : scanOn ? (
           <Button onClick={() => setScan(true)}>
             <Camera className="size-4" />
             Scan Games
@@ -109,10 +125,20 @@ function VaultPage() {
       {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
 
       <div className="mt-4 flex gap-2">
-        <Tab on={tab === "owned"} onClick={() => setTab("owned")}>
+        <Tab
+          on={tab === "owned"}
+          onClick={() => {
+            setTab("owned");
+          }}
+        >
           Owned
         </Tab>
-        <Tab on={tab === "wish"} onClick={() => setTab("wish")}>
+        <Tab
+          on={tab === "wish"}
+          onClick={() => {
+            setTab("wish");
+          }}
+        >
           Wishlist
         </Tab>
       </div>
@@ -122,11 +148,21 @@ function VaultPage() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search your vault"
+          aria-label={tab === "owned" ? "Search your vault" : "Search your wishlist"}
+          placeholder={tab === "owned" ? "Search your vault" : "Search your wishlist"}
           className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
       </label>
 
+      {!filtered.length && (
+        <p className="mt-5 text-sm text-muted-foreground">
+          {q.trim()
+            ? "No saved games match your search."
+            : tab === "wish"
+              ? "Your Wishlist is empty. Search the catalog to add games."
+              : "Your Vault is empty."}
+        </p>
+      )}
       <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4">
         {filtered.map((game) => {
           const isLegacyGame = "bggId" in game;
@@ -149,11 +185,11 @@ function VaultPage() {
         onClick={() => setManual(true)}
       >
         <Plus className="size-4" />
-        Can't scan it? Search by title.
+        {tab === "wish" ? "Search catalog to add to Wishlist" : "Can’t scan it? Search by title."}
       </button>
       <AdBanner />
       <ScanGames open={scan} onClose={() => setScan(false)} />
-      <AddGameDialog open={manual} onClose={() => setManual(false)} />
+      <AddGameDialog open={manual} collection={tab} onClose={() => setManual(false)} />
     </div>
   );
 }
@@ -194,6 +230,7 @@ function Tab({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={on}
       className={
         on
           ? "rounded-full bg-fox px-4 py-1.5 text-sm font-semibold text-cream"

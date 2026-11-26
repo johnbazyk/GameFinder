@@ -1,33 +1,39 @@
 import { RatingNotice } from "@/components/rating-controls";
 import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Search, X } from "lucide-react";
 import { GameCover } from "@/components/game-cover";
 import { AdBanner } from "@/components/ad-banner";
 import { VibeGrid } from "@/components/vibe-grid";
 import { AgeBands, PlayerPicker, TimeChips, WIZARD_QUESTIONS } from "@/components/wizard-controls";
 import { STARTER_SHELF_IDS, standaloneGames } from "@/lib/catalog";
-import { discoverGames, formatPlaytime, formatPlayers, getGame } from "@/lib/scoring";
-import { useAppStore } from "@/lib/store";
+import {
+  discoverAlternatives,
+  discoverGames,
+  formatPlaytime,
+  formatPlayers,
+  getGame,
+} from "@/lib/scoring";
+import { useAppStore, DEFAULT_DISCOVER } from "@/lib/store";
 import type { Game, VibeId, WizardContext } from "@/lib/types";
 
 export const Route = createFileRoute("/discover")({ component: DiscoverPage });
 
-const EMPTY_FILTERS: WizardContext = {
-  players: null,
-  ageBand: null,
-  maxTimeMin: null,
-  timeOver60: false,
-  vibes: [],
-  exactTraits: null,
-};
-
 function DiscoverPage() {
   const owned = useAppStore((s) => s.owned);
-  const [q, setQ] = useState("");
-  const [filters, setFilters] = useState<WizardContext>(() => ({ ...EMPTY_FILTERS }));
-  const [browseAll, setBrowseAll] = useState(false);
+  const q = useAppStore((s) => s.discoverQuery);
+  const filters = useAppStore((s) => s.discoverFilters);
+  const browseAll = useAppStore((s) => s.discoverAll);
+  const setQ = (q: string) => useAppStore.setState({ discoverQuery: q });
+  const setFilters = (update: WizardContext | ((prev: WizardContext) => WizardContext)) =>
+    useAppStore.setState((s) => ({
+      discoverFilters: typeof update === "function" ? update(s.discoverFilters) : update,
+    }));
+  const setBrowseAll = (update: boolean | ((prev: boolean) => boolean)) =>
+    useAppStore.setState((s) => ({
+      discoverAll: typeof update === "function" ? update(s.discoverAll) : update,
+    }));
 
   const filtered =
     Boolean(q.trim()) ||
@@ -50,11 +56,16 @@ function DiscoverPage() {
       .slice(0, 10);
   }, []);
 
+  const alternatives = useMemo(
+    () =>
+      results.length === 0 && filters.vibes.length > 0 ? discoverAlternatives(filters, q) : [],
+    [filters, q, results.length],
+  );
   const list = filtered || browseAll ? results : popular;
 
   function clear() {
     setQ("");
-    setFilters({ ...EMPTY_FILTERS });
+    setFilters({ ...DEFAULT_DISCOVER });
     setBrowseAll(false);
   }
 
@@ -105,15 +116,29 @@ function DiscoverPage() {
           <p className="text-sm text-muted-foreground">
             {filters.players == null ? "No player-count limit" : WIZARD_QUESTIONS[0].hint}
           </p>
-          <SkipFilter
-            label="player count"
-            onClick={() => setFilters((current) => ({ ...current, players: null }))}
-          />
         </div>
-        <PlayerPicker
-          value={filters.players}
-          onChange={(players) => setFilters((current) => ({ ...current, players }))}
-        />
+        <button
+          type="button"
+          aria-pressed={filters.players === null}
+          className="min-h-11 font-semibold text-sky"
+          onClick={() => setFilters((current) => ({ ...current, players: null }))}
+        >
+          Any number
+        </button>
+        {filters.players === null ? (
+          <button
+            type="button"
+            className="ml-4 min-h-11 font-semibold text-sky"
+            onClick={() => setFilters((current) => ({ ...current, players: 4 }))}
+          >
+            Set player count
+          </button>
+        ) : (
+          <PlayerPicker
+            value={filters.players}
+            onChange={(players) => setFilters((current) => ({ ...current, players }))}
+          />
+        )}
       </fieldset>
 
       <fieldset className="mt-5">
@@ -122,15 +147,16 @@ function DiscoverPage() {
         </legend>
         <div className="mt-1 flex items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">{WIZARD_QUESTIONS[1].hint}</p>
-          <SkipFilter
-            label="youngest age"
-            onClick={() => setFilters((current) => ({ ...current, ageBand: null }))}
-          />
         </div>
         <div className="mt-3">
           <AgeBands
             value={filters.ageBand}
-            onChange={(ageBand) => setFilters((current) => ({ ...current, ageBand }))}
+            onChange={(ageBand) =>
+              setFilters((current) => ({
+                ...current,
+                ageBand: current.ageBand === ageBand ? null : ageBand,
+              }))
+            }
           />
         </div>
       </fieldset>
@@ -141,19 +167,17 @@ function DiscoverPage() {
         </legend>
         <div className="mt-1 flex items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">{WIZARD_QUESTIONS[2].hint}</p>
-          <SkipFilter
-            label="maximum playtime"
-            onClick={() =>
-              setFilters((current) => ({ ...current, maxTimeMin: null, timeOver60: false }))
-            }
-          />
         </div>
         <div className="mt-3">
           <TimeChips
             value={filters.maxTimeMin}
             over60={filters.timeOver60}
             onChange={(maxTimeMin, timeOver60) =>
-              setFilters((current) => ({ ...current, maxTimeMin, timeOver60 }))
+              setFilters((current) =>
+                current.maxTimeMin === maxTimeMin && current.timeOver60 === timeOver60
+                  ? { ...current, maxTimeMin: null, timeOver60: false }
+                  : { ...current, maxTimeMin, timeOver60 },
+              )
             }
           />
         </div>
@@ -165,10 +189,6 @@ function DiscoverPage() {
         </legend>
         <div className="mt-1 flex items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">{WIZARD_QUESTIONS[3].hint}</p>
-          <SkipFilter
-            label="vibe preferences"
-            onClick={() => setFilters((current) => ({ ...current, vibes: [] }))}
-          />
         </div>
         <div className="mt-3">
           <VibeGrid selected={filters.vibes} onToggle={toggleVibe} />
@@ -233,10 +253,10 @@ function DiscoverPage() {
         </ul>
       ) : (
         <div className="mt-6 rounded-card bg-card p-5 text-center shadow-card">
-          <p className="font-display text-xl">Nothing with those knobs</p>
+          <p className="font-display text-xl">Finn couldn’t find an exact match</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            A selected vibe may lack an applicable assessment. Family needs an assessed age context.
-            Adjust filters explicitly or search a name.
+            No games in the current catalog match all selected filters. Family needs an assessed age
+            context. Adjust filters or search by title.
           </p>
           <button type="button" className="mt-3 min-h-11 font-semibold text-fox" onClick={clear}>
             Start over
@@ -244,23 +264,35 @@ function DiscoverPage() {
         </div>
       )}
 
+      {alternatives.length > 0 && (
+        <section className="mt-5 space-y-2">
+          <h2 className="font-display text-xl">Other games that fit your limits</h2>
+          <p className="text-sm text-muted-foreground">
+            These meet your selected player, age and time constraints, but are not confirmed matches
+            for every selected Vibe.
+          </p>
+          {alternatives.map((g) => (
+            <Link
+              key={g.bggId}
+              to="/game/$id"
+              params={{ id: g.bggId }}
+              className="flex items-center gap-3 rounded-card bg-card p-3"
+            >
+              <GameCover game={g} className="h-16 w-12" />
+              <span>
+                {g.name}
+                <span className="block text-sm text-muted-foreground">
+                  {formatPlayers(g)} players · {formatPlaytime(g)}
+                </span>
+              </span>
+            </Link>
+          ))}
+        </section>
+      )}
       <p className="mt-6 text-center text-sm text-muted-foreground">
         Tonight’s pick is on Home. This is the whole shelf.
       </p>
       <AdBanner />
     </div>
-  );
-}
-
-function SkipFilter({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={`Skip ${label} filter`}
-      className="min-h-11 px-2 text-sm font-semibold text-sky"
-    >
-      Skip
-    </button>
   );
 }

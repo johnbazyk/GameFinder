@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { getSubscriptionTestMode, setSubscriptionTestMode } from "@/lib/social";
+import { SubscriptionTestControl } from "@/components/subscription-test-control";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   FLAG_DEFS,
@@ -27,51 +26,6 @@ function InternalFlagsPage() {
 }
 
 const STEPS = [0, 5, 10, 25, 50, 100];
-
-function SubscriptionTestControl() {
-  const [mode, setMode] = useState<"actual" | "free" | "premium" | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (import.meta.env.DEV)
-      void getSubscriptionTestMode()
-        .then((result) => {
-          if (result.enabled) setMode(result.mode);
-        })
-        .catch(() => {});
-  }, []);
-  if (mode === null) return null;
-  return (
-    <section className="mt-5 rounded-card bg-card p-4 shadow-card">
-      <h2 className="font-display text-xl">Subscription testing</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Local test account only. No purchases or billing changes. Switching reloads the app and
-        preserves your Vault.
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {(["actual", "free", "premium"] as const).map((value) => (
-          <Button
-            key={value}
-            disabled={busy}
-            variant={mode === value ? "primary" : "outline"}
-            aria-pressed={mode === value}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await setSubscriptionTestMode({ data: { mode: value } });
-                window.location.reload();
-              } catch {
-                toast.error("Could not change test subscription");
-                setBusy(false);
-              }
-            }}
-          >
-            {value === "actual" ? "Actual" : value === "free" ? "Free" : "Premium"}
-          </Button>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 function FlagsConsole() {
   const deviceId = useFlagStore((s) => s.deviceId);

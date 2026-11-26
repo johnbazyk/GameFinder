@@ -53,6 +53,15 @@ export function findBoxTitles<T extends { name: string }>(
   const found = new Set<T>();
   function match(line: string) {
     let rest = " " + line.replace(/\b(?:cat an|c atan|c4tan|cat4n)\b/g, "catan") + " ";
+    // Decorative lettering sometimes inserts spaces between glyphs. Require an
+    // exact, distinctive whole-title match after removing spaces, never a substring.
+    const compact = line.replace(/ /g, "");
+    if (compact.length >= 7 && line.includes(" ")) {
+      const splitMatches = candidates.filter(
+        ({ key }) => /^[a-z]{7,}$/.test(key) && key === compact,
+      );
+      if (splitMatches.length === 1) found.add(splitMatches[0].game);
+    }
     // Restrict approximate matches to a whole, distinctive word and a unique
     // catalog candidate. Short labels and edition subtitles still require exact evidence.
     if (line.length >= 7 && !candidates.some(({ key }) => key === line)) {

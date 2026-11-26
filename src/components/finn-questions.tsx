@@ -12,6 +12,7 @@ import { lessonRecording, previewAnswer } from "@/lib/catan-voice-preview";
 import { guidePassage, directGuideChapter } from "@/lib/guide-chapters";
 import type { Guide } from "@/lib/written-guides";
 import type { Game } from "@/lib/types";
+import { FinnProcessing } from "./finn-processing";
 import { Button } from "./ui/button";
 
 type Dictation = {
@@ -304,7 +305,9 @@ export function FinnQuestions({
         </Button>
       </form>
       <div aria-live="polite" className="mx-auto max-w-lg text-sm">
-        {phase === "busy" && !answer && <p>Checking your question…</p>}
+        {phase === "busy" && !answer && (
+          <FinnProcessing mood="thinking" title="Finn is checking your question…" />
+        )}
         {message && <p>{message}</p>}
         {answer && (
           <div className="space-y-2 rounded-card bg-card p-4">

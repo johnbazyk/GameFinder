@@ -4,12 +4,19 @@ import { Camera, Images, X } from "lucide-react";
 import { toast } from "sonner";
 import { openScanPhoto, remoteScanImage } from "@/lib/scan-photo";
 import { identifyShelf, remoteScanAvailable, type ScanHit } from "@/lib/scan";
+import { resolveScanEvidence } from "@/lib/scan-evidence";
+import { readLocalBarcodes } from "@/lib/scan-barcode";
+import { GAMES, CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
 import { mergeScanRows, type ScanRow } from "@/lib/scan-review";
 import { boxTitleKey } from "@/lib/box-titles";
 import type { createBoxReader } from "@/lib/box-ocr";
 import { useAppStore } from "@/lib/store";
 import { FREE_VAULT_LIMIT } from "@/lib/types";
 import { Button } from "./ui/button";
+import { GameCharacterDetails } from "./game-character-details";
+import { getGame } from "@/lib/scoring";
+import { DEFAULT_WIZARD } from "@/lib/store";
+import { FinnProcessing } from "./finn-processing";
 import { AddGameDialog } from "./add-game-dialog";
 
 export function ScanGames({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -21,10 +28,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
   const [progress, setProgress] = useState("");
   const [message, setMessage] = useState("");
   const [report, setReport] = useState("");
-  const diagnostics =
-    import.meta.env.DEV &&
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("scanDebug") === "1";
+  const diagnostics = import.meta.env.DEV;
   const [manual, setManual] = useState(false);
   const [remoteAvailable, setRemoteAvailable] = useState(false);
   const [remoteConsent, setRemoteConsent] = useState(false);
@@ -96,6 +100,8 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
           continue;
         }
         const dimensions = photo.width + " × " + photo.height;
+        const barcodeTask = readLocalBarcodes(photo, signal);
+
         const remoteTask =
           remoteAvailable && remoteConsent
             ? Promise.resolve()
@@ -152,17 +158,19 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
               (hit) => {
                 if (!stopped && !signal.aborted) localHits.push(hit);
               },
-              diagnostics
-                ? (stage, text, titles) => {
-                    passes.push(
-                      stage +
-                        " · " +
-                        (titles.join(", ") || "no match") +
-                        "\n" +
-                        text.trim().slice(0, 2000),
-                    );
-                  }
-                : undefined,
+              (stage, text, titles) => {
+                if (stopped || signal.aborted) return;
+                setProgress(`Reading photo ${index + 1} of ${files.length} · ${stage}`);
+                if (diagnostics) {
+                  passes.push(
+                    stage +
+                      " · " +
+                      (titles.join(", ") || "no match") +
+                      "\n" +
+                      text.trim().slice(0, 2000),
+                  );
+                }
+              },
               (id) => {
                 if (!stopped && !signal.aborted) conflicts.add(id);
               },
@@ -175,8 +183,8 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
             return null;
           }
         })().catch(() => null);
-        const [remote, local] = await Promise.race([
-          Promise.all([remoteTask, Promise.race([localTask, localStopped])]),
+        const [remote, local, barcodes] = await Promise.race([
+          Promise.all([remoteTask, Promise.race([localTask, localStopped]), barcodeTask]),
           cancelled,
         ]).finally(() => {
           window.clearTimeout(timer);
@@ -195,12 +203,26 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
               "Phone reader · " + phoneStatus + " · " + passes.length + " passes",
               "Phone matches · " + names(localHits),
               "Server matches · " + (remote?.ok ? names(remote.hits) : "unavailable"),
+              "Barcode reader · " +
+                (barcodes.supported
+                  ? barcodes.count + " valid codes · " + names(barcodes.hits)
+                  : "unavailable"),
               ...passes,
             ].join("\n\n"),
           );
         }
-        const hits = [...(remote?.ok ? remote.hits : []), ...localHits].filter(
-          (hit) => !hit.bggId || !conflicts.has(hit.bggId),
+        const blocked = new Set([
+          ...conflicts,
+          ...CATALOG_EXTERNAL_ID_CONFLICTS.map((c) => c.externalId),
+        ]);
+        const hits = resolveScanEvidence(
+          [
+            ...localHits.map((hit) => ({ source: "ocr" as const, hit })),
+            ...(remote?.ok ? remote.hits.map((hit) => ({ source: "visual" as const, hit })) : []),
+            ...barcodes.hits.map((hit) => ({ source: "barcode" as const, hit })),
+          ],
+          GAMES,
+          blocked,
         );
         if (hits.length) {
           if (local === null) partial++;
@@ -289,7 +311,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
         >
           <header className="flex items-center justify-between">
             <Dialog.Title className="font-display text-xl">
-              {rows.length ? "Review games found" : "Scan games"}
+              {progress ? "Finn is scanning" : rows.length ? "Review games found" : "Scan games"}
             </Dialog.Title>
             <button
               onClick={close}
@@ -315,49 +337,56 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
             ref={gallery}
             onChange={(e) => pick(e.target)}
           />
-          {!rows.length && (
-            <p className="text-sm">
-              Photograph a box or add several shelf photos. Review the games together. By default,
-              recognition stays on this device. GameFinder does not save the photos to your Vault.
-            </p>
+          {progress ? (
+            <FinnProcessing title="Finn is exploring your shelf…" detail={progress} />
+          ) : (
+            <>
+              {!rows.length && (
+                <p className="text-sm">
+                  Photograph a box or add several shelf photos. Review the games together. By
+                  default, recognition stays on this device. GameFinder does not save the photos to
+                  your Vault.
+                </p>
+              )}
+              {remoteAvailable && (
+                <label className="flex items-start gap-2 rounded-card bg-muted p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={remoteConsent}
+                    disabled={!!progress}
+                    onChange={(event) => setRemoteConsent(event.target.checked)}
+                  />
+                  <span>
+                    Optional external recognition: send selected photos to xAI to help identify
+                    games. Provider processing is subject to its privacy terms. Leave unchecked to
+                    scan locally.
+                  </span>
+                </label>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  disabled={!!progress}
+                  onClick={() => camera.current?.click()}
+                >
+                  <Camera />
+                  Take photo
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!!progress}
+                  onClick={() => gallery.current?.click()}
+                >
+                  <Images />
+                  Add photos
+                </Button>
+              </div>
+              <p role="status" className="empty:hidden text-sm text-muted-foreground">
+                {message}
+              </p>
+            </>
           )}
-          {remoteAvailable && (
-            <label className="flex items-start gap-2 rounded-card bg-muted p-3 text-sm">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={remoteConsent}
-                disabled={!!progress}
-                onChange={(event) => setRemoteConsent(event.target.checked)}
-              />
-              <span>
-                Optional external recognition: send selected photos to xAI to help identify games.
-                Provider processing is subject to its privacy terms. Leave unchecked to scan
-                locally.
-              </span>
-            </label>
-          )}
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              disabled={!!progress}
-              onClick={() => camera.current?.click()}
-            >
-              <Camera />
-              Take photo
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={!!progress}
-              onClick={() => gallery.current?.click()}
-            >
-              <Images />
-              Add photos
-            </Button>
-          </div>
-          <p role="status" className="empty:hidden text-sm text-muted-foreground">
-            {progress || message}
-          </p>
           {progress && (
             <button
               type="button"
@@ -375,7 +404,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
               </pre>
             </details>
           )}
-          {rows.length > 0 && (
+          {!progress && rows.length > 0 && (
             <>
               <div className="flex items-center justify-between text-sm">
                 <span>
@@ -406,7 +435,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
                           {row.bggId && owned.includes(row.bggId)
                             ? "Already in vault"
                             : !row.bggId
-                              ? "Outside catalog · Add as custom game"
+                              ? "Unverified identity · Check before adding as custom game"
                               : row.confidence === "high"
                                 ? "Catalog match"
                                 : "Check this match"}
@@ -426,6 +455,23 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
                         />
                       )}
                     </label>
+                    {row.bggId && getGame(row.bggId) && (
+                      <details className="mb-2 text-sm">
+                        <summary className="cursor-pointer font-semibold text-sky">
+                          Game details
+                        </summary>
+                        <GameCharacterDetails
+                          game={getGame(row.bggId)!}
+                          context={{
+                            ...DEFAULT_WIZARD,
+                            players: null,
+                            ageBand: null,
+                            maxTimeMin: null,
+                          }}
+                          compact
+                        />
+                      </details>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -436,6 +482,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
           )}
           <button
             type="button"
+            disabled={!!progress}
             className="text-sm font-semibold text-sky"
             onClick={() => setManual(true)}
           >

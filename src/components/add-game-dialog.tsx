@@ -1,13 +1,40 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
 import { searchGames, standaloneGames } from "@/lib/catalog";
 import { useAppStore } from "@/lib/store";
+import { GameCharacterDetails } from "./game-character-details";
+import { amazonSearchUrl } from "@/lib/affiliate";
+import { useFlag } from "@/lib/flags";
+import { DEFAULT_WIZARD } from "@/lib/store";
 import { GameCover } from "./game-cover";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
 
-export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AddGameDialog({
+  open,
+  onClose,
+  collection = "owned",
+}: {
+  open: boolean;
+  onClose: () => void;
+  collection?: "owned" | "wish";
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const wishlist = useAppStore((s) => s.wishlist);
+  const toggleWishlist = useAppStore((s) => s.toggleWishlist);
+  const wishMode = collection === "wish";
+  const amazonOn = useFlag("amazon_cta");
+  function add(id: string) {
+    if (wishMode) {
+      if (!owned.includes(id) && !wishlist.includes(id)) {
+        toggleWishlist(id);
+        return "ok";
+      }
+      return "exists";
+    }
+    return addOwned(id);
+  }
   const [q, setQ] = useState("");
   const ready = useAppStore((s) => s.entitlementReady);
   const owned = useAppStore((s) => s.owned);
@@ -51,7 +78,9 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
           className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full max-w-lg flex-col rounded-t-2xl bg-background shadow-lift sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
         >
           <div className="flex items-center justify-between px-4 pt-4">
-            <Dialog.Title className="font-display text-xl">Search by title</Dialog.Title>
+            <Dialog.Title className="font-display text-xl">
+              {wishMode ? "Add to Wishlist" : "Search by title"}
+            </Dialog.Title>
             <button
               type="button"
               onClick={onClose}
@@ -88,9 +117,13 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
                   if (!ready) return;
                   try {
                     const game = addCustomGame(customTitle);
-                    const result = addOwned(game.id);
+                    const result = add(game.id);
                     if (result === "ok") {
-                      toast("Custom game added to your Vault");
+                      toast(
+                        wishMode
+                          ? "Custom game added to your Wishlist"
+                          : "Custom game added to your Vault",
+                      );
                       setCustomTitle("");
                       setCustomEntryOpen(false);
                       onClose();
@@ -127,7 +160,7 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
           </div>
           <ul className="mt-2 flex-1 overflow-y-auto px-2 pb-6">
             {customResults.map((game) => {
-              const onShelf = owned.includes(game.id);
+              const onShelf = owned.includes(game.id) || (wishMode && wishlist.includes(game.id));
               return (
                 <li key={game.id} className="flex items-center gap-3 px-2 py-2">
                   <div className="grid h-14 w-10 shrink-0 place-items-center rounded-card bg-muted text-[10px] font-semibold text-muted-foreground">
@@ -140,31 +173,87 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
                   <Button
                     size="sm"
                     variant={onShelf ? "moss" : "primary"}
-                    onClick={() => addOwned(game.id)}
+                    onClick={() => add(game.id)}
                     disabled={!ready || onShelf}
                   >
-                    {onShelf ? "Owned" : "Add"}
+                    {onShelf
+                      ? wishMode && !owned.includes(game.id)
+                        ? "Wishlisted"
+                        : "Owned"
+                      : "Add"}
                   </Button>
                 </li>
               );
             })}
             {results.map((g) => {
-              const onShelf = owned.includes(g.bggId);
+              const onShelf = owned.includes(g.bggId) || (wishMode && wishlist.includes(g.bggId));
               return (
-                <li key={g.bggId} className="flex items-center gap-3 px-2 py-2">
-                  <GameCover game={g} className="h-14 w-10" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{g.name}</p>
-                    <p className="text-xs text-muted-foreground">{g.yearPublished}</p>
+                <li key={g.bggId} className="px-2 py-2">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      aria-expanded={expanded === g.bggId}
+                      aria-label={`Details for ${g.name}`}
+                      onClick={() => setExpanded(expanded === g.bggId ? null : g.bggId)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      <GameCover game={g} className="h-14 w-10 shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold">{g.name}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {g.yearPublished}
+                        </span>
+                      </span>
+                      <ChevronDown
+                        className={`size-4 shrink-0 ${expanded === g.bggId ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                    <Button
+                      size="sm"
+                      variant={onShelf ? "moss" : "primary"}
+                      onClick={() => add(g.bggId)}
+                      disabled={!ready || onShelf}
+                    >
+                      {onShelf
+                        ? wishMode && !owned.includes(g.bggId)
+                          ? "Wishlisted"
+                          : "Owned"
+                        : "Add"}
+                    </Button>
                   </div>
-                  <Button
-                    size="sm"
-                    variant={onShelf ? "moss" : "primary"}
-                    onClick={() => addOwned(g.bggId)}
-                    disabled={!ready || onShelf}
-                  >
-                    {onShelf ? "Owned" : "Add"}
-                  </Button>
+                  {expanded === g.bggId && (
+                    <div className="mt-2 rounded-card bg-muted p-3 text-sm">
+                      <GameCharacterDetails
+                        game={g}
+                        context={{
+                          ...DEFAULT_WIZARD,
+                          players: null,
+                          ageBand: null,
+                          maxTimeMin: null,
+                        }}
+                        compact
+                      />
+                      {amazonOn && !owned.includes(g.bggId) && (
+                        <a
+                          className="mt-3 block text-center font-semibold text-sky"
+                          href={amazonSearchUrl(g.name)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Search Amazon for this game
+                        </a>
+                      )}
+                      {!owned.includes(g.bggId) && (
+                        <Button
+                          className="mt-3 w-full"
+                          variant="outline"
+                          onClick={() => toggleWishlist(g.bggId)}
+                        >
+                          {wishlist.includes(g.bggId) ? "Remove from Wishlist" : "Add to Wishlist"}
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </li>
               );
             })}

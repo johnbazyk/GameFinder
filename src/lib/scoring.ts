@@ -129,6 +129,12 @@ export function discoverGames(
   );
 }
 
+/** Alternatives relax only ordinary Vibe preferences, never hard limits or exact targets. */
+export function discoverAlternatives(ctx: WizardContext, query = "", limit = 6): Game[] {
+  if (!ctx.vibes.length || discoverGames(ctx, query).length) return [];
+  return discoverGames({ ...ctx, vibes: [] }, query).slice(0, limit);
+}
+
 export function runWizard(
   ctx: WizardContext,
   user: UserSignals,

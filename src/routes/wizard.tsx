@@ -3,6 +3,7 @@ import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { FinnProcessing } from "@/components/finn-processing";
 import { FoxAvatar } from "@/components/fox-avatar";
 import { Button } from "@/components/ui/button";
 import { VibeGrid } from "@/components/vibe-grid";
@@ -21,8 +22,6 @@ export const Route = createFileRoute("/wizard")({
   component: WizardPage,
 });
 
-const SNIFF_DISPLAY_MS = 1600;
-
 function WizardPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
@@ -40,8 +39,7 @@ function WizardPage() {
 
   useEffect(() => {
     if (!sniffing) return;
-    const timer = window.setTimeout(() => void navigate({ to: "/results" }), SNIFF_DISPLAY_MS);
-    return () => window.clearTimeout(timer);
+    void navigate({ to: "/results" });
   }, [sniffing, navigate]);
 
   function finish() {
@@ -77,8 +75,8 @@ function WizardPage() {
 
   if (sniffing) {
     return (
-      <div role="status" className="flex min-h-[70dvh] flex-col items-center justify-center">
-        <FoxAvatar mood="sniffing" size="hero" caption="Sniffing the shelf…" />
+      <div className="flex min-h-[70dvh] flex-col items-center justify-center">
+        <FinnProcessing title="Sniffing the shelf…" />
       </div>
     );
   }

@@ -6,6 +6,7 @@ import { useAppStore } from "@/lib/store";
 import { markFlagsHydrated } from "@/lib/flags";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { UpgradeSheet } from "@/components/upgrade-sheet";
+import { FinnProcessing } from "./finn-processing";
 import { AccountSync } from "@/components/account-sync";
 
 const NAV = [
@@ -78,7 +79,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="paper-grain min-h-dvh text-foreground">
         <AccountSync />
         <main className="mx-auto max-w-3xl p-6">
-          <p role="status">Loading your table…</p>
+          <FinnProcessing title="Loading your table…" mood="shelf" />
         </main>
       </div>
     );

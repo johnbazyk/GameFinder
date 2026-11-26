@@ -33,7 +33,27 @@ export const DEFAULT_WIZARD: WizardContext = {
   exactTraits: null,
 };
 
-type AppState = {
+export const DEFAULT_DISCOVER: WizardContext = {
+  ...DEFAULT_WIZARD,
+  players: null,
+  maxTimeMin: null,
+};
+type BrowseState = {
+  discoverQuery: string;
+  discoverFilters: WizardContext;
+  discoverAll: boolean;
+  vaultTab: "owned" | "wish";
+  vaultQueries: { owned: string; wish: string };
+};
+export const EMPTY_BROWSE: BrowseState = {
+  discoverQuery: "",
+  discoverFilters: DEFAULT_DISCOVER,
+  discoverAll: false,
+  vaultTab: "owned",
+  vaultQueries: { owned: "", wish: "" },
+};
+
+type AppState = BrowseState & {
   wizard: WizardContext;
   setWizard: (patch: Partial<WizardContext>) => void;
   resetWizard: () => void;
@@ -120,6 +140,7 @@ function nid() {
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
+      ...EMPTY_BROWSE,
       wizard: { ...DEFAULT_WIZARD },
       setWizard: (patch) => {
         haptic(get().haptics);
@@ -394,6 +415,7 @@ export const useAppStore = create<AppState>()(
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<AppState>),
+        ...EMPTY_BROWSE,
         isPremium: false,
         entitlementReady: false,
       }),
