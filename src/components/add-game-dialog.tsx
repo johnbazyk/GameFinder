@@ -45,12 +45,11 @@ export function AddGameDialog({
   const [customTitle, setCustomTitle] = useState("");
   const results = useMemo(
     () =>
-      (q
+      q
         ? searchGames(q)
         : standaloneGames()
             .slice()
-            .sort((a, b) => a.name.localeCompare(b.name))
-      ).slice(0, 20),
+            .sort((a, b) => a.name.localeCompare(b.name)),
     [q],
   );
   const customResults = useMemo(() => {
@@ -58,8 +57,7 @@ export function AddGameDialog({
     return customGames
       .filter((game) => !query || game.title.toLowerCase().includes(query))
       .slice()
-      .sort((a, b) => a.title.localeCompare(b.title))
-      .slice(0, 20);
+      .sort((a, b) => a.title.localeCompare(b.title));
   }, [customGames, q]);
 
   if (!open) return null;
@@ -75,7 +73,10 @@ export function AddGameDialog({
         <Dialog.Overlay className="app-modal-overlay fixed inset-0 z-50 bg-night/40" />
         <Dialog.Content
           aria-describedby={undefined}
-          className="app-bottom-sheet fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full max-w-lg flex-col rounded-t-2xl bg-background shadow-lift sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+          onOpenAutoFocus={(event) => {
+            if (window.matchMedia("(pointer: coarse)").matches) event.preventDefault();
+          }}
+          className="app-bottom-sheet mobile-keyboard-sheet fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full max-w-lg flex-col rounded-t-2xl bg-background shadow-lift sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
         >
           <div className="flex items-center justify-between px-4 pt-4">
             <Dialog.Title className="font-display text-xl">
@@ -93,12 +94,11 @@ export function AddGameDialog({
           <label className="mx-4 mt-3 flex items-center gap-2 rounded-button bg-card px-3 ring-1 ring-border">
             <Search className="size-4 text-muted-foreground" />
             <input
-              autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
               aria-label="Search the catalog"
               placeholder="Search the catalog"
-              className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              className="h-11 min-w-0 w-full bg-transparent text-base outline-none placeholder:text-muted-foreground"
             />
           </label>
           <div className="px-4 pt-3">
@@ -158,7 +158,7 @@ export function AddGameDialog({
               Custom games are saved with unknown details until you add verified information.
             </p>
           </div>
-          <ul className="mt-2 flex-1 overflow-y-auto px-2 pb-6">
+          <ul className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-6">
             {customResults.map((game) => {
               const onShelf = owned.includes(game.id) || (wishMode && wishlist.includes(game.id));
               return (

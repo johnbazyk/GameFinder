@@ -1,3 +1,4 @@
+import { RECOMMENDATION_LIMIT } from "./recommendation-limits";
 import {
   catalogHardEligible,
   catalogRecommendationScore,
@@ -371,8 +372,12 @@ export function createReadOnlyCatalogViewAdapter(
       return {
         entries: allEntries,
         rejectedEntries: allEntries.filter((entry) => !entry.eligible),
-        ownedTop: fresh.filter((entry) => entry.ownership === "owned").slice(0, 3),
-        unownedTop: fresh.filter((entry) => entry.ownership === "unowned").slice(0, 3),
+        ownedTop: fresh
+          .filter((entry) => entry.ownership === "owned")
+          .slice(0, RECOMMENDATION_LIMIT),
+        unownedTop: fresh
+          .filter((entry) => entry.ownership === "unowned")
+          .slice(0, RECOMMENDATION_LIMIT),
         excludedGamefinderIds: [...excluded].sort(),
         exhaustedOwned:
           ownedEligible.length > 0 && !fresh.some((entry) => entry.ownership === "owned"),

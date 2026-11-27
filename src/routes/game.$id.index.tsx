@@ -91,7 +91,7 @@ function GamePage() {
     );
   }
 
-  const related = similarGames(game);
+  const related = similarGames(game, undefined, match?.ratingContext ?? wizardContext);
   const amazon = amazonSearchUrl(game.name);
   const bgg = /^\d+$/.test(game.bggId)
     ? `https://boardgamegeek.com/boardgame/${game.bggId}`
@@ -270,10 +270,13 @@ function GamePage() {
 
       {related.length ? (
         <section className="mt-8">
-          <h2 className="mb-2 font-display text-xl">If you like this</h2>
-          <div className="divide-y divide-border rounded-card bg-card px-3 py-1 shadow-card">
+          <h2 className="mb-2 font-display text-xl">Similar Games</h2>
+          <div
+            aria-label="Similar game recommendations"
+            className="divide-y divide-border rounded-card bg-card px-3 py-1 shadow-card"
+          >
             {related.map((g) => (
-              <GameRow key={g.bggId} game={g} />
+              <GameRow key={g.bggId} game={g} showOwnership />
             ))}
           </div>
         </section>

@@ -40,6 +40,39 @@ export function AppShell({ children }: { children: ReactNode }) {
   const adPlan = useAppStore((s) => s.adEntitlement);
   const taps = useRef({ n: 0, t: 0 });
 
+  // iOS keyboard changes the visual viewport rather than the layout viewport.
+  // Ignore deliberate magnification; only adjust focused editable controls.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    const update = () => {
+      const editable = document.activeElement?.matches(
+        "input:not([type=checkbox]):not([type=radio]), textarea, [contenteditable=true]",
+      );
+      const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      const open = Boolean(editable && Math.abs(vv.scale - 1) < 0.02 && offset > 100);
+      root.dataset.keyboardOpen = String(open);
+      root.style.setProperty("--app-visible-height", `${vv.height}px`);
+      root.style.setProperty("--app-keyboard-offset", `${open ? offset : 0}px`);
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    document.addEventListener("focusin", update);
+    const afterFocus = () => requestAnimationFrame(update);
+    document.addEventListener("focusout", afterFocus);
+    update();
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("focusout", afterFocus);
+      delete root.dataset.keyboardOpen;
+      root.style.removeProperty("--app-visible-height");
+      root.style.removeProperty("--app-keyboard-offset");
+    };
+  }, []);
+
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);

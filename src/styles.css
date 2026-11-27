@@ -802,3 +802,13 @@ html:has(.app-has-ad) .app-bottom-sheet { bottom: var(--app-ad-offset); max-heig
   .home-finn-title { margin-top: 0.5rem; font-size: 1.5rem; line-height: 1.15; }
   .home-finn-actions { margin-top: 1rem; gap: 0.5rem; }
 }
+
+/* Mobile controls: stop focus and double-tap zoom without disabling user accessibility pinch zoom. */
+@media (pointer: coarse), (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),
+  textarea, select, [contenteditable="true"] { font-size: max(16px, 1rem); min-width: 0; }
+  button, a, input, textarea, select, [role="button"] { touch-action: manipulation; }
+  .app-bottom-sheet { max-width: 100vw; min-width: 0; overflow-x: clip; }
+  .mobile-keyboard-sheet { max-height: min(88dvh, calc(var(--app-visible-height,100dvh) - var(--app-ad-offset,0px) - 1rem)); }
+  html[data-keyboard-open="true"] .mobile-keyboard-sheet, html[data-keyboard-open="true"]:has(.app-has-ad) .mobile-keyboard-sheet { bottom: calc(var(--app-keyboard-offset,0px) + 8px); top: auto; transform: none; max-height: calc(var(--app-visible-height,100dvh) - 1rem); }
+}

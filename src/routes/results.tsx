@@ -1,3 +1,4 @@
+import { RECOMMENDATION_LIMIT } from "@/lib/recommendation-limits";
 import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { FoxAvatar } from "@/components/fox-avatar";
@@ -31,7 +32,7 @@ function ResultsPage() {
       <EmptyState
         mood="sniffing"
         title="No sniff yet"
-        body="Run Find a Game and Finn will bring back a top 3 from your vault."
+        body={`Run Find a Game and Finn will bring back up to ${RECOMMENDATION_LIMIT} games from your vault.`}
         cta="Find tonight's game"
         onCta={() => navigate({ to: "/wizard" })}
       />
@@ -81,7 +82,7 @@ function ResultsPage() {
           {recPool ? "From Your Shared Shelf" : "From Your Vault"}
         </h2>
         <p className="mb-3 text-sm text-muted-foreground">
-          {result.ownedTop.length} of 3 suggestions
+          {result.ownedTop.length} of {RECOMMENDATION_LIMIT} suggestions
         </p>
         {noOwned && !ownedCount && !recPool ? (
           <p className="mb-3 text-sm">
@@ -104,7 +105,7 @@ function ResultsPage() {
       <section className="mt-10">
         <h2 className="font-display text-xl">Expand Your Shelf</h2>
         <p className="mb-3 text-sm text-muted-foreground">
-          {result.unownedTop.length} of 3 suggestions · Games you don’t own
+          {result.unownedTop.length} of {RECOMMENDATION_LIMIT} suggestions · Games you don’t own
         </p>
         <MatchAvailability
           shown={result.unownedTop.length}

@@ -1,3 +1,4 @@
+import { discoverDisplay, RECOMMENDATION_LIMIT } from "@/lib/recommendation-limits";
 import { RatingNotice } from "@/components/rating-controls";
 import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -39,8 +40,8 @@ function DiscoverPage() {
       discoverAll: typeof update === "function" ? update(s.discoverAll) : update,
     }));
 
+  const searching = Boolean(q.trim());
   const filtered =
-    Boolean(q.trim()) ||
     filters.players != null ||
     filters.ageBand != null ||
     filters.maxTimeMin != null ||
@@ -55,15 +56,17 @@ function DiscoverPage() {
     const fromShelf = STARTER_SHELF_IDS.map(getGame).filter((g): g is Game => Boolean(g));
     return fromShelf
       .filter((g) => standaloneGames().some((item) => item.bggId === g.bggId))
-      .slice(0, 10);
+      .slice(0, RECOMMENDATION_LIMIT);
   }, []);
 
   const alternatives = useMemo(
     () =>
-      results.length === 0 && filters.vibes.length > 0 ? discoverAlternatives(filters, q) : [],
+      !q.trim() && results.length === 0 && filters.vibes.length > 0
+        ? discoverAlternatives(filters, q)
+        : [],
     [filters, q, results.length],
   );
-  const list = filtered || browseAll ? results : featured;
+  const list = discoverDisplay(results, featured, { query: q, filtered, browseAll });
 
   function clear() {
     setQ("");
@@ -181,34 +184,50 @@ function DiscoverPage() {
 
       <div className="mt-5 flex items-baseline justify-between gap-3">
         <p className="font-display text-xl">
-          {filtered
-            ? `${results.length} ${results.length === 1 ? "game" : "games"}`
-            : browseAll
-              ? "All games"
+          {searching || browseAll
+            ? `${list.length} ${list.length === 1 ? "game" : "games"}`
+            : filtered
+              ? "Recommended games"
               : "Featured Games"}
         </p>
-        {filtered ? (
-          <button type="button" className="min-h-11 text-sm font-semibold text-sky" onClick={clear}>
-            Clear
-          </button>
-        ) : (
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {filtered || searching ? (
+            <button
+              type="button"
+              className="min-h-11 text-sm font-semibold text-sky"
+              onClick={clear}
+            >
+              Clear
+            </button>
+          ) : null}
+          {!searching && (
             <button
               type="button"
               className="min-h-11 text-sm font-semibold text-sky"
               onClick={() => setBrowseAll((current) => !current)}
             >
-              {browseAll ? "Featured games" : "Browse all"}
+              {browseAll
+                ? filtered
+                  ? "Recommended games"
+                  : "Featured games"
+                : filtered
+                  ? "Browse all matches"
+                  : "Browse all"}
             </button>
+          )}
+          {!filtered && !searching && (
             <Link to="/wizard" className="min-h-11 text-sm font-semibold text-sky">
               Ask Finn
             </Link>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {list.length ? (
-        <ul className="mt-2 space-y-2">
+        <ul
+          aria-label={searching || browseAll ? "Catalog matches" : "Discover recommendations"}
+          className="mt-2 space-y-2"
+        >
           {list.map((g) => (
             <li key={g.bggId}>
               <Link
@@ -274,7 +293,7 @@ function DiscoverPage() {
         </section>
       )}
       <p className="mt-6 text-center text-sm text-muted-foreground">
-        Tonight’s pick is on Home. This is the whole shelf.
+        Tonight’s pick is on Home. Browse all or search by title to explore the full catalog.
       </p>
     </div>
   );

@@ -1,3 +1,9 @@
+import { RECOMMENDATION_LIMIT, recommendationGroup } from "./recommendation-limits";
+import {
+  compareGameCharacteristics,
+  compareSimilarity,
+  SIMILARITY_CONTEXT,
+} from "./game-similarity";
 import {
   gameRating,
   ratingMode,
@@ -17,7 +23,13 @@ import type {
   WizardResult,
 } from "./types";
 import { DIMENSIONS } from "./types";
-import { GAMES, searchGames, standaloneGames, isStandaloneGame } from "./catalog";
+import {
+  GAMES,
+  searchGames,
+  standaloneGames,
+  isStandaloneGame,
+  CATALOG_EXTERNAL_ID_CONFLICTS,
+} from "./catalog";
 import { explainMatch } from "./explain";
 import { scoreLegacyGameWithCatalogFoundation } from "./catalog-legacy-bridge";
 import { passesHardConstraints, traitScore } from "./vibes";
@@ -130,9 +142,13 @@ export function discoverGames(
 }
 
 /** Alternatives relax only ordinary Vibe preferences, never hard limits or exact targets. */
-export function discoverAlternatives(ctx: WizardContext, query = "", limit = 6): Game[] {
+export function discoverAlternatives(
+  ctx: WizardContext,
+  query = "",
+  limit = RECOMMENDATION_LIMIT,
+): Game[] {
   if (!ctx.vibes.length || discoverGames(ctx, query).length) return [];
-  return discoverGames({ ...ctx, vibes: [] }, query).slice(0, limit);
+  return recommendationGroup(discoverGames({ ...ctx, vibes: [] }, query), limit);
 }
 
 export function runWizard(
@@ -193,13 +209,13 @@ export function runWizard(
     .sort(compareFindGames);
 
   const ownedFresh = ownedEligible.filter((g) => !excluded.has(g.bggId));
-  const ownedTop = ownedFresh.slice(0, 3);
+  const ownedTop = recommendationGroup(ownedFresh);
 
   const unownedEligible = catalog
     .filter((g) => !ownedSet.has(g.bggId))
     .map((g) => toScored(g, ctx, false))
     .sort(compareFindGames);
-  const unownedTop = unownedEligible.filter((g) => !excluded.has(g.bggId)).slice(0, 3);
+  const unownedTop = recommendationGroup(unownedEligible.filter((g) => !excluded.has(g.bggId)));
 
   return {
     coverage,
@@ -227,16 +243,30 @@ export function getGame(bggId: string): Game | undefined {
   return GAMES.find((g) => g.bggId === bggId);
 }
 
-export function similarGames(game: Game, limit = 4): Game[] {
-  return GAMES.filter((g) => g.bggId !== game.bggId)
-    .map((g) => {
-      let overlap = g.mechanics.filter((m) => game.mechanics.includes(m)).length;
-      overlap += g.vibes.filter((v) => game.vibes.includes(v)).length;
-      return { g, s: overlap + g.bggRating / 10 };
+export function similarGames(
+  game: Game,
+  limit = RECOMMENDATION_LIMIT,
+  ctx: WizardContext = SIMILARITY_CONTEXT,
+  games: readonly Game[] = standaloneGames(),
+): Game[] {
+  const conflicts = new Set(CATALOG_EXTERNAL_ID_CONFLICTS.map((entry) => entry.externalId));
+  if (!isStandaloneGame(game) || conflicts.has(game.bggId)) return [];
+  const candidates = uniqueStandaloneCandidates(applicationReviewedFactsAdapter(games, ctx)).filter(
+    (g) => !conflicts.has(g.bggId),
+  );
+  const ranked = candidates
+    .flatMap((g) => {
+      if (g.bggId === game.bggId) return [];
+      const comparison = compareGameCharacteristics(game, g, ctx);
+      return comparison ? [{ g, comparison }] : [];
     })
-    .sort((a, b) => b.s - a.s)
-    .slice(0, limit)
-    .map((x) => x.g);
+    .sort(
+      (a, b) =>
+        compareSimilarity(a.comparison, b.comparison) ||
+        a.g.name.localeCompare(b.g.name) ||
+        a.g.bggId.localeCompare(b.g.bggId),
+    );
+  return recommendationGroup(ranked, limit).map((entry) => entry.g);
 }
 
 export function formatPlaytime(game: Game): string {

@@ -119,7 +119,17 @@ export function MatchCard({
   );
 }
 
-export function GameRow({ game, owned }: { game: Game; owned?: boolean }) {
+export function GameRow({
+  game,
+  owned,
+  showOwnership = false,
+}: {
+  game: Game;
+  owned?: boolean;
+  showOwnership?: boolean;
+}) {
+  const inVault = useAppStore((s) => s.owned.includes(game.bggId));
+  const wishlisted = useAppStore((s) => s.wishlist.includes(game.bggId));
   return (
     <Link
       to="/game/$id"
@@ -131,7 +141,15 @@ export function GameRow({ game, owned }: { game: Game; owned?: boolean }) {
         <p className="truncate font-semibold">{game.name}</p>
         <p className="text-xs text-muted-foreground">
           {formatPlayers(game)} · {formatPlaytime(game)}
-          {owned ? " · In vault" : ""}
+          {showOwnership
+            ? inVault
+              ? " · In vault"
+              : wishlisted
+                ? " · Wishlisted"
+                : " · Not owned"
+            : owned
+              ? " · In vault"
+              : ""}
         </p>
       </div>
     </Link>

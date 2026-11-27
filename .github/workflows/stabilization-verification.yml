@@ -5,6 +5,7 @@ on:
     branches:
       - 'stabilization/07-*'
       - 'stabilization/08-*'
+      - 'stabilization/09-*'
 permissions:
   contents: read
 jobs:

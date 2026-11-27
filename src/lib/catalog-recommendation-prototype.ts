@@ -1,3 +1,4 @@
+import { RECOMMENDATION_LIMIT } from "./recommendation-limits";
 import {
   catalogHardEligible,
   catalogRecommendationScore,
@@ -1295,8 +1296,8 @@ export function createSyntheticCatalogRecommendationPreview(
       exhaustedUnowned: unownedEligible.length > 0 && unownedFresh.length === 0,
     },
     entries,
-    ownedTop: ownedFresh.slice(0, 3),
-    unownedTop: unownedFresh.slice(0, 3),
+    ownedTop: ownedFresh.slice(0, RECOMMENDATION_LIMIT),
+    unownedTop: unownedFresh.slice(0, RECOMMENDATION_LIMIT),
     compatibility: {
       references: LEGACY_COMPATIBILITY_REFERENCES.map(resolveSyntheticLegacyReference),
       customGame: {
