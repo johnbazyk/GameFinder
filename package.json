@@ -26,7 +26,8 @@
     "build:ratings:beta": "VITE_GAMEFINDER_RATINGS_MODE=beta npm run build",
     "test:ratings": "node --test scripts/rating-policy-03.test.mjs",
     "check:release": "node scripts/with-app-env.mjs node scripts/release-preflight.mjs",
-    "test:postgres": "bash scripts/test-postgres-disposable.sh"
+    "test:postgres": "bash scripts/test-postgres-disposable.sh",
+    "dev:owner": "DATABASE_URL=\"\" XAI_API_KEY=\"\" STRIPE_SECRET_KEY=\"\" VITE_AUTH_ENABLED=false GAMEFINDER_LOCAL_TEST_PLAN=1 GAMEFINDER_REMOTE_SCAN_APPROVED=0 npm run dev:ratings:beta"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
