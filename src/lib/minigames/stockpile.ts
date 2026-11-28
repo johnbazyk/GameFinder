@@ -66,7 +66,7 @@ export function initStockpile(
 ): StockpileState {
   const n = Math.max(2, Math.min(6, playerCount));
   const size = stockSize === 10 || stockSize === 30 ? stockSize : 20;
-  let d = deck();
+  const d = deck();
   const stocks: StockCard[][] = [];
   const hands: StockCard[][] = [];
   const discards: StockCard[][][] = [];

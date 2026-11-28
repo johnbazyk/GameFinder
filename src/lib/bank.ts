@@ -64,7 +64,7 @@ export function applyRoll(state: BankState, d1: number, d2: number): BankState {
   const safe = Number(state.rollsThisRound) < 3;
   let bank = Number(state.bank) || 0;
   let lastLine = "";
-  let phase: BankPhase = "after-roll";
+  const phase: BankPhase = "after-roll";
   const roller = state.players[state.currentIdx]?.name ?? "Someone";
 
   if (safe) {

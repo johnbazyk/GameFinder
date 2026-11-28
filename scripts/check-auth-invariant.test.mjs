@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import { createServer } from "vite";
+import { projectRoot } from "./with-app-env.mjs";
 import { appEnvPlugin } from "./app-env-plugin.mjs";
 import {
   authEnabledFromEnvValue,
@@ -14,7 +15,6 @@ import {
   compareAuthInvariant,
   probeDevAuthEnabled,
 } from "./check-auth-invariant.mjs";
-import { projectRoot } from "./with-app-env.mjs";
 
 /**
  * Run `body` against a real dev server carrying the template's plugin, started
@@ -114,9 +114,10 @@ test("only a divergence warns the smoke verdict", () => {
   }
 });
 
-test("the build side resolves the template's shipped app-env", () => {
-  assert.equal(buildAuthEnabled(projectRoot(), {}), false);
-  assert.equal(buildAuthEnabled(projectRoot(), { VITE_AUTH_ENABLED: "true" }), true);
+test("the build enables auth by default and honors an explicit override", () => {
+  const root = mkdtempSync(join(tmpdir(), "auth-build-"));
+  assert.equal(buildAuthEnabled(root, {}), true);
+  assert.equal(buildAuthEnabled(root, { VITE_AUTH_ENABLED: "false" }), false);
 });
 
 test("the CLI reports rather than silently passing when run via a symlink", async () => {

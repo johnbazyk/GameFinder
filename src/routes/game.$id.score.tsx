@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ScoreSheet } from "@/components/score-sheet";
 import { EmptyState } from "@/components/empty-state";
 import { getGame } from "@/lib/scoring";
+import { PremiumGate } from "@/components/premium-gate";
 
 export const Route = createFileRoute("/game/$id/score")({
   component: ScorePage,
@@ -22,13 +23,15 @@ function ScorePage() {
     );
   }
   return (
-    <div>
-      <Link to="/game/$id" params={{ id }} className="text-sm font-semibold text-sky">
-        Back to {game.name}
-      </Link>
-      <div className="mt-4">
-        <ScoreSheet game={game} />
+    <PremiumGate>
+      <div>
+        <Link to="/game/$id" params={{ id }} className="text-sm font-semibold text-sky">
+          Back to {game.name}
+        </Link>
+        <div className="mt-4">
+          <ScoreSheet game={game} />
+        </div>
       </div>
-    </div>
+    </PremiumGate>
   );
 }

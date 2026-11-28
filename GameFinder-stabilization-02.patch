@@ -1,0 +1,680 @@
+diff --git a/scripts/recommendation-constraints.test.mjs b/scripts/recommendation-constraints.test.mjs
+index a6742e5..96c0d7a 100644
+--- a/scripts/recommendation-constraints.test.mjs
++++ b/scripts/recommendation-constraints.test.mjs
+@@ -17,6 +17,7 @@ let wizardOptions;
+ let vibeMeta;
+ let filterTypes;
+ let appStore;
++let entitledWizard;
+ 
+ before(async () => {
+   server = await createServer({
+@@ -44,7 +45,7 @@ before(async () => {
+     setItem: () => {},
+     removeItem: () => {},
+   };
+-  ({ useAppStore: appStore } = await server.ssrLoadModule("/src/lib/store.ts"));
++  ({ useAppStore: appStore, entitledWizard } = await server.ssrLoadModule("/src/lib/store.ts"));
+ });
+ 
+ after(async () => {
+@@ -245,7 +246,9 @@ test("Find and Discover use the same hard-filter eligibility decisions", () => {
+       .sort();
+ 
+     assert.deepEqual(discoverIds, sharedEligibleIds);
+-    const hardIds = eligibleGames({ ...filters, vibes: [] }).map((g) => g.bggId).sort();
++    const hardIds = eligibleGames({ ...filters, vibes: [] })
++      .map((g) => g.bggId)
++      .sort();
+     assert.deepEqual(findIds, hardIds);
+   }
+ });
+@@ -437,6 +440,18 @@ test("Sniff Again rerolls through the shared constraints and avoids games alread
+   assert.deepEqual(next?.appliedFilters, context({ players: null }));
+ });
+ 
++test("Free recommendations discard advanced targets without changing standard filters or saved preferences", () => {
++  const saved = context({
++    exactTraits: { strategy: 4.5 },
++    ratingTargets: { strategy: { min: 4, max: 5 } },
++  });
++  const free = entitledWizard(saved, false);
++  assert.deepEqual(free, context());
++  assert.deepEqual(saved.exactTraits, { strategy: 4.5 });
++  assert.ok(saved.ratingTargets.strategy);
++  assert.equal(entitledWizard(saved, true), saved);
++});
++
+ test("Surprise Me randomly selects only an owned catalog game and avoids the previous pick when possible", () => {
+   const originalRandom = Math.random;
+   try {
+diff --git a/scripts/scan-and-teach.test.mjs b/scripts/scan-and-teach.test.mjs
+index 6e9936d..a0a74c8 100644
+--- a/scripts/scan-and-teach.test.mjs
++++ b/scripts/scan-and-teach.test.mjs
+@@ -105,22 +105,85 @@ test("quarter turns preserve every corner of a rectangular photo", async () => {
+   try {
+     for (const turn of [1, -1, 2]) {
+       let offset, angle, drawn;
+-      globalThis.document = { createElement: () => ({ getContext: () => ({
+-        translate(x, y) { offset = [x, y]; },
+-        rotate(value) { angle = value; },
+-        drawImage(image) { drawn = image; },
+-      }) }) };
++      globalThis.document = {
++        createElement: () => ({
++          getContext: () => ({
++            translate(x, y) {
++              offset = [x, y];
++            },
++            rotate(value) {
++              angle = value;
++            },
++            drawImage(image) {
++              drawn = image;
++            },
++          }),
++        }),
++      };
+       const out = rotateScanPhoto(photo, turn);
+       assert.equal(drawn, photo);
+       assert.equal(angle, (turn * Math.PI) / 2);
+-      const corners = [[0, 0], [90, 0], [0, 40], [90, 40]].map(([x, y]) => [
++      const corners = [
++        [0, 0],
++        [90, 0],
++        [0, 40],
++        [90, 40],
++      ].map(([x, y]) => [
+         Math.round(offset[0] + x * Math.cos(angle) - y * Math.sin(angle)) || 0,
+         Math.round(offset[1] + x * Math.sin(angle) + y * Math.cos(angle)) || 0,
+       ]);
+-      assert.deepEqual(corners.sort(), [[0, 0], [out.width, 0], [0, out.height], [out.width, out.height]].sort());
++      assert.deepEqual(
++        corners.sort(),
++        [
++          [0, 0],
++          [out.width, 0],
++          [0, out.height],
++          [out.width, out.height],
++        ].sort(),
++      );
+     }
+   } finally {
+     if (previous === undefined) delete globalThis.document;
+     else globalThis.document = previous;
+   }
+ });
++
++test("provider responses require consistent catalog identity and valid data", async () => {
++  const { validateScanHits } = await server.ssrLoadModule("/src/lib/scan-validation.ts");
++  const catalog = [
++    { bggId: "13", name: "Catan" },
++    { bggId: "2", name: "Other" },
++  ];
++  const hits = validateScanHits(
++    [
++      null,
++      42,
++      { name: 123 },
++      { name: "" },
++      { bggId: "13", name: "Other", confidence: "high" },
++      { bggId: "13", name: "Catan", confidence: "high", possibleExpansion: true },
++      { bggId: "13", name: "The Settlers of Catan", confidence: "high" },
++      { bggId: null, name: "Catan", confidence: "high" },
++      { bggId: "unknown", name: "Catan", confidence: "high" },
++    ],
++    catalog,
++  );
++  assert.deepEqual(
++    hits.map((h) => [h.bggId, h.confidence]),
++    [
++      [null, "unknown"],
++      [null, "unknown"],
++      ["13", "high"],
++      ["13", "review"],
++      [null, "unknown"],
++    ],
++  );
++});
++
++test("explicit Catan expansion evidence survives separate OCR crops", async () => {
++  const { conflictingBaseTitles } = await server.ssrLoadModule("/src/lib/box-titles.ts");
++  assert.deepEqual(conflictingBaseTitles("CATAN\n5–6 PLAYER EXTENSION"), ["catan"]);
++  assert.deepEqual(conflictingBaseTitles("CATAN JUNIOR"), ["catan"]);
++  assert.deepEqual(conflictingBaseTitles("CATAN THE BOARD GAME"), []);
++  assert.deepEqual(conflictingBaseTitles("WINGSPAN"), []);
++});
+diff --git a/scripts/scanner-lab-browser.mjs b/scripts/scanner-lab-browser.mjs
+new file mode 100644
+index 0000000..34eef67
+--- /dev/null
++++ b/scripts/scanner-lab-browser.mjs
+@@ -0,0 +1,135 @@
++/** Isolated browser OCR acceptance test; authored synthetic title labels, no user photos or paid services. */
++import assert from "node:assert/strict";
++import { chromium } from "playwright";
++import { createServer } from "vite";
++import { resolve } from "node:path";
++const server = await createServer({
++  configFile: false,
++  publicDir: resolve("public"),
++  server: { host: "127.0.0.1", port: 8097, strictPort: true },
++  optimizeDeps: { include: ["tesseract.js"] },
++});
++await server.listen();
++const browser = await chromium.launch({ channel: "chrome", headless: true });
++try {
++  const page = await browser.newPage({
++    viewport: { width: 390, height: 844 },
++    serviceWorkers: "block",
++  });
++  page.on("requestfailed", (r) => console.log("REQUEST FAILED", r.url(), r.failure()?.errorText));
++  page.on("response", (r) => {
++    if (r.status() >= 400) console.log("HTTP", r.status(), r.url());
++  });
++  page.on("console", (m) => {
++    if (m.type() === "error") console.log("BROWSER", m.text());
++  });
++  await page.route("**/*", (route) => {
++    const url = new URL(route.request().url());
++    if (url.pathname === "/scanner-fixture.html" && url.hostname === "127.0.0.1")
++      return route.fulfill({
++        contentType: "text/html",
++        body: "<!doctype html><title>Scanner lab</title>",
++      });
++    return url.hostname === "127.0.0.1" && route.request().method() === "GET"
++      ? route.continue()
++      : route.abort();
++  });
++  await page.goto("http://127.0.0.1:8097/scanner-fixture.html", { waitUntil: "domcontentloaded" });
++  const result = await page.evaluate(async () => {
++    const { createBoxReader } = await import("/src/lib/box-ocr.ts");
++    const { rotateScanPhoto } = await import("/src/lib/scan-photo.ts");
++    const controller = new AbortController();
++    const reader = await createBoxReader(controller.signal);
++    const outcomes = [];
++    const make = (labels) => {
++      const canvas = document.createElement("canvas");
++      canvas.width = 800;
++      canvas.height = 400;
++      const ctx = canvas.getContext("2d");
++      ctx.fillStyle = "white";
++      ctx.fillRect(0, 0, 800, 400);
++      ctx.fillStyle = "black";
++      ctx.font = "bold 70px Arial";
++      labels.forEach((label, index) => ctx.fillText(label, 40, 110 + index * 140));
++      return canvas;
++    };
++    try {
++      for (const turn of [0, 1, -1, 2]) {
++        const original = make(["WINGSPAN", "CATAN"]);
++        const photo = turn ? rotateScanPhoto(original, turn) : original;
++        const hits = new Set();
++        const stages = new Set();
++        const start = performance.now();
++        const found = await reader.read(
++          photo,
++          (hit) => hits.add(hit.name),
++          (stage) => stages.add(stage),
++        );
++        outcomes.push({
++          turn,
++          names: [...hits].sort(),
++          returned: found.length,
++          stages: [...stages],
++          ms: Math.round(performance.now() - start),
++        });
++        photo.width = photo.height = original.width = original.height = 0;
++      }
++      for (const kind of ["diagonal", "mixed", "empty", "expansion"]) {
++        const photo = document.createElement("canvas");
++        photo.width = 900;
++        photo.height = 700;
++        const ctx = photo.getContext("2d");
++        ctx.fillStyle = "white";
++        ctx.fillRect(0, 0, 900, 700);
++        ctx.fillStyle = "black";
++        ctx.font = "bold 65px Arial";
++        if (kind === "diagonal") {
++          ctx.translate(450, 350);
++          ctx.rotate(Math.PI / 4);
++          ctx.fillText("WINGSPAN", -190, 0);
++        } else if (kind === "mixed") {
++          ctx.fillText("CATAN", 40, 100);
++          ctx.translate(670, 180);
++          ctx.rotate(Math.PI / 2);
++          ctx.fillText("WINGSPAN", 0, 0);
++        } else if (kind === "expansion") {
++          ctx.font = "bold 46px Arial";
++          ctx.fillText("CATAN 5-6 PLAYER EXTENSION", 20, 150);
++        }
++        const start = performance.now();
++        const found = await reader.read(photo);
++        outcomes.push({
++          kind,
++          names: found.map((h) => h.name).sort(),
++          ms: Math.round(performance.now() - start),
++        });
++        photo.width = photo.height = 0;
++      }
++    } finally {
++      reader.close();
++    }
++    return outcomes;
++  });
++  for (const item of result) console.log(JSON.stringify(item));
++  for (const item of result) {
++    if (item.kind) {
++      const expected = {
++        diagonal: ["Wingspan"],
++        mixed: ["Catan", "Wingspan"],
++        empty: [],
++        expansion: [],
++      }[item.kind];
++      assert.deepEqual(item.names, expected, item.kind);
++      continue;
++    }
++    assert.deepEqual(item.names, ["Catan", "Wingspan"]);
++    assert.ok(item.names.includes("Catan"), "Catan missing at turn " + item.turn);
++    assert.ok(item.names.includes("Wingspan"), "Wingspan missing at turn " + item.turn);
++    assert.equal(item.returned, item.names.length);
++    assert.ok(item.stages.some((s) => s.startsWith("Shelf region")));
++    assert.ok(item.stages.some((s) => s.startsWith("Diagonal")));
++  }
++} finally {
++  await browser.close();
++  await server.close();
++}
+diff --git a/src/components/scan-games.tsx b/src/components/scan-games.tsx
+index 5ec57a5..f49b3cd 100644
+--- a/src/components/scan-games.tsx
++++ b/src/components/scan-games.tsx
+@@ -15,6 +15,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+   const camera = useRef<HTMLInputElement>(null);
+   const gallery = useRef<HTMLInputElement>(null);
+   const request = useRef<AbortController | null>(null);
++  const stopLocal = useRef<(() => void) | null>(null);
+   const [rows, setRows] = useState<ScanRow[]>([]);
+   const [progress, setProgress] = useState("");
+   const [message, setMessage] = useState("");
+@@ -35,6 +36,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+   function close() {
+     request.current?.abort();
+     request.current = null;
++    stopLocal.current = null;
+     setProgress("");
+     setMessage("");
+     setReport("");
+@@ -53,7 +55,6 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+     );
+     // Cancellation may happen while the browser is still decoding a file.
+     void cancelled.catch(() => {});
+-    let reader: Awaited<ReturnType<typeof createBoxReader>> | undefined;
+     let readerUnavailable = false;
+     let unopened = 0;
+     let unavailable = 0;
+@@ -68,6 +69,10 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+         let phoneStatus = "Reader unavailable";
+         if (diagnostics) setReport("");
+         const photo = await openScanPhoto(file).catch(() => null);
++        if (signal.aborted) {
++          if (photo) photo.width = photo.height = 0;
++          signal.throwIfAborted();
++        }
+         if (!photo) {
+           if (diagnostics && !signal.aborted) setReport("Photo could not be opened.");
+           unopened++;
+@@ -81,14 +86,39 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+           })
+           .catch(() => null);
+         const localHits: ScanHit[] = [];
++        const conflicts = new Set<string>();
++        let reader: Awaited<ReturnType<typeof createBoxReader>> | undefined;
++        const localController = new AbortController();
++        const abortLocal = () => localController.abort();
++        signal.addEventListener("abort", abortLocal, { once: true });
++        let stopped = false;
++        let finishLocal: () => void = () => {};
++        const localStopped = new Promise<null>((resolve) => {
++          finishLocal = () => resolve(null);
++        });
++        const stop = () => {
++          stopped = true;
++          localController.abort();
++          reader?.close();
++          reader = undefined;
++          finishLocal();
++        };
++        stopLocal.current = stop;
++        const timer = window.setTimeout(stop, 90000);
++
+         const localTask = (async () => {
+           if (readerUnavailable) return null;
+           if (!reader) {
+             try {
+               const { createBoxReader } = await import("@/lib/box-ocr");
+-              reader = await createBoxReader(signal);
++              const nextReader = await createBoxReader(localController.signal);
++              if (stopped || signal.aborted) {
++                nextReader.close();
++                return null;
++              }
++              reader = nextReader;
+             } catch {
+-              readerUnavailable = true;
++              if (!stopped && !signal.aborted) readerUnavailable = true;
+               return null;
+             }
+           }
+@@ -96,7 +126,9 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+             phoneStatus = "Stopped during text recognition";
+             await reader.read(
+               photo,
+-              (hit) => localHits.push(hit),
++              (hit) => {
++                if (!stopped && !signal.aborted) localHits.push(hit);
++              },
+               diagnostics
+                 ? (stage, text, titles) => {
+                     passes.push(
+@@ -108,19 +140,27 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+                     );
+                   }
+                 : undefined,
++              (id) => {
++                if (!stopped && !signal.aborted) conflicts.add(id);
++              },
+             );
+             phoneStatus = "Completed";
+             return true;
+           } catch {
+-            reader.close();
++            reader?.close();
+             reader = undefined;
+             return null;
+           }
+         })().catch(() => null);
+         const [remote, local] = await Promise.race([
+-          Promise.all([remoteTask, localTask]),
++          Promise.all([remoteTask, Promise.race([localTask, localStopped])]),
+           cancelled,
+         ]).finally(() => {
++          window.clearTimeout(timer);
++          signal.removeEventListener("abort", abortLocal);
++          if (request.current === controller) stopLocal.current = null;
++          reader?.close();
++          reader = undefined;
+           photo.width = photo.height = 0;
+         });
+         signal.throwIfAborted();
+@@ -136,9 +176,11 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+             ].join("\n\n"),
+           );
+         }
+-        const hits = [...(remote?.ok ? remote.hits : []), ...localHits];
++        const hits = [...(remote?.ok ? remote.hits : []), ...localHits].filter(
++          (hit) => !hit.bggId || !conflicts.has(hit.bggId),
++        );
+         if (hits.length) {
+-          if (local === null && !remote?.ok) partial++;
++          if (local === null) partial++;
+           setRows((prev) => mergeScanRows(prev, hits, useAppStore.getState().owned));
+         } else if (!remote?.ok && local === null) {
+           unavailable++;
+@@ -165,7 +207,6 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+     } catch {
+       if (!signal.aborted) setMessage("Scanning stopped. Your matches are ready to review.");
+     } finally {
+-      reader?.close();
+       if (request.current === controller) {
+         request.current = null;
+         setProgress("");
+@@ -266,6 +307,15 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+         <p role="status" className="empty:hidden text-sm text-muted-foreground">
+           {progress || message}
+         </p>
++        {progress && (
++          <button
++            type="button"
++            className="text-sm font-semibold text-sky"
++            onClick={() => stopLocal.current?.()}
++          >
++            Finish reading this photo
++          </button>
++        )}
+         {diagnostics && (
+           <details className="text-sm">
+             <summary>Scan details</summary>
+diff --git a/src/lib/box-ocr.ts b/src/lib/box-ocr.ts
+index 17bd4fa..d5aeb85 100644
+--- a/src/lib/box-ocr.ts
++++ b/src/lib/box-ocr.ts
+@@ -1,7 +1,13 @@
+ import { createWorker, OEM, PSM } from "tesseract.js";
+-import { diagonalScanPhoto, enhancedScanPhoto, rotateScanPhoto, scanTitleBand, shelfRegions } from "./scan-photo";
++import {
++  diagonalScanPhoto,
++  enhancedScanPhoto,
++  rotateScanPhoto,
++  scanTitleBand,
++  shelfRegions,
++} from "./scan-photo";
+ import { GAMES } from "./catalog";
+-import { findBoxTitles } from "./box-titles";
++import { boxTitleKey, conflictingBaseTitles, findBoxTitles } from "./box-titles";
+ import type { ScanHit } from "./scan";
+ 
+ export async function createBoxReader(signal: AbortSignal) {
+@@ -31,8 +37,14 @@ export async function createBoxReader(signal: AbortSignal) {
+   }
+   return {
+     close,
+-    async read(photo: HTMLCanvasElement, onHit?: (hit: ScanHit) => void, onPass?: (stage: string, text: string, titles: string[]) => void): Promise<ScanHit[]> {
++    async read(
++      photo: HTMLCanvasElement,
++      onHit?: (hit: ScanHit) => void,
++      onPass?: (stage: string, text: string, titles: string[]) => void,
++      onConflict?: (id: string) => void,
++    ): Promise<ScanHit[]> {
+       const hits = new Map<string, ScanHit>();
++      const blocked = new Set<string>();
+       function* temporary(canvas: HTMLCanvasElement) {
+         try {
+           yield canvas;
+@@ -55,6 +67,8 @@ export async function createBoxReader(signal: AbortSignal) {
+             if (upright !== photo) upright.width = upright.height = 0;
+           }
+         }
++      }
++      function* contrastViews() {
+         for (const mode of ["compactRed", "redInk", "red", "detail", "warm", "green"] as const) {
+           stage = mode;
+           const enhanced = enhancedScanPhoto(photo, mode);
+@@ -72,8 +86,23 @@ export async function createBoxReader(signal: AbortSignal) {
+       async function recognize(view: HTMLCanvasElement, deskew = false) {
+         signal.throwIfAborted();
+         const result = await worker.recognize(view, { rotateAuto: deskew });
+-        const games = findBoxTitles(result.data.text, GAMES);
+-        onPass?.(stage + " " + readingTurn * 90 + "°", result.data.text, games.map(game => game.name));
++        signal.throwIfAborted();
++        for (const key of conflictingBaseTitles(result.data.text)) {
++          for (const game of GAMES) {
++            if (boxTitleKey(game.name) !== key || blocked.has(game.bggId)) continue;
++            blocked.add(game.bggId);
++            hits.delete(game.bggId);
++            onConflict?.(game.bggId);
++          }
++        }
++        const games = findBoxTitles(result.data.text, GAMES).filter(
++          (game) => !blocked.has(game.bggId),
++        );
++        onPass?.(
++          stage + " " + readingTurn * 90 + "°",
++          result.data.text,
++          games.map((game) => game.name),
++        );
+         for (const game of games) {
+           const ids = directionHits.get(readingTurn) ?? new Set<string>();
+           ids.add(game.bggId);
+@@ -86,10 +115,14 @@ export async function createBoxReader(signal: AbortSignal) {
+         }
+       }
+       for (const view of views()) await recognize(view);
+-      if (hits.size >= 2) {
++      {
+         // Limit extra mobile OCR work to the two orientations with the most catalog evidence.
+         stage = "Shelf region";
+         const directions = [...directionHits].sort((a, b) => b[1].size - a[1].size).slice(0, 2);
++        for (const turn of [0, 1] as const) {
++          if (directions.length < 2 && !directions.some(([seen]) => seen === turn))
++            directions.push([turn, new Set<string>()]);
++        }
+         for (const [turn] of directions) {
+           readingTurn = turn;
+           const upright = turn === 0 ? photo : rotateScanPhoto(photo, turn);
+@@ -100,7 +133,7 @@ export async function createBoxReader(signal: AbortSignal) {
+           }
+         }
+       }
+-      if (!hits.size) {
++      {
+         stage = "Diagonal";
+         readingTurn = 0;
+         const diagonal = diagonalScanPhoto(photo);
+@@ -108,12 +141,14 @@ export async function createBoxReader(signal: AbortSignal) {
+           await recognize(diagonal, true);
+           for (const turn of [1, -1, 2] as const) {
+             readingTurn = turn;
+-            for (const view of temporary(rotateScanPhoto(diagonal, turn))) await recognize(view, true);
++            for (const view of temporary(rotateScanPhoto(diagonal, turn)))
++              await recognize(view, true);
+           }
+         } finally {
+           diagonal.width = diagonal.height = 0;
+         }
+       }
++      for (const view of contrastViews()) await recognize(view);
+       return [...hits.values()];
+     },
+   };
+diff --git a/src/lib/box-titles.ts b/src/lib/box-titles.ts
+index 001fc41..e933d3a 100644
+--- a/src/lib/box-titles.ts
++++ b/src/lib/box-titles.ts
+@@ -26,6 +26,18 @@ function titleDistance(a: string, b: string) {
+   return previous[b.length];
+ }
+ 
++// An explicit expansion label can invalidate an isolated base-title crop.
++export function conflictingBaseTitles(text: string): string[] {
++  const key = boxTitleKey(text).replace(/\b(?:cat an|c atan|c4tan|cat4n)\b/g, "catan");
++  if (
++    /\bcatan\b.{0,45}\b(?:junior|seafarers|expansion|extension|knights|starfarers|explorers|traders|duel|5 6 player)\b/.test(
++      key,
++    )
++  )
++    return ["catan"];
++  return [];
++}
++
+ // OCR often reads the designer, title and subtitle as a single line.
+ export function findBoxTitles<T extends { name: string }>(
+   text: string,
+diff --git a/src/lib/scan-validation.ts b/src/lib/scan-validation.ts
+new file mode 100644
+index 0000000..531056c
+--- /dev/null
++++ b/src/lib/scan-validation.ts
+@@ -0,0 +1,37 @@
++import { boxTitleKey } from "./box-titles";
++import type { ScanHit } from "./scan";
++
++/** Never trust provider identifiers or confidence without catalog agreement. */
++export function validateScanHits(
++  input: unknown[],
++  catalog: readonly { bggId: string; name: string }[],
++): ScanHit[] {
++  const known = new Map(catalog.map((g) => [g.bggId, g]));
++  const byName = new Map<string, (typeof catalog)[number][]>();
++  for (const game of catalog) {
++    const key = boxTitleKey(game.name);
++    byName.set(key, [...(byName.get(key) ?? []), game]);
++  }
++  const hits: ScanHit[] = [];
++  for (const entry of input.slice(0, 40)) {
++    if (!entry || typeof entry !== "object") continue;
++    const h = entry as Record<string, unknown>;
++    if (typeof h.name !== "string" || !h.name.trim() || h.name.length > 120) continue;
++    const name = h.name.trim();
++    const named = byName.get(boxTitleKey(name)) ?? [];
++    const id = typeof h.bggId === "string" ? known.get(h.bggId) : undefined;
++    const expansion = h.possibleExpansion === true;
++    const validExpansion = h.possibleExpansion === undefined || h.possibleExpansion === false;
++    const game =
++      validExpansion && named.length === 1 && (h.bggId == null || id === named[0])
++        ? named[0]
++        : undefined;
++    hits.push({
++      bggId: game?.bggId ?? null,
++      name: game?.name ?? name,
++      confidence: game ? (id && h.confidence === "high" ? "high" : "review") : "unknown",
++      possibleExpansion: expansion,
++    });
++  }
++  return hits;
++}
+diff --git a/src/lib/scan.ts b/src/lib/scan.ts
+index ae79f64..217a698 100644
+--- a/src/lib/scan.ts
++++ b/src/lib/scan.ts
+@@ -1,5 +1,5 @@
+ import { createServerFn } from "@tanstack/react-start";
+-import { boxTitleKey } from "./box-titles";
++import { authMiddleware } from "./auth/middleware";
+ import { GAMES } from "./catalog";
+ 
+ export type ScanHit = {
+@@ -15,9 +15,12 @@ function apiKey() {
+ }
+ 
+ export const identifyShelf = createServerFn({ method: "POST" })
++  .middleware([authMiddleware])
+   .validator((input: { image: string }) => {
+     if (!input?.image || typeof input.image !== "string") throw new Error("Missing image");
+     if (input.image.length > 6_500_000) throw new Error("Image too large");
++    if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(input.image))
++      throw new Error("Invalid image");
+     return { image: input.image };
+   })
+   .handler(async ({ data }) => {
+@@ -75,24 +78,9 @@ export const identifyShelf = createServerFn({ method: "POST" })
+     } catch {
+       return { ok: false as const, error: "parse", hits: [] as ScanHit[] };
+     }
+-    const known = new Map(GAMES.map((g) => [g.bggId, g]));
+-    const byName = new Map(GAMES.map((g) => [boxTitleKey(g.name), g]));
+-    const hits: ScanHit[] = (parsed.games ?? []).slice(0, 40).map((h) => {
+-      const byId = h.bggId ? known.get(String(h.bggId)) : undefined;
+-      const named = byName.get(boxTitleKey(h.name ?? ""));
+-      const game = h.possibleExpansion ? undefined : named ?? (byId && !h.name ? byId : undefined);
+-      const confidence = game
+-        ? h.confidence === "high"
+-          ? "high"
+-          : "review"
+-        : "unknown";
+-      return {
+-        bggId: game?.bggId ?? null,
+-        name: game?.name ?? h.name ?? "Unknown box",
+-        confidence,
+-        note: h.note,
+-        possibleExpansion: Boolean(h.possibleExpansion),
+-      };
+-    });
++    if (!Array.isArray(parsed.games))
++      return { ok: false as const, error: "parse", hits: [] as ScanHit[] };
++    const { validateScanHits } = await import("./scan-validation");
++    const hits = validateScanHits(parsed.games, GAMES);
+     return { ok: true as const, hits };
+   });

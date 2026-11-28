@@ -1,0 +1,143 @@
+From 99a666f0f48746268e1738ada198c3c67968c6bf Mon Sep 17 00:00:00 2001
+From: Codex <codex@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 20:02:24 -0700
+Subject: [PATCH] Read overlapping shelf regions and show the total matches
+
+---
+ src/components/scan-games.tsx |  3 ++-
+ src/lib/box-ocr.ts            | 30 +++++++++++++++++++++-----
+ src/lib/scan-photo.ts         | 40 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 67 insertions(+), 6 deletions(-)
+
+diff --git a/src/components/scan-games.tsx b/src/components/scan-games.tsx
+index 6c68b49..03f2ae2 100644
+--- a/src/components/scan-games.tsx
++++ b/src/components/scan-games.tsx
+@@ -210,8 +210,9 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+         {rows.length > 0 && (
+           <>
+             <div className="flex items-center justify-between text-sm">
+-              <span>{selected.length} selected</span>
++              <span>{rows.length} found · {selected.length} selected</span>
+               <button
++                disabled={!rows.some(canSelect)}
+                 onClick={() => {
+                   const all = rows.filter(canSelect).every((r) => r.selected);
+                   setRows((prev) =>
+diff --git a/src/lib/box-ocr.ts b/src/lib/box-ocr.ts
+index 5868d5d..630bfe6 100644
+--- a/src/lib/box-ocr.ts
++++ b/src/lib/box-ocr.ts
+@@ -1,5 +1,5 @@
+ import { createWorker, OEM, PSM } from "tesseract.js";
+-import { diagonalScanPhoto, enhancedScanPhoto, rotateScanPhoto, scanTitleBand } from "./scan-photo";
++import { diagonalScanPhoto, enhancedScanPhoto, rotateScanPhoto, scanTitleBand, shelfRegions } from "./scan-photo";
+ import { GAMES } from "./catalog";
+ import { findBoxTitles } from "./box-titles";
+ import type { ScanHit } from "./scan";
+@@ -40,8 +40,11 @@ export async function createBoxReader(signal: AbortSignal) {
+           canvas.width = canvas.height = 0;
+         }
+       }
++      let readingTurn: 0 | 1 | -1 | 2 = 0;
++      const directionHits = new Map<0 | 1 | -1 | 2, Set<string>>();
+       function* views() {
+         for (const turn of [0, 1, -1, 2] as const) {
++          readingTurn = turn;
+           const upright = turn === 0 ? photo : rotateScanPhoto(photo, turn);
+           try {
+             yield upright;
+@@ -54,10 +57,11 @@ export async function createBoxReader(signal: AbortSignal) {
+         for (const mode of ["red", "detail", "warm", "green"] as const) {
+           const enhanced = enhancedScanPhoto(photo, mode);
+           try {
+-            yield enhanced;
+-            yield* temporary(rotateScanPhoto(enhanced, -1));
+-            yield* temporary(rotateScanPhoto(enhanced, 1));
+-            yield* temporary(rotateScanPhoto(enhanced, 2));
++            for (const turn of [0, -1, 1, 2] as const) {
++              readingTurn = turn;
++              if (turn === 0) yield enhanced;
++              else yield* temporary(rotateScanPhoto(enhanced, turn));
++            }
+           } finally {
+             enhanced.width = enhanced.height = 0;
+           }
+@@ -67,10 +71,26 @@ export async function createBoxReader(signal: AbortSignal) {
+         signal.throwIfAborted();
+         const result = await worker.recognize(view, { rotateAuto: deskew });
+         for (const game of findBoxTitles(result.data.text, GAMES)) {
++          const ids = directionHits.get(readingTurn) ?? new Set<string>();
++          ids.add(game.bggId);
++          directionHits.set(readingTurn, ids);
+           hits.set(game.bggId, { bggId: game.bggId, name: game.name, confidence: "review" });
+         }
+       }
+       for (const view of views()) await recognize(view);
++      if (hits.size >= 2) {
++        // Limit extra mobile OCR work to the two orientations with the most catalog evidence.
++        const directions = [...directionHits].sort((a, b) => b[1].size - a[1].size).slice(0, 2);
++        for (const [turn] of directions) {
++          readingTurn = turn;
++          const upright = turn === 0 ? photo : rotateScanPhoto(photo, turn);
++          try {
++            for (const region of shelfRegions(upright)) await recognize(region);
++          } finally {
++            if (upright !== photo) upright.width = upright.height = 0;
++          }
++        }
++      }
+       if (!hits.size) {
+         const diagonal = diagonalScanPhoto(photo);
+         try {
+diff --git a/src/lib/scan-photo.ts b/src/lib/scan-photo.ts
+index 0c4eca8..93ebb4f 100644
+--- a/src/lib/scan-photo.ts
++++ b/src/lib/scan-photo.ts
+@@ -90,3 +90,43 @@ export function enhancedScanPhoto(photo: HTMLCanvasElement, mode: ScanContrastMo
+   ctx.putImageData(image, 0, 0);
+   return canvas;
+ }
++
++// Overlap neighboring shelf regions so labels crossing a crop boundary get a second read.
++export function* shelfRegions(photo: HTMLCanvasElement) {
++  const landscape = photo.width >= photo.height;
++  const cols = landscape ? 3 : 2;
++  const rows = landscape ? 2 : 3;
++  const w = Math.max(1, Math.round(photo.width * (landscape ? 0.375 : 0.625)));
++  const h = Math.max(1, Math.round(photo.height * (landscape ? 0.625 : 0.375)));
++  const scale = Math.min(2, 1200 / Math.max(w, h));
++  for (let row = 0; row < rows; row++) {
++    for (let col = 0; col < cols; col++) {
++      const region = document.createElement("canvas");
++      region.width = Math.max(1, Math.round(w * scale));
++      region.height = Math.max(1, Math.round(h * scale));
++      try {
++        const ctx = region.getContext("2d");
++        if (!ctx) throw new Error("Photo unavailable");
++        const x = Math.round(col * (photo.width - w) / (cols - 1));
++        const y = Math.round(row * (photo.height - h) / (rows - 1));
++        ctx.drawImage(photo, x, y, w, h, 0, 0, region.width, region.height);
++        const image = ctx.getImageData(0, 0, region.width, region.height);
++        let low = 255, high = 0;
++        const pixels = image.data;
++        for (let i = 0; i < pixels.length; i += 4) {
++          const gray = Math.round(0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]);
++          pixels[i] = gray;
++          low = Math.min(low, gray);
++          high = Math.max(high, gray);
++        }
++        for (let i = 0; i < pixels.length; i += 4) {
++          pixels[i] = pixels[i + 1] = pixels[i + 2] = 255 * (pixels[i] - low) / Math.max(1, high - low);
++        }
++        ctx.putImageData(image, 0, 0);
++        yield region;
++      } finally {
++        region.width = region.height = 0;
++      }
++    }
++  }
++}
+-- 
+2.56.1
+

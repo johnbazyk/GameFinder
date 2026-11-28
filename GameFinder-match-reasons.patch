@@ -1,0 +1,1954 @@
+From 162b7a5d81b8ac963db999fe5a63a535a4d31296 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Thu, 19 Nov 2026 12:07:16 -0700
+Subject: [PATCH] Explain Find recommendations with game-specific rules
+
+---
+ scripts/design-ratings.test.mjs       |  39 ++
+ scripts/rating-policy-03.test.mjs     |   2 +-
+ src/components/match-card.tsx         |   4 +-
+ src/lib/application-ratings.ts        |  33 +-
+ src/lib/rating-policy.ts              |   1 +
+ src/lib/ratings/design-assessments.ts | 715 ++++++++++++++++++++++++++
+ src/lib/ratings/design-catalog.ts     |   3 +
+ src/routes/game.$id.index.tsx         |  12 +-
+ 8 files changed, 791 insertions(+), 18 deletions(-)
+
+diff --git a/scripts/design-ratings.test.mjs b/scripts/design-ratings.test.mjs
+index ec13ecf..5c2293e 100644
+--- a/scripts/design-ratings.test.mjs
++++ b/scripts/design-ratings.test.mjs
+@@ -168,3 +168,42 @@ test("Find fills each shelf independently when every owned game misses the vibe"
+   const strict = scoring.runWizard({ ...ctx, exactTraits: { party: 4 } }, { owned }, [], identity, games);
+   assert.equal(strict.ownedCount, 0);
+ });
++
++test("every catalog entry has distinct, short rules-based copy for Find", () => {
++  const seen = new Set();
++  for (const game of catalog.AUTHORED_GAMES) {
++    const record = app.ratingRecord(game);
++    const reasons = Object.entries(record.matchReasons);
++    assert.ok(reasons.length > 0, game.name);
++    assert.equal(app.ratingExplanation(game, context()), reasons[0][1]);
++    for (const [vibe, reason] of reasons) {
++      assert.ok(record.ratings[vibe].sources.some((s) => s.observation && s.url), game.name);
++      assert.ok(reason.trim() === reason && reason.split(/\s+/).length <= 26, reason);
++      assert.match(reason, /^[^.!?]+[.!?]$/u);
++      assert.ok(!seen.has(reason), reason);
++      seen.add(reason);
++      assert.equal(app.ratingExplanation(game, context({ vibes: [vibe] })), reason);
++    }
++  }
++});
++
++test("owned and unowned cards use the same evidence and prefer a matched vibe on closest fits", () => {
++  const game = catalog.GAMES.find((g) => g.name === "Carcassonne");
++  const ctx = context({ players: 2, vibes: ["luck", "board", "party"] });
++  const reasons = app.ratingRecord(game).matchReasons;
++  for (const owned of [[], [game.bggId]]) {
++    const result = scoring.runWizard(ctx, { owned }, [], identity, [game]);
++    const [card] = [...result.ownedTop, ...result.unownedTop];
++    assert.equal(card.matchLabel, "closest");
++    assert.equal(card.why, reasons.board);
++    assert.equal(app.displayedMatchReason({ ...card, why: "Obsolete copy" }), reasons.board);
++  }
++  assert.equal(
++    app.ratingExplanation(game, context({ exactTraits: { luck: 2.5 } })),
++    reasons.luck,
++  );
++  for (const unsupported of [{ ratingMode: "reviewed" }, { ratingEdition: "Other" }, { players: 99 }]) {
++    assert.equal(app.ratingExplanation(game, context(unsupported)), "");
++  }
++  assert.equal(app.ratingExplanation({ ...game, name: "Different game" }, ctx), "");
++});
+diff --git a/scripts/rating-policy-03.test.mjs b/scripts/rating-policy-03.test.mjs
+index 029d352..f76ebba 100644
+--- a/scripts/rating-policy-03.test.mjs
++++ b/scripts/rating-policy-03.test.mjs
+@@ -167,7 +167,7 @@ test("Find, Discover and tonight enforce same beta conditions without touching o
+     result.ownedTop.map((g) => g.bggId),
+     ["3931"],
+   );
+-  assert.match(result.ownedTop[0].why, /Strategy and Spatial Play preferences/);
++  assert.match(result.ownedTop[0].why, /disc falls to the lowest open space/);
+   assert.doesNotMatch(result.ownedTop[0].why, /\d\/5/);
+   assert.equal(result.ownedTop[0].ratingContext.ratingMode, "beta");
+   const discovered = scoring.discoverGames(ctx, "", identity, catalog.GAMES);
+diff --git a/src/components/match-card.tsx b/src/components/match-card.tsx
+index 1452ea4..7ae03b3 100644
+--- a/src/components/match-card.tsx
++++ b/src/components/match-card.tsx
+@@ -1,6 +1,7 @@
+ import { Link } from "@tanstack/react-router";
+ import { Check, ExternalLink } from "lucide-react";
+ import type { Game, MatchLabel, ScoredGame } from "@/lib/types";
++import { displayedMatchReason } from "@/lib/application-ratings";
+ import { formatAge, formatPlaytime, formatPlayers } from "@/lib/scoring";
+ import { useAppStore } from "@/lib/store";
+ import { cn } from "@/lib/utils";
+@@ -41,6 +42,7 @@ export function MatchCard({
+   showMatch?: boolean;
+   discover?: boolean;
+ }) {
++  const reason = displayedMatchReason(game);
+   const addOwned = useAppStore((s) => s.addOwned);
+   const amazonOn = useFlag("amazon_cta");
+ 
+@@ -68,7 +70,7 @@ export function MatchCard({
+               </span>
+             ) : null}
+           </p>
+-          <p className="mt-3 text-sm leading-relaxed text-foreground/90">{game.why}</p>
++          {reason && <p className="mt-3 text-sm leading-relaxed text-foreground/90">{reason}</p>}
+         </div>
+       </Link>
+       <div className="mt-4 flex flex-wrap items-center gap-2">
+diff --git a/src/lib/application-ratings.ts b/src/lib/application-ratings.ts
+index a13f54a..c0b91ab 100644
+--- a/src/lib/application-ratings.ts
++++ b/src/lib/application-ratings.ts
+@@ -1,8 +1,9 @@
+-import type { Game, WizardContext } from "./types";
++import type { Game, ScoredGame, VibeId, WizardContext } from "./types";
+ import { DESIGN_CATALOG } from "./ratings/design-catalog";
+ import {
+   APPLICATION_RATING_MODE,
+   matchesRatings,
++  matchesTarget,
+   resolveRating,
+   seededOrder,
+   selectedTargets,
+@@ -41,12 +42,28 @@ export function compareRatedGames(a: Game, b: Game, ctx: WizardContext) {
+   return seededOrder(a.bggId, seed) - seededOrder(b.bggId, seed) || a.bggId.localeCompare(b.bggId);
+ }
+ export function ratingExplanation(game: Game, ctx: WizardContext): string {
+-  if (!gameMatchesRatings(game, ctx)) return "Fits your player, age and time selections.";
++  const record = ratingRecord(game);
+   const targets = selectedTargets(ctx);
+-  const names = Object.keys(targets ?? {}).map((key) =>
+-    key === "board" ? "Spatial Play" : key[0].toUpperCase() + key.slice(1),
+-  );
+-  return names.length
+-    ? `Fits your player, age and time selections, plus your ${names.join(" and ")} preferences.`
+-    : "Fits your player, age and time selections.";
++  if (!record?.matchReasons || !targets) return "";
++  const scope = ratingScope(game, ctx);
++  const mode = ratingMode(ctx);
++  let firstAvailable = "";
++  let selectedMechanic = "";
++  for (const [key, reason] of Object.entries(record.matchReasons)) {
++    const vibe = key as VibeId;
++    const rating = resolveRating(record, vibe, scope, mode);
++    if (rating.value === null || !reason) continue;
++    firstAvailable ||= reason;
++    const target = targets[vibe];
++    if (!target) continue;
++    if (matchesTarget(rating.value, target)) return reason;
++    // Even on a closest match, describe the actual mechanic without claiming a full fit.
++    selectedMechanic ||= reason;
++  }
++  return selectedMechanic || firstAvailable;
++}
++
++// Saved Find results can contain older copy. Resolve it from the original search on display.
++export function displayedMatchReason(game: ScoredGame): string {
++  return game.ratingContext ? ratingExplanation(game, game.ratingContext) : game.why;
+ }
+diff --git a/src/lib/rating-policy.ts b/src/lib/rating-policy.ts
+index 2842ff5..78b7b6e 100644
+--- a/src/lib/rating-policy.ts
++++ b/src/lib/rating-policy.ts
+@@ -41,6 +41,7 @@ export type RatingRecord = {
+   edition: string;
+   mode: string;
+   playerCounts: number[];
++  matchReasons?: Partial<Record<VibeId, string>>;
+   scope?: "design-baseline";
+   ratings: Partial<Record<RatingKey, Assessment>>;
+   family: Partial<
+diff --git a/src/lib/ratings/design-assessments.ts b/src/lib/ratings/design-assessments.ts
+index c0d47a1..aff0604 100644
+--- a/src/lib/ratings/design-assessments.ts
++++ b/src/lib/ratings/design-assessments.ts
+@@ -5,6 +5,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "178900",
+     title: "Codenames",
++    matchReasons: {
++      party: "One clue can send your teammates debating which words belong together.",
++      strategy: "A clue can link several words, but one guess at the assassin ends the game.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8],
+     values: [2.5, 3, 4, 5, 2, 4, 1, 1, 3.5, 4, 1.5],
+@@ -17,6 +21,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "266192",
+     title: "Wingspan",
++    matchReasons: {
++      strategy: "Each bird you add can make later turns in its habitat more productive.",
++      luck: "The birds you draw and the food dice available shape which birds you can play.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5],
+     values: [3, 4, 2, 1.5, 3, 4, 4, 1, 2.5, 1.5, 2.5],
+@@ -29,6 +37,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "13",
+     title: "Catan",
++    matchReasons: {
++      strategy: "Trade for the resources you need before someone builds along your planned route.",
++      luck: "A dice roll can supply the brick you need or send resources to a rival settlement.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [3, 4],
+     values: [3.5, 4, 2, 3.5, 3, 4, 4, 1, 3, 2.5, 5],
+@@ -41,6 +53,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "9209",
+     title: "Ticket to Ride",
++    matchReasons: {
++      board: "A stretch of track can connect two cities on your ticket and block a rival’s route.",
++      strategy:
++        "Collecting more train cards gives you options, but someone may claim your route while you wait.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [2.5, 4, 2, 1, 2, 4, 3, 1, 4, 2, 5],
+@@ -53,6 +70,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "230802",
+     title: "Azul",
++    matchReasons: {
++      board: "A single tile can score in two directions where a row and column meet on your wall.",
++      family:
++        "Everyone uses the same draw-and-place turn, and the tile patterns take little reading.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [2.5, 3.5, 2, 1, 2.5, 4, 3, 1, 4, 2, 5],
+@@ -66,6 +88,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "30549",
+     title: "Pandemic",
++    matchReasons: {
++      family:
++        "You can plan a teammate’s next move together because everyone is working toward the same four cures.",
++      luck: "An infection draw can turn a city you thought was safe into the team’s next emergency.",
++      board: "Where you travel matters when several cities need treatment at once.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [3, 4, 2, 4, 3, 4, 4, 1, 3, 2, 5],
+@@ -78,6 +106,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "822",
+     title: "Carcassonne",
++    matchReasons: {
++      board: "A single tile can extend a road or finish a city you already have a follower in.",
++      strategy:
++        "Finishing a city frees your follower to score elsewhere, while placing one on a farm ties it up.",
++      luck: "You draw one terrain tile, then choose where its roads and city edges fit.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [2.5, 4, 2, 1, 2.5, 4, 3.5, 1, 3.5, 2, 5],
+@@ -90,6 +124,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "36218",
+     title: "Dominion",
++    matchReasons: {
++      strategy:
++        "Buying a victory card earns points but leaves one fewer useful card when it turns up in your hand.",
++      luck: "Cards you buy enter your own deck, so each purchase changes what a future shuffle can deal you.",
++    },
+     edition: "Original base game; first-edition Kingdom cards",
+     players: [2, 3, 4],
+     values: [2.5, 4.5, 2, 1.5, 3, 4.5, 5, 1, 2.5, 1.5, 1],
+@@ -102,6 +141,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "169786",
+     title: "Scythe",
++    matchReasons: {
++      strategy:
++        "An upgrade can make future turns more efficient while rivals are moving into valuable territory.",
++      board: "Where you move determines which territory and production spaces you can hold.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5],
+     values: [2, 4.5, 2, 2, 4, 4.5, 4.5, 1, 2, 2, 4.5],
+@@ -114,6 +158,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "162886",
+     title: "Spirit Island",
++    matchReasons: {
++      strategy: "You can time one spirit’s power to set up another before the invaders act.",
++      board: "A power’s range determines which threatened lands your spirit can reach.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [2.5, 5, 2, 4, 4.5, 5, 5, 1, 2, 2, 4.5],
+@@ -126,6 +174,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "224517",
+     title: "Brass: Birmingham",
++    matchReasons: {
++      strategy:
++        "Laying track can open a market for your industry, but you may need the same money for beer or coal.",
++      board: "A new link changes which industries can reach the resources they need.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [2, 5, 2, 2.5, 4, 4.5, 5, 1, 2, 1.5, 4.5],
+@@ -138,6 +191,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "148228",
+     title: "Splendor",
++    matchReasons: {
++      strategy:
++        "Every development you buy discounts later purchases, so a cheap card can set up an expensive one.",
++      family: "The gem symbols show what a card costs and which discount it gives on later turns.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [2, 4, 2, 1, 2, 4, 5, 1, 4, 1.5, 1.5],
+@@ -150,6 +208,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "70323",
+     title: "King of Tokyo",
++    matchReasons: {
++      luck: "Keep the claws you rolled or reroll them for the hearts your monster needs.",
++      party: "Taking Tokyo puts your monster in the middle of everyone else’s attacks.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [3.5, 3, 2, 2.5, 2.5, 3.5, 3, 1, 3, 3, 2.5],
+@@ -162,6 +224,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "133473",
+     title: "Sushi Go!",
++    matchReasons: {
++      strategy: "Taking a scoring card also means choosing which cards to pass to your neighbor.",
++      family: "Everyone picks a dish at the same time before passing their hand around the table.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [2.5, 3, 2.5, 1, 2, 3.5, 2.5, 1, 4, 2.5, 1],
+@@ -174,6 +240,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "277085",
+     title: "Love Letter",
++    matchReasons: {
++      strategy: "Each discarded character narrows down what another player could be holding.",
++      luck: "You draw just one card before choosing which of your two character powers to play.",
++    },
+     edition: "2019 Z-Man base edition",
+     players: [2, 3, 4, 5, 6],
+     values: [3.5, 3, 3, 2.5, 2.5, 3.5, 2, 1, 3, 3, 1],
+@@ -187,6 +257,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "131357",
+     title: "Coup",
++    matchReasons: {
++      party: "You can claim a role you don’t hold and see who dares to challenge you.",
++      strategy:
++        "Spending coins on a coup gives you a way to take influence without relying on a bluff.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [2.5, 3.5, 2, 5, 2.5, 4, 3, 1, 2.5, 3.5, 1],
+@@ -199,6 +274,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "254640",
+     title: "Just One",
++    matchReasons: {
++      party:
++        "Two identical clues cancel, so the obvious hint may be the one your team needs you to avoid.",
++      family:
++        "Everyone can write a clue for the same guesser, even when it isn’t their turn to guess.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [3, 4, 5, 6, 7],
+     values: [2, 2, 4, 5, 1.5, 3.5, 1, 1, 3.5, 5, 1],
+@@ -212,6 +293,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "244992",
+     title: "The Mind",
++    matchReasons: {
++      party: "You have to sense when a teammate will play a lower number without saying a word.",
++      family: "The whole table shares its lives as everyone tries to lay cards in order.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [3, 2.5, 3.5, 4, 1.5, 3.5, 2.5, 1, 4, 3.5, 1],
+@@ -224,6 +309,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "92415",
+     title: "Skull",
++    matchReasons: {
++      party: "You can bid on a safe reveal while the disc you just put down is a skull.",
++      strategy: "Every higher bid commits you to turning over another hidden disc.",
++    },
+     edition: "Base flowers/skulls rules; no Last Chance variant",
+     players: [3, 4, 5, 6],
+     values: [1.5, 3, 2, 5, 1.5, 4, 2, 1, 3.5, 4, 1],
+@@ -236,6 +325,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "39856",
+     title: "Dixit",
++    matchReasons: {
++      party:
++        "Your clue scores best when some people recognize your picture and others vote for a decoy.",
++      family:
++        "Everyone can contribute a picture and join the guessing without reading cards aloud.",
++    },
+     edition: "Original six-player base edition",
+     players: [3, 4, 5, 6],
+     values: [2.5, 2, 3.5, 5, 2, 4, 1, 1, 4, 4.5, 1],
+@@ -249,6 +344,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "163412",
+     title: "Patchwork",
++    matchReasons: {
++      board: "An awkward patch can be a bargain if its shape fills a gap in your quilt.",
++      strategy: "Buying a patch spends both buttons and time, which can change who moves next.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+     values: [2, 4, 2, 1, 2.5, 4, 4.5, 1, 3.5, 1.5, 5],
+@@ -261,6 +360,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "295770",
+     title: "Cascadia",
++    matchReasons: {
++      board: "Each pick gives you a habitat tile and an animal, so one choice shapes two patterns.",
++      family:
++        "Players repeat the same tile-and-animal placement turn and can check the animal scoring patterns as they go.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [2.5, 3.5, 2, 1, 2, 4, 3, 1, 4, 1.5, 5],
+@@ -274,6 +378,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "199792",
+     title: "Everdell",
++    matchReasons: {
++      strategy:
++        "A building or critter can help another card pay off, but each one takes space in your city.",
++      luck: "The cards that come up change which critters and buildings you can combine.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [2.5, 4, 2, 1.5, 3.5, 4, 4.5, 1, 2.5, 1.5, 2],
+@@ -286,6 +395,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "342942",
+     title: "Ark Nova",
++    matchReasons: {
++      strategy: "Waiting makes an action card stronger, so the timing of a zoo expansion matters.",
++      board: "An enclosure has to fit the space left on your zoo map.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [2.5, 4.5, 2, 1.5, 4, 4.5, 4.5, 1, 2, 1.5, 3.5],
+@@ -298,6 +411,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "316554",
+     title: "Dune: Imperium",
++    matchReasons: {
++      strategy:
++        "The card you play determines where you can send a worker and what you leave for later.",
++      luck: "An intrigue card can upset your estimate of how many troops a conflict will take.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [2.5, 4.5, 2, 2.5, 3.5, 4.5, 4.5, 1, 2.5, 2, 3],
+@@ -310,6 +428,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "312484",
+     title: "Lost Ruins of Arnak",
++    matchReasons: {
++      strategy:
++        "Resources spent overcoming a guardian may be the ones you need to advance your research.",
++      board: "Sending a worker to explore opens a site with its own reward and guardian cost.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [2.5, 4, 2, 1, 3.5, 4, 4.5, 1, 2.5, 1.5, 2.5],
+@@ -323,6 +446,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "244521",
+     title: "The Quacks of Quedlinburg",
++    matchReasons: {
++      luck: "Drawing one more ingredient can improve your potion or make the whole pot explode.",
++      strategy: "The ingredients you buy change the odds each time you reach into your bag.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [4, 3, 2, 1.5, 2.5, 3.5, 3.5, 1, 3.5, 3, 2.5],
+@@ -336,6 +463,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "284083",
+     title: "The Crew: The Quest for Planet Nine",
++    matchReasons: {
++      strategy:
++        "Winning the trick helps only if the right teammate needed that card for the mission.",
++      family:
++        "The team shares each mission and can try again together when a trick goes to the wrong player.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [2.5, 4, 3, 4, 2.5, 4, 3, 1, 3, 2.5, 1],
+@@ -348,6 +481,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "385761",
+     title: "Sky Team",
++    matchReasons: {
++      luck: "Your dice roll gives you a cockpit problem to solve together without talking.",
++      strategy: "A die used to steady the aircraft is one you can’t assign to the engines.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+     values: [3, 4, 2, 4, 3, 4, 4, 1, 3, 2, 3],
+@@ -361,6 +498,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "366013",
+     title: "Heat: Pedal to the Metal",
++    matchReasons: {
++      strategy: "Pushing through a corner costs heat you may need for the next bend.",
++      luck: "Playing a stress card means finding out your speed after you’ve committed to the move.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5, 6],
+     values: [3, 4, 2, 1.5, 3, 4, 4, 1, 3.5, 2.5, 4],
+@@ -374,6 +515,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "2655",
+     title: "Hive",
++    matchReasons: {
++      board:
++        "Moving one insect can close a gap around the queen, provided the hive stays connected.",
++      strategy:
++        "With every piece in view, you can work out which escape route your opponent could close next.",
++    },
+     edition: "Original base insects; no expansion insects",
+     players: [2],
+     values: [1, 4.5, 2, 1, 2.5, 4.5, 3, 1, 3.5, 1, 5],
+@@ -386,6 +533,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "194655",
+     title: "Santorini",
++    matchReasons: {
++      board:
++        "A tower you build this turn can become your next step up or a wall in someone else’s way.",
++      strategy: "A dome can shut down a winning climb before the other worker reaches level three.",
++    },
+     edition: "Base game without God Powers",
+     players: [2, 3, 4],
+     values: [1, 4, 2, 1, 1.5, 4, 2.5, 1, 4.5, 1.5, 5],
+@@ -398,6 +550,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "160477",
+     title: "Onitama",
++    matchReasons: {
++      strategy: "The move card you use today will eventually give your opponent that same move.",
++      family:
++        "Each card diagrams its move, so you can see the options without memorizing how every piece travels.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+     values: [1.5, 4, 2, 1, 1.5, 4, 2.5, 1, 4, 1, 5],
+@@ -410,6 +567,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "170216",
+     title: "Blood Rage",
++    matchReasons: {
++      strategy:
++        "Drafting a quest gives you a reason to commit warriors before a province is destroyed.",
++      board: "Where you send your clan matters as provinces disappear across the three ages.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [2, 4.5, 2, 2.5, 3.5, 4.5, 4, 1, 2.5, 2.5, 4.5],
+@@ -422,6 +584,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "205597",
+     title: "Rising Sun",
++    matchReasons: {
++      party:
++        "A seasonal alliance gives you a reason to negotiate with the same player you may face in battle.",
++      strategy:
++        "Secret war bids let you choose which outcomes matter most in a contested province.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [3, 4, 5],
+     values: [2, 4.5, 2, 4.5, 4, 4.5, 4.5, 1, 2, 3, 4],
+@@ -434,6 +602,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "28143",
+     title: "Race for the Galaxy",
++    matchReasons: {
++      strategy: "A card in hand can become a new world or pay for another card you want more.",
++      luck: "Your draws change which production and consumption powers you can bring together.",
++    },
+     edition: "Second-edition base set; no expansions",
+     players: [2, 3, 4],
+     values: [3, 4.5, 2, 2, 3.5, 4.5, 5, 1, 2, 1.5, 1.5],
+@@ -446,6 +618,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "2651",
+     title: "Power Grid",
++    matchReasons: {
++      strategy: "Bidding more for a power plant can leave you short of the fuel it needs.",
++      board: "Connecting a new city stretches the same budget you use to keep the lights on.",
++    },
+     edition: "First edition; base Germany/USA maps",
+     players: [2, 3, 4, 5, 6],
+     values: [1.5, 4.5, 2, 2.5, 3.5, 4.5, 5, 1, 2.5, 1.5, 4],
+@@ -458,6 +634,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "2223",
+     title: "Uno",
++    matchReasons: {
++      family: "Matching one color or number gives each turn a familiar starting point.",
++      luck: "A wild card in your hand lets you change the color everyone has to follow.",
++    },
+     edition: "Classic UNO; no custom wild rules",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+     values: [4, 2.5, 2, 2, 2, 3, 2.5, 1, 4, 3, 1],
+@@ -470,6 +650,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "271460",
+     title: "UNO Flip!",
++    matchReasons: {
++      luck: "One Flip card turns every hand over and reveals a different set of options.",
++      strategy: "Timing a Flip lets you change which side of your hand you’ll play next.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+     values: [4, 3, 2, 2, 2.5, 3.5, 2.5, 1, 3.5, 3, 1],
+@@ -482,6 +666,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "2818",
+     title: "UNO Attack!",
++    matchReasons: {
++      luck: "Pressing the launcher might add nothing to your hand or send a whole stack your way.",
++      family:
++        "Players follow familiar color and number matches until the launcher changes someone’s hand.",
++    },
+     edition: "GTX66 launcher edition",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+     values: [4.5, 2.5, 2, 1.5, 2, 3, 2, 1, 3.5, 3.5, 1],
+@@ -494,6 +683,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "24318",
+     title: "UNO Spin",
++    matchReasons: {
++      luck: "A spin can swap your hand or let you discard cards just as the round looks settled.",
++      party: "A wheel result can put the hand you’ve been building into someone else’s hands.",
++    },
+     edition: "Original J3719 2005 wheel edition; no house rules",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+     values: [4.5, 2.5, 2, 2, 2.5, 3, 2, 1, 3.5, 3.5, 1],
+@@ -506,6 +699,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "246701",
+     title: "DOS",
++    matchReasons: {
++      family: "You can match a number with one card or add two cards together to make it.",
++      strategy:
++        "Looking at both center cards gives you a choice of which number or color bonus to pursue.",
++    },
+     edition: "Original 2018 edition",
+     players: [2, 3, 4],
+     values: [3.5, 3, 2.5, 1.5, 2.5, 3, 3, 1, 3.5, 2.5, 1.5],
+@@ -518,6 +716,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "386551",
+     title: "DOS: Second Edition",
++    matchReasons: {
++      strategy: "Two discard piles give you a choice of where to use a match or a wild two.",
++      family: "Each turn offers two visible piles where you can look for a match.",
++    },
+     edition: "HNN01 second edition",
+     players: [2, 3, 4],
+     values: [4, 2.5, 2, 1.5, 2, 3, 2.5, 1, 4, 2.5, 1.5],
+@@ -530,6 +732,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "399088",
+     title: "UNO: Show 'Em No Mercy",
++    matchReasons: {
++      party:
++        "A zero sends everyone’s hand around the table, even when someone was about to go out.",
++      luck: "Stacked draw penalties can push a hand to the 25-card elimination limit.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [4.5, 3, 2, 2.5, 2.5, 3.5, 2.5, 1, 2.5, 3.5, 1],
+@@ -542,6 +749,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "9090",
+     title: "My First UNO",
++    matchReasons: {
++      family:
++        "A five-card hand and big matching symbols give players a small set of choices each turn.",
++      luck: "A draw-two can change a player’s small hand in a single turn.",
++    },
+     edition: "BGG47 Sofia the First rules; other My First editions may differ",
+     players: [2, 3, 4],
+     values: [4, 2, 1.5, 1.5, 1.5, 2.5, 2, 1, 4.5, 2.5, 1],
+@@ -554,6 +766,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "352997",
+     title: "UNO: All Wild!",
++    matchReasons: {
++      family: "Every card is wild, so you can play a card without checking its color or number.",
++      strategy: "Since every card is playable, the choice is when to use each action.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+     values: [4, 2, 1.5, 2, 1.5, 2.5, 2, 1, 4.5, 3, 1],
+@@ -566,6 +782,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "380300",
+     title: "UNO Flex!",
++    matchReasons: {
++      strategy: "Saving your flex power can give you a second color to play when you need it.",
++      family:
++        "A power card shows when you can use the alternate effect on a familiar matching card.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8],
+     values: [3.5, 3, 2, 2, 2.5, 3.5, 3, 1, 3.5, 3, 1],
+@@ -578,6 +799,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "343122",
+     title: "UNO Triple Play",
++    matchReasons: {
++      luck: "Adding a match to a lit pile can trigger an overload and a draw penalty.",
++      strategy:
++        "The lit discard piles narrow down where you can play the matching card you want to shed.",
++    },
+     edition: "GXV87 standard untimed mode",
+     players: [2, 3, 4, 5, 6],
+     values: [4, 2.5, 2, 1.5, 2.5, 3, 2.5, 1, 3.5, 3, 1.5],
+@@ -591,6 +817,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "372973",
+     title: "UNO Party!",
++    matchReasons: {
++      party: "An exact match lets you jump in even during someone else’s turn.",
++      luck: "Linked draw penalties can make another player’s draw change your hand too.",
++    },
+     edition: "JJV58 edition",
+     players: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+     values: [4, 2.5, 2.5, 3.5, 2.5, 3.5, 2.5, 2, 3.5, 4, 1],
+@@ -603,6 +833,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "394783",
+     title: "UNO Quatro",
++    matchReasons: {
++      board: "A tile has to fit the matching rules while it helps build a line of four.",
++      family:
++        "Players can follow the visible colors and numbers as they try to line up four tiles.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [2.5, 3.5, 2, 1, 2, 3.5, 2.5, 1, 4, 2, 5],
+@@ -615,6 +850,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "172237",
+     title: "UNO Dare!",
++    matchReasons: {
++      party: "A dare gives you a choice between performing the prompt and taking more cards.",
++      family: "A player who would rather skip a dare can choose to draw instead.",
++    },
+     edition: "Printed Family dare list; no invented house-rule dares",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+     values: [4, 2.5, 2, 3.5, 2, 3, 2, 2, 3.5, 4, 1],
+@@ -627,6 +866,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "147647",
+     title: "UNO Blast",
++    matchReasons: {
++      luck: "The card you load into the unit might send the whole accumulated stack back to you.",
++      family: "The usual matching turn has a visible payoff when the unit releases its stack.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [4.5, 2, 1.5, 1.5, 2, 3, 2, 1, 3.5, 3.5, 1],
+@@ -639,6 +882,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "38038",
+     title: "UNO Flash",
++    matchReasons: {
++      party: "The unit picks who goes next, so you have a reason to watch even after your turn.",
++      dexterity: "Timed plays and slap events make reacting quickly part of the round.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [4, 2, 3, 2, 2.5, 3, 2, 2.5, 3, 3.5, 1],
+@@ -651,6 +898,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "16693",
+     title: "UNO H2O",
++    matchReasons: {
++      luck: "A Downpour can make several players draw even as someone gets close to going out.",
++      family:
++        "Color and symbol matching keeps most turns short, even with a shared Downpour penalty.",
++    },
+     edition: "H3263 edition with Downpour",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+     values: [4, 2.5, 2, 2, 2, 3, 2.5, 1, 4, 3, 1],
+@@ -663,6 +915,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "455524",
+     title: "Liar's UNO",
++    matchReasons: {
++      party: "Play a card facedown, announce what it is, and see whether anyone calls your bluff.",
++      strategy:
++        "Challenging a facedown card makes you weigh the claim against the risk of a draw penalty.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [3.5, 3, 2, 4.5, 2.5, 4, 2.5, 1, 3, 4, 1],
+@@ -675,6 +932,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "116593",
+     title: "UNO Dice Game",
++    matchReasons: {
++      luck: "When none of your dice match, the face you roll on a new die can change your options.",
++      family: "You match visible colors or numbers on dice as you try to shed your starting five.",
++    },
+     edition: "2012 W5807 eleven-dice edition",
+     players: [2],
+     values: [4, 2.5, 2, 1.5, 2, 3, 2, 1, 4, 2.5, 1],
+@@ -687,6 +948,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "1258",
+     title: "Phase 10",
++    matchReasons: {
++      luck: "Each draw gives you another chance at the last card your set or run needs.",
++      strategy:
++        "Your current phase determines which cards are worth holding and which you can discard.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [3.5, 3, 2.5, 1.5, 2.5, 3, 3, 1, 3, 2, 1],
+@@ -699,6 +965,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "22664",
+     title: "Phase 10 Masters Edition",
++    matchReasons: {
++      strategy:
++        "You can choose a phase after seeing your hand and save a useful card for a later one.",
++      luck: "The deal helps determine which phase you want to attempt this round.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [3.5, 3.5, 2.5, 1.5, 3, 3.5, 3.5, 1, 2.5, 2, 1],
+@@ -711,6 +982,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "38187",
+     title: "Phase 10 Twist",
++    matchReasons: {
++      strategy:
++        "Taking a Twist phase can move you farther ahead, but failure can send you backward.",
++      board: "Your position on the board determines which phase you need to complete next.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [4, 3, 2.5, 1.5, 3, 3.5, 3, 1, 2.5, 2.5, 2.5],
+@@ -723,6 +999,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "2578",
+     title: "Phase 10 Dice",
++    matchReasons: {
++      luck: "Keep part of a run and reroll the other dice to try to finish the phase.",
++      family:
++        "The dice stay visible while you check them against the set, run or color group you need.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [4, 2.5, 2, 1, 2, 3, 2.5, 1, 3.5, 2, 1],
+@@ -735,6 +1016,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "1406",
+     title: "Monopoly",
++    matchReasons: {
++      strategy: "Buying a property gives you something to trade toward a set you can build on.",
++      luck: "A dice roll can send you to an unowned property or straight to a rival’s expensive one.",
++    },
+     edition: "Classic C1009; auctions and bankruptcy; no house-rule cash bonuses",
+     players: [2, 3, 4, 5, 6, 7, 8],
+     values: [4, 3, 1.5, 3.5, 2.5, 3, 3.5, 1, 2.5, 2.5, 2.5],
+@@ -747,6 +1032,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "5048",
+     title: "Candy Land",
++    matchReasons: {
++      family:
++        "Match the color on your card to the path and you can take a turn with little reading or counting.",
++      luck: "The card you draw decides exactly where you move on the candy path.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [5, 1, 1, 1, 1, 1.5, 1, 1, 4.5, 2, 2],
+@@ -759,6 +1049,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "1293",
+     title: "Boggle",
++    matchReasons: {
++      party:
++        "Everyone hunts for words in the same grid, and a word someone else found earns neither player points.",
++      board:
++        "A word has to trace a path through neighboring letters, so their arrangement matters.",
++    },
+     edition: "Classic 4x4 letter grid; three-minute rounds",
+     players: [1, 2, 3, 4, 5, 6, 7, 8],
+     values: [2, 2, 5, 1, 1.5, 4, 2, 1, 3, 2, 5],
+@@ -771,6 +1067,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "320",
+     title: "Scrabble",
++    matchReasons: {
++      board:
++        "Crossing an existing word can turn one letter placement into points in two directions.",
++      luck: "The tiles you draw give you a fresh word puzzle on each changing rack.",
++    },
+     edition: "Classic English-language Scrabble",
+     players: [2, 3, 4],
+     values: [3, 4, 4, 1.5, 2.5, 4.5, 4, 1, 3, 1.5, 5],
+@@ -783,6 +1084,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "811",
+     title: "Rummikub",
++    matchReasons: {
++      strategy:
++        "Rearranging an existing run can open a spot for a tile that seemed stuck on your rack.",
++      family: "Players build visible groups and runs using the colors and numbers on their tiles.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [3, 3.5, 3, 1, 2, 4, 3.5, 1, 4, 1.5, 2],
+@@ -795,6 +1101,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "25669",
+     title: "Qwirkle",
++    matchReasons: {
++      board: "One well-placed tile can finish a six-tile line for a bonus.",
++      family: "Everyone can follow the lines by color and shape without reading any card text.",
++      luck: "A fresh tile draw can give you the missing shape for a six-tile line.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [3, 3, 2.5, 1, 1.5, 3.5, 3, 1, 4.5, 1.5, 5],
+@@ -808,6 +1119,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "2453",
+     title: "Blokus",
++    matchReasons: {
++      board:
++        "A corner contact can squeeze your next piece through a gap before another color blocks it.",
++      family:
++        "Every piece follows the same corner-touching rule, and the whole puzzle stays in view.",
++    },
+     edition: "Classic four-color Blokus; standard player-count arrangements",
+     players: [2, 3, 4],
+     values: [1, 4, 3, 1, 1.5, 4, 4, 1, 4, 1.5, 5],
+@@ -820,6 +1137,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "2083",
+     title: "Yahtzee",
++    matchReasons: {
++      luck: "Keeping a promising pair leaves the other dice free for another shot at a bigger combination.",
++      strategy:
++        "Each scoring box is yours only once, so a decent roll can be a tough one to spend.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+     values: [4, 2.5, 1.5, 1, 2, 3, 3, 1, 4, 2.5, 1],
+@@ -832,6 +1154,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "1410",
+     title: "Pictionary",
++    matchReasons: {
++      party: "Your teammates call out guesses as the sketch takes shape and the clock runs down.",
++      dexterity: "You have to turn the prompt into a recognizable sketch before time runs out.",
++    },
+     edition: "DKD47 classic team drawing rules",
+     players: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+     values: [2.5, 2, 4.5, 4.5, 2, 4, 1.5, 3, 3.5, 5, 1.5],
+@@ -844,6 +1170,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "4118",
+     title: "The Game of Life",
++    matchReasons: {
++      luck: "A spin sends you along a path where career and money events can change your fortunes.",
++      board: "A fork in the path lets you choose which set of life events to head toward.",
++    },
+     edition: "E4304 edition with pets; 2–4 players",
+     players: [2, 3, 4],
+     values: [4, 2, 1, 1.5, 2, 2.5, 2.5, 1, 3.5, 2.5, 2.5],
+@@ -856,6 +1186,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "4112",
+     title: "Sequence",
++    matchReasons: {
++      luck: "The cards you draw decide where you can place a chip as you build a line of five.",
++      board: "A well-placed chip can extend your line of five or cut off someone else’s.",
++      family:
++        "Each regular card points to a matching board space, giving players a visible choice on their turn.",
++    },
+     edition: "Sequence Classic; individual or evenly divided 2/3 teams",
+     players: [2, 3, 4, 6, 8, 9, 10, 12],
+     values: [3, 3, 2, 2, 1.5, 3.5, 2.5, 1, 4, 2, 5],
+@@ -869,6 +1205,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "199561",
+     title: "Sagrada",
++    matchReasons: {
++      board: "A die has to fit both the window pattern and the dice already beside it.",
++      luck: "Each rolled pool gives you a new mix of colors and values to fit into your window.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [3, 3.5, 2.5, 1, 2.5, 4, 3.5, 1, 3.5, 1, 5],
+@@ -881,6 +1221,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "263918",
+     title: "Cartographers",
++    matchReasons: {
++      board:
++        "You choose where to draw each terrain shape so it can count toward the season’s scoring goals.",
++      luck: "Everyone sees the same exploration card, but an ambush can disrupt an otherwise tidy map.",
++    },
+     edition: "Base game; standard competitive maps",
+     players: [
+       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+@@ -899,6 +1244,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "157969",
+     title: "Sheriff of Nottingham",
++    matchReasons: {
++      party:
++        "Declare what’s in your bag and see whether you can talk the sheriff out of an inspection.",
++      strategy:
++        "Offering a bribe makes the sheriff weigh a sure payment against the risk of inspecting honest goods.",
++    },
+     edition:
+       "Second edition core merchant/sheriff rules; no deputies, black market or extra modules",
+     players: [3, 4, 5],
+@@ -912,6 +1263,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "156129",
+     title: "Deception: Murder in Hong Kong",
++    matchReasons: {
++      party:
++        "Everyone can debate the evidence while the forensic scientist can point only to limited clues.",
++      strategy:
++        "You have to connect the scientist’s clues to a particular weapon and piece of evidence.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [4, 5, 6, 7, 8, 9, 10, 11, 12],
+     values: [2.5, 3, 3, 5, 2.5, 4, 2, 1, 3, 4.5, 1],
+@@ -924,6 +1281,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "266083",
+     title: "The Isle of Cats",
++    matchReasons: {
++      board: "Each rescued cat has a shape you have to fit around the other cats on your boat.",
++      strategy:
++        "Fish spent keeping a drafted card can leave you short when it’s time to rescue a cat.",
++    },
+     edition: "Standard game, not the separate simplified Family mode",
+     players: [1, 2, 3, 4],
+     values: [2.5, 4, 2.5, 1, 3, 4, 4, 1, 3, 1.5, 5],
+@@ -936,6 +1298,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "281555",
+     title: "The King Is Dead: Second Edition",
++    matchReasons: {
++      strategy:
++        "Taking a follower strengthens your ties to a faction while weakening its presence on the map.",
++      board: "Removing one follower can tip which faction controls a contested region.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [2, 4.5, 2, 2.5, 2.5, 4.5, 4.5, 1, 3, 1.5, 4.5],
+@@ -948,6 +1315,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "169255",
+     title: "The Grizzled",
++    matchReasons: {
++      strategy:
++        "Withdrawing now can keep your next threat card from making the whole team lose the mission.",
++      luck: "Hidden hands mean even a threat you can handle might be the one your teammates were hoping to avoid.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [3.5, 3, 2, 3.5, 2.5, 4, 3, 1, 3, 2.5, 1],
+@@ -960,6 +1332,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "233078-short",
+     title: "Dune (2019)",
++    matchReasons: {
++      strategy:
++        "Spice spent bidding for a treachery card is spice you can’t spend on the next contest.",
++      party:
++        "An alliance gives you someone to bargain with while secret battle plans keep intentions uncertain.",
++    },
+     edition: "Gale Force Nine 2019; basic game with standard alliances; no expansions",
+     players: [3, 4, 5, 6],
+     values: [3, 5, 2.5, 4.5, 4, 4.5, 4.5, 1, 2, 3.5, 4.5],
+@@ -972,6 +1350,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "164153",
+     title: "Star Realms",
++    matchReasons: {
++      strategy:
++        "Buying cards from the same faction can make them stronger when they turn up together.",
++      luck: "The changing trade row determines which ships you can add to your deck.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+     values: [3, 3.5, 2, 1, 2, 4, 3.5, 1, 3.5, 1.5, 1],
+@@ -984,6 +1367,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "385565",
+     title: "Faraway",
++    matchReasons: {
++      strategy:
++        "Your last region scores first, so a late card can unlock a reward you planned on turn one.",
++      family:
++        "Everyone chooses a region at the same time before checking how the cards score in reverse.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5, 6],
+     values: [3, 3.5, 2, 1, 2, 4, 3, 1, 3.5, 1, 4],
+@@ -996,6 +1385,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "359871",
+     title: "The White Castle",
++    matchReasons: {
++      strategy:
++        "With just nine turns, one carefully chosen bridge die can set off a chain of castle actions.",
++      luck: "The values rolled on the bridges change what you can afford to do.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [2.5, 4.5, 2, 1, 3.5, 4, 4.5, 1, 2.5, 1, 3],
+@@ -1008,6 +1402,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "295947",
+     title: "So Clover!",
++    matchReasons: {
++      party:
++        "A single clue has to link two neighboring words well enough for teammates to reconstruct the pair.",
++      board:
++        "Rebuilding the clover means finding an arrangement where the neighboring words fit every clue.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [3, 4, 5, 6],
+     values: [2.5, 2.5, 3.5, 4.5, 1.5, 4.5, 1.5, 1, 4, 5, 3.5],
+@@ -1020,6 +1420,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "291453",
+     title: "Fun Facts",
++    matchReasons: {
++      party:
++        "You secretly answer a question with a number, then guess where yours belongs among everyone else’s.",
++      family:
++        "Everyone contributes their own answer before the team discovers how its numbers line up.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [4, 5, 6, 7, 8],
+     values: [2, 1.5, 2, 5, 1, 4, 1, 1, 4.5, 5, 1],
+@@ -1032,6 +1438,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "177678",
+     title: "Ice Cool",
++    matchReasons: {
++      dexterity:
++        "A curved flick can send your penguin through a doorway while keeping it out of the catcher’s path.",
++      board:
++        "Choosing which doorway to aim for changes the route your penguin takes past the catcher.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [1.5, 2.5, 5, 2, 1.5, 4, 2, 5, 4, 4, 5],
+@@ -1044,6 +1456,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "21790",
+     title: "Crokinole",
++    matchReasons: {
++      dexterity:
++        "A finger flick has to clear the pegs and, when an opposing disc is present, make contact.",
++      board: "The angle between two discs can open a shot toward the center hole.",
++    },
+     edition: "Standard singles or doubles; tournament-style contact rule",
+     players: [2, 4],
+     values: [1, 3, 5, 1.5, 1.5, 4.5, 2, 5, 4, 2.5, 5],
+@@ -1056,6 +1473,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "21790-pitch",
+     title: "PitchCar",
++    matchReasons: {
++      dexterity:
++        "The force of your flick matters just as much as the angle when your car reaches a curve.",
++      board: "The modular track sets up a different line to aim for through each bend.",
++    },
+     edition: "Base track set; standard race rules; no expansion obstacles",
+     players: [2, 3, 4, 5, 6, 7, 8],
+     values: [1, 2.5, 5, 1.5, 1.5, 4, 1.5, 5, 4, 3.5, 5],
+@@ -1068,6 +1490,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "1269",
+     title: "Stockpile",
++    matchReasons: {
++      strategy:
++        "A private forecast can make a pile of stocks worth bidding on before anyone else sees its value.",
++      luck: "Buying a mixed pile means taking stocks whose future prices you can only partly foresee.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [3, 4, 2, 3, 2.5, 4, 4, 1, 3, 2.5, 1],
+@@ -1080,6 +1507,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "175921",
+     title: "Food Chain Magnate",
++    matchReasons: {
++      strategy:
++        "Hiring someone now creates future options, but their salary can eat into the money those options earn.",
++      board:
++        "A marketing campaign is worth more when your restaurant can actually deliver to the houses it reaches.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [1.5, 5, 2, 1.5, 4, 4.5, 5, 1, 1.5, 1, 4.5],
+@@ -1092,6 +1525,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "37111",
+     title: "Battlestar Galactica",
++    matchReasons: {
++      party:
++        "A failed crisis check gives the crew something to argue about because a teammate may have sabotaged it.",
++      strategy:
++        "Your crew must decide which crises deserve its scarce resources while loyalties are still uncertain.",
++    },
+     edition: "Base game only; 3–6 players",
+     players: [3, 4, 5, 6],
+     values: [3.5, 4, 2.5, 5, 4, 4.5, 4, 1, 2, 4, 3],
+@@ -1105,6 +1544,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "414317",
+     title: "Harmonies",
++    matchReasons: {
++      board: "An animal may need the right pattern of terrain and the right height beneath it.",
++      family:
++        "Players can compare the landscape they build directly with the patterns on their animal cards.",
++    },
+     edition: "Base game without Nature Spirits",
+     players: [1, 2, 3, 4],
+     values: [2.5, 3.5, 2.5, 1, 2, 4, 3.5, 1, 4, 1, 5],
+@@ -1118,6 +1562,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "324856",
+     title: "SCOUT",
++    matchReasons: {
++      strategy:
++        "You can’t reorder your hand, so inserting one scouted card can turn neighboring cards into a scoring run.",
++      luck: "The order of the cards you’re dealt matters because those cards have to stay in sequence.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [3, 3.5, 2.5, 2, 2, 4, 3, 1, 3.5, 2, 4],
+@@ -1130,6 +1579,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "367220",
+     title: "Sea Salt & Paper",
++    matchReasons: {
++      strategy:
++        "At seven points you can stop safely or risk a final comparison for a bigger payoff.",
++      luck: "A draw can complete a scoring pair and give you its effect on the same turn.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [3.5, 3, 2, 2.5, 2, 4, 3, 1, 3.5, 2.5, 1],
+@@ -1142,6 +1596,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "98778",
+     title: "Hanabi",
++    matchReasons: {
++      strategy:
++        "You can see your teammates’ cards, so a well-timed clue can save them from playing the wrong one.",
++      family:
++        "Everyone works on the same fireworks display and can help by giving another player a clue.",
++    },
+     edition: "Base five-color game; standard restricted communication",
+     players: [2, 3, 4, 5],
+     values: [3, 3.5, 4, 4, 2, 4, 4, 1, 3.5, 2.5, 1],
+@@ -1154,6 +1614,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "68448",
+     title: "7 Wonders",
++    matchReasons: {
++      strategy: "Every card you keep for your city is also one your neighbor won’t get to draft.",
++      family:
++        "Everyone chooses a card at the same time as their cities take shape across three ages.",
++    },
+     edition: "Second edition base game; 3–7 players",
+     players: [3, 4, 5, 6, 7],
+     values: [2.5, 4, 2, 1.5, 2.5, 4.5, 4, 1, 3.5, 1.5, 2],
+@@ -1166,6 +1631,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "173346",
+     title: "7 Wonders Duel",
++    matchReasons: {
++      board:
++        "Taking an exposed card can uncover the very card your opponent needs on the next turn.",
++      strategy:
++        "A military or scientific victory threat can force a reply even when you’re ahead on points.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+     values: [2.5, 4.5, 2, 1.5, 3, 4.5, 4, 1, 3, 1.5, 3.5],
+@@ -1178,6 +1649,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "167791",
+     title: "Terraforming Mars",
++    matchReasons: {
++      strategy: "A project that increases production early can pay for several later turns.",
++      board: "Placing terrain on Mars gives you a map decision alongside the projects you play.",
++    },
+     edition: "Base game; standard corporations and projects; no expansions",
+     players: [1, 2, 3, 4, 5],
+     values: [3, 4.5, 2, 1.5, 3.5, 4.5, 4.5, 1, 2.5, 1, 3.5],
+@@ -1190,6 +1665,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "31260",
+     title: "Agricola",
++    matchReasons: {
++      strategy:
++        "A worker sent to expand your farm is one fewer worker available to secure food before harvest.",
++      board:
++        "Adding rooms and making space for animals changes what the rest of your farm can support.",
++    },
+     edition: "Original 2007 edition, standard occupation/improvement game",
+     players: [1, 2, 3, 4, 5],
+     values: [2, 4.5, 2, 1, 3.5, 4.5, 5, 1, 2.5, 1, 3.5],
+@@ -1202,6 +1683,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "50",
+     title: "Lost Cities",
++    matchReasons: {
++      strategy:
++        "Starting an expedition commits you to its cost before you know how many higher cards you’ll find.",
++      luck: "The next draw could extend your expedition or leave you holding a card too low to play.",
++    },
+     edition: "Card game; standard five expeditions, excluding sixth-expedition variant",
+     players: [2],
+     values: [3, 3.5, 2, 1, 1.5, 4, 3.5, 1, 4, 1.5, 2],
+@@ -1215,6 +1701,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "54043",
+     title: "Jaipur",
++    matchReasons: {
++      strategy:
++        "Selling now earns a better price per good, while waiting for a bigger set can earn a bonus.",
++      family:
++        "The goods in the market stay visible as you choose whether to take, exchange or sell.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2],
+     values: [3, 3.5, 2, 1.5, 2, 4, 3.5, 1, 4, 1.5, 1],
+@@ -1227,6 +1719,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "287954",
+     title: "Azul: Summer Pavilion",
++    matchReasons: {
++      board:
++        "Filling the spaces around a bonus can matter as much as finishing the star you started.",
++      strategy: "The wild color changes, giving you a reason to time which tile sets you spend.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [2.5, 3.5, 2.5, 1, 2.5, 4, 3.5, 1, 3.5, 1, 5],
+@@ -1240,6 +1737,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "291572",
+     title: "Wonderland's War",
++    matchReasons: {
++      luck: "Each battle draw can strengthen your side or push you into a bust.",
++      board:
++        "Tea-party recruitment sets up which regions you’ll be ready to contest when battles begin.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [3.5, 4, 2, 3, 3.5, 4.5, 4, 1, 2.5, 3, 4],
+@@ -1253,6 +1755,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "41",
+     title: "Can't Stop",
++    matchReasons: {
++      luck: "You can bank your climb or roll again and risk losing every step you took this turn.",
++      strategy:
++        "Once you’ve committed to three columns, the dice pairs you choose have to keep one of those climbs going.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [4, 2.5, 1, 1.5, 1.5, 3.5, 2, 1, 4.5, 3.5, 2.5],
+@@ -1265,6 +1772,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "244049",
+     title: "The Mind Extreme",
++    matchReasons: {
++      party:
++        "You have to read the table’s timing as one deck counts up and the other counts down in silence.",
++      luck: "Blind play hides information you would normally use to judge when your next number belongs.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [3.5, 2, 4, 4, 2, 3.5, 2, 1, 3.5, 4, 1],
+@@ -1277,6 +1789,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "13-junior",
+     title: "Outfoxed!",
++    matchReasons: {
++      family:
++        "Everyone can compare the same clue against the suspects and cross off possibilities together.",
++      luck: "A dice roll determines whether you can carry out your plan to reveal suspects or investigate a clue.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [3.5, 2.5, 3, 3.5, 1.5, 3.5, 2, 1, 4.5, 2.5, 3.5],
+@@ -1289,6 +1806,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "65244",
+     title: "Forbidden Island",
++    matchReasons: {
++      board:
++        "Choosing which tile to shore up can preserve the route your teammates need to escape.",
++      luck: "The next flood card can threaten a tile the team was counting on.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [3.5, 3.5, 2, 4, 2, 4, 3.5, 1, 4, 2.5, 4.5],
+@@ -1301,6 +1823,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "65200",
+     title: "Forbidden Desert",
++    matchReasons: {
++      board:
++        "A storm can shift the tiles, so your route to a buried part can change between turns.",
++      family:
++        "You can work out together who should clear sand and who should spend their actions digging.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [3.5, 3.5, 2, 4, 2.5, 4, 4, 1, 3.5, 2.5, 4.5],
+@@ -1313,6 +1841,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "41114",
+     title: "Sleeping Queens",
++    matchReasons: {
++      family:
++        "Making a number combination lets you draw fresh cards while you look for a king to wake a queen.",
++      luck: "Drawing the right defense can protect a queen from a knight or a sleeping potion.",
++    },
+     edition: "Original twelve-queen game; catalog identity collision must remain isolated",
+     players: [2, 3, 4, 5],
+     values: [4, 2, 2, 2, 1.5, 3, 2, 1, 4.5, 3, 1],
+@@ -1325,6 +1858,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "266810",
+     title: "Paladins of the West Kingdom",
++    matchReasons: {
++      strategy:
++        "The worker colors you recruit determine which actions you can combine with this round’s paladin.",
++      luck: "The paladins available for a round change which workers and strengths you can lean on.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [2.5, 4.5, 2, 1, 4, 4.5, 5, 1, 2, 1, 2],
+@@ -1337,6 +1875,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "199792-bellfaire",
+     title: "The Search for Planet X",
++    matchReasons: {
++      strategy: "A survey can rule out several sectors, but gathering that information costs time.",
++      board:
++        "Knowing which sectors are still possible lets you narrow down the planet’s hiding place.",
++    },
+     edition: "Base game, standard 12-sector mode",
+     players: [1, 2, 3, 4],
+     values: [2, 4, 4, 1.5, 3, 4.5, 3.5, 1, 3, 1, 4],
+@@ -1349,6 +1892,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "188834",
+     title: "Secret Hitler",
++    matchReasons: {
++      party:
++        "Everyone votes on a government, then has to decide whether its explanation for a policy is believable.",
++      luck: "A policy draw can give an honest government the same story a saboteur would tell.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [5, 6, 7, 8, 9, 10],
+     values: [3.5, 3.5, 2.5, 5, 2.5, 4.5, 2, 1, 2.5, 5, 1],
+@@ -1361,6 +1909,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "172225",
+     title: "Exploding Kittens",
++    matchReasons: {
++      luck: "Drawing again could end your round unless you have a defuse ready.",
++      strategy:
++        "Peeking at or reordering the deck can turn a dangerous draw into someone else’s problem.",
++    },
+     edition: "Original edition; no expansions or party pack",
+     players: [2, 3, 4, 5],
+     values: [4, 2.5, 2, 2.5, 1.5, 3.5, 3, 1, 3.5, 4, 1],
+@@ -1373,6 +1926,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "262543",
+     title: "Wavelength",
++    matchReasons: {
++      party: "One clue starts a conversation about exactly where your team should turn the dial.",
++      family:
++        "The team can talk through different interpretations before settling on a spot together.",
++    },
+     edition: "Base tabletop game, standard teams; cooperative rules for small groups",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+     values: [2.5, 2, 3, 5, 1.5, 4.5, 1, 1, 4, 5, 1],
+@@ -1385,6 +1943,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "1111",
+     title: "Taboo",
++    matchReasons: {
++      party: "Your team races to guess the word while the other side listens for a forbidden clue.",
++      family: "Players can contribute by guessing aloud while a teammate handles the clue card.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [4, 5, 6, 7, 8, 9, 10],
+     values: [2.5, 2.5, 4.5, 5, 1.5, 4, 1.5, 1, 3, 5, 1],
+@@ -1397,6 +1959,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "2653",
+     title: "Survive: Escape from Atlantis!",
++    matchReasons: {
++      board: "A shrinking island makes you choose which explorers get a place in the boats first.",
++      luck: "Removing an island tile can reveal an event that changes an explorer’s escape route.",
++    },
+     edition: "Stronghold base game; no dolphin or dive-dice expansions",
+     players: [2, 3, 4],
+     values: [3.5, 3, 2.5, 2.5, 2.5, 4, 3, 1, 3, 3.5, 4.5],
+@@ -1409,6 +1975,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "3076",
+     title: "Puerto Rico",
++    matchReasons: {
++      strategy:
++        "Choosing a role gives everyone its action, so your best move may help a rival ship goods too.",
++      family:
++        "Each chosen role gives the other players a chance to act before it’s their turn to choose.",
++    },
+     edition: "Original base game; 3–5 players; no expansions",
+     players: [3, 4, 5],
+     values: [1.5, 4.5, 2, 1.5, 3, 4.5, 5, 1, 2.5, 1, 2],
+@@ -1421,6 +1993,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "31260-revised",
+     title: "Agricola: All Creatures Big and Small",
++    matchReasons: {
++      board: "The fences and buildings you place determine how many animals your farm can hold.",
++      strategy:
++        "Claiming livestock first helps only if you can make enough space for them to breed.",
++    },
+     edition: "Original base two-player game; no additional building expansions",
+     players: [2],
+     values: [1, 4, 2, 1, 2.5, 4, 4.5, 1, 3.5, 1, 4],
+@@ -1433,6 +2010,14 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "1294",
+     title: "Clue",
++    matchReasons: {
++      strategy:
++        "A suggestion can reveal one card in private and rule out a suspect, weapon or room.",
++      board:
++        "Getting into the right room lets you test a new theory about where the crime happened.",
++      family:
++        "Each turn follows a familiar investigation pattern as players cross possibilities off their notes.",
++    },
+     edition: "Classic mansion rules; no Boardwalk side or bonus-card variant",
+     players: [3, 4, 5, 6],
+     values: [3, 3.5, 4, 2, 2, 4, 2, 1, 3.5, 2.5, 3],
+@@ -1445,6 +2030,13 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "3931",
+     title: "Connect Four",
++    matchReasons: {
++      board:
++        "Every disc falls to the lowest open space, so a block can also set up the row above it.",
++      strategy:
++        "Building two threats at once can leave your opponent with only one disc to block them.",
++      family: "Each turn is one drop into the grid, and everyone can see when four discs line up.",
++    },
+     edition: "Classic drop-only Connect Four",
+     players: [2],
+     values: [1, 4, 2, 1, 1.5, 4, 2.5, 1, 4.5, 1.5, 5],
+@@ -1457,6 +2049,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "2452",
+     title: "Jenga",
++    matchReasons: {
++      dexterity:
++        "Feeling for a loose block lets you test a move before committing the tower’s weight to it.",
++      family:
++        "Everyone can see the challenge after one turn of pulling a block and setting it on top.",
++    },
+     edition: "Classic wooden tower, one-hand standard rules; practical app count range 1–13",
+     players: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+     values: [1.5, 2, 5, 1.5, 1.5, 4, 2, 5, 4.5, 4, 5],
+@@ -1469,6 +2067,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "8110",
+     title: "Left Right Center",
++    matchReasons: {
++      luck: "The dice decide exactly where your chips go, and a neighbor’s roll can put you back in play.",
++      family: "A player who runs out of chips can still receive one and take another turn.",
++    },
+     edition: "Standard L/C/R dice and tokens; no Wild variant or money required",
+     players: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+     values: [5, 1, 1, 1, 1, 1.5, 1, 1, 4.5, 3.5, 1],
+@@ -1481,6 +2083,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "181304",
+     title: "Mysterium",
++    matchReasons: {
++      party:
++        "Everyone can debate what a strange image means while the ghost who chose it has to stay silent.",
++      family:
++        "The group can help one another read the pictures as they narrow down suspects and locations.",
++    },
+     edition: "Base Mysterium, cooperative vision-card investigation",
+     players: [2, 3, 4, 5, 6, 7],
+     values: [3, 2.5, 3.5, 4.5, 2.5, 4, 2, 1, 3.5, 4.5, 1],
+@@ -1493,6 +2101,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "198773",
+     title: "Codenames: Pictures",
++    matchReasons: {
++      party:
++        "One clue has to connect several pictures without sending your teammates to the assassin.",
++      family:
++        "Players can discuss what they see in the pictures without having to read a grid of words.",
++    },
+     edition: "Standard two-team game; 4–8 players within app range",
+     players: [4, 5, 6, 7, 8],
+     values: [2, 3, 3.5, 4.5, 1.5, 4.5, 2, 1, 4, 5, 1.5],
+@@ -1505,6 +2119,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "217372",
+     title: "The Quest for El Dorado",
++    matchReasons: {
++      board:
++        "Choosing a route means checking which stretch of terrain your hand can actually get you through.",
++      strategy:
++        "A card spent moving today could instead buy a better card for the rest of the race.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4],
+     values: [2.5, 4, 2, 1, 2.5, 4.5, 4, 1, 3.5, 1.5, 5],
+@@ -1517,6 +2137,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "366161",
+     title: "Forest Shuffle",
++    matchReasons: {
++      strategy:
++        "Keeping a species for its scoring effect means giving up the chance to use that card as payment.",
++      board:
++        "Each tree has limited attachment spaces, so where you place one species affects what can fit next.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [3, 4, 2, 1, 2.5, 4, 4, 1, 3, 1, 3],
+@@ -1529,6 +2155,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "3955",
+     title: "Pandemic: Hot Zone — North America",
++    matchReasons: {
++      family:
++        "Players share the work of curing three diseases and can decide together who should travel or treat a city.",
++      board: "The compact map lets you weigh which threatened city a teammate can reach in time.",
++    },
+     edition: "North America base game, standard difficulty; no mixed-region modules",
+     players: [2, 3, 4],
+     values: [3.5, 3.5, 2, 4, 2, 3.5, 3.5, 1, 4, 2.5, 4],
+@@ -1541,6 +2172,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "266810-architects",
+     title: "Architects of the West Kingdom",
++    matchReasons: {
++      strategy:
++        "Sending more workers to the same spot improves its return and makes the group a better target for capture.",
++      board: "A rival can capture workers you’ve gathered at one location on the board.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5],
+     values: [2.5, 4, 2, 2, 3, 4, 4, 1, 3, 1.5, 2],
+@@ -1553,6 +2189,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "266192-asia",
+     title: "Apiary",
++    matchReasons: {
++      strategy: "Working a bee harder can help now but brings it closer to hibernation.",
++      board: "Exploring and developing your hive give you different places to commit a worker bee.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5],
+     values: [2.5, 4, 2, 1, 3, 4.5, 4, 1, 3, 1, 3],
+@@ -1565,6 +2205,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "209418",
+     title: "Rhino Hero",
++    matchReasons: {
++      dexterity: "Balancing the rhino on an upper floor can test the walls everyone just built.",
++      family: "The shared tower shows the result of every turn as players add walls and roofs.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [2, 2, 5, 1.5, 1.5, 3.5, 1.5, 5, 4.5, 4, 5],
+@@ -1578,6 +2222,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "204583",
+     title: "Kingdomino",
++    matchReasons: {
++      board: "A crown is worth more when you connect it to a larger stretch of the same terrain.",
++      strategy: "Taking the stronger domino now can leave you picking later in the next round.",
++    },
+     edition: "Base 5x5 kingdom rules",
+     players: [2, 3, 4],
+     values: [2.5, 3, 2, 1, 1.5, 4, 3, 1, 4.5, 1, 5],
+@@ -1590,6 +2238,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "410201",
+     title: "Wyrmspan",
++    matchReasons: {
++      strategy:
++        "Excavating the right cave space sets up a dragon whose ability can join a later chain.",
++      board: "The spaces you excavate determine where your next dragon can settle.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4, 5],
+     values: [3, 4, 2, 1, 3.5, 4.5, 4, 1, 2.5, 1, 3],
+@@ -1602,6 +2255,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "63268",
+     title: "Spot It!",
++    matchReasons: {
++      party:
++        "Everyone searches the same pair of cards and races to call out the one symbol they share.",
++      family:
++        "Every pair has exactly one shared picture, so a new player can join by looking for that match.",
++    },
+     edition: "Classic symbols; The Tower mini-game baseline",
+     players: [2, 3, 4, 5, 6, 7, 8],
+     values: [2, 1.5, 5, 2, 1, 4, 1, 2, 4, 4, 1],
+@@ -1614,6 +2273,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "42057",
+     title: "Monopoly Deal",
++    matchReasons: {
++      strategy:
++        "Holding cash can protect a property set when someone plays a card demanding payment.",
++      luck: "A single action card can move a property from a rival’s set into yours.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [2, 3, 4, 5],
+     values: [3.5, 3, 2, 2.5, 2, 4, 3.5, 1, 3.5, 3, 1],
+@@ -1626,6 +2290,10 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "412804",
+     title: "Bank",
++    matchReasons: {
++      luck: "Bank the pot now or stay in for a double and risk losing it all on a seven after the protected rolls.",
++      party: "Everyone watches the same pot grow while each player decides when to cash out.",
++    },
+     edition: "Thunderhive BANK; standard 20 rounds, first three rolls protected",
+     players: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+     values: [4, 2, 1, 2, 1.5, 3, 2, 1, 4.5, 4, 1],
+@@ -1638,6 +2306,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "367041",
+     title: "The Guild of Merchant Explorers",
++    matchReasons: {
++      board: "A village you establish now gives you somewhere to start exploring in a later era.",
++      family:
++        "Everyone explores at the same time from the same card, with a separate map to fill in.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [2.5, 4, 2.5, 1, 2.5, 4.5, 3.5, 1, 3.5, 1, 5],
+@@ -1650,6 +2323,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "174430",
+     title: "Gloomhaven",
++    matchReasons: {
++      strategy:
++        "Your two cards set your initiative and your actions, so acting early can cost you the combination you wanted.",
++      board: "Where you end a move affects which attacks your other card can carry out.",
++    },
+     edition: "Original 2017 edition; standard campaign scenarios; no expansions",
+     players: [1, 2, 3, 4],
+     values: [3, 4.5, 2, 3.5, 4.5, 4.5, 4.5, 1, 1.5, 1.5, 5],
+@@ -1662,6 +2340,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "233078",
+     title: "Twilight Imperium (4th)",
++    matchReasons: {
++      strategy:
++        "Every command token spent moving a fleet is one fewer available for another action.",
++      party:
++        "Negotiating over territory and objectives gives rivals something to discuss beyond the next battle.",
++    },
+     edition: "Fourth edition base game; ten-point victory; no Prophecy of Kings",
+     players: [3, 4, 5, 6],
+     values: [3, 5, 2, 4.5, 4.5, 5, 5, 1, 1.5, 3.5, 5],
+@@ -1674,6 +2358,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "41114",
+     title: "The Resistance",
++    matchReasons: {
++      party: "A failed mission gives everyone a new reason to question who voted for that team.",
++      strategy:
++        "Comparing team votes with mission outcomes lets you narrow down which players could be spies.",
++    },
+     edition: "Base missions without plot-card expansion",
+     players: [5, 6, 7, 8, 9, 10],
+     values: [1.5, 3.5, 3, 5, 1.5, 4.5, 1.5, 1, 3.5, 5, 1],
+@@ -1686,6 +2375,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "237182",
+     title: "Root",
++    matchReasons: {
++      board:
++        "Holding the same clearing can mean something different to each faction fighting over it.",
++      luck: "Combat dice can upset a plan to take a clearing even after you’ve moved your forces into place.",
++    },
+     edition: "Base game, original four factions, standard competitive setup",
+     players: [2, 3, 4],
+     values: [3, 4.5, 2, 3, 4.5, 4.5, 4, 1, 2, 2, 5],
+@@ -1698,6 +2392,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "171",
+     title: "Chess",
++    matchReasons: {
++      strategy:
++        "With every piece in view, you can plan a sacrifice and work through the replies before moving.",
++      board: "A single move can open one line of attack on the king while closing another.",
++    },
+     edition: "Orthodox untimed chess; no variants",
+     players: [2],
+     values: [1, 5, 3, 1, 2.5, 5, 4, 1, 3.5, 1, 5],
+@@ -1710,6 +2409,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "242302",
+     title: "That's Pretty Clever!",
++    matchReasons: {
++      luck: "Your roll gives you several scoring options, but picking a high die hands the lower ones to other players.",
++      strategy:
++        "Choosing the right scoring space can trigger another mark and start a chain of bonuses.",
++    },
+     edition: "Base game; standard rules; no expansions",
+     players: [1, 2, 3, 4],
+     values: [3.5, 3.5, 2, 1, 2.5, 4, 3.5, 1, 3.5, 1.5, 3],
+@@ -1722,6 +2426,12 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "286096",
+     title: "Tainted Grail",
++    matchReasons: {
++      strategy:
++        "The symbols you connect in a card sequence shape what you can do next in combat or diplomacy.",
++      board:
++        "Choosing where to explore means budgeting the supplies you’ll need to survive the journey.",
++    },
+     edition: "The Fall of Avalon original base campaign; standard mode, not Kings of Ruin",
+     players: [1, 2, 3, 4],
+     values: [3, 4, 2, 3.5, 4, 3.5, 4, 1, 1.5, 2, 4],
+@@ -1734,6 +2444,11 @@ export const DESIGN_ASSESSMENTS: readonly DesignAssessment[] = [
+   {
+     legacyId: "265402",
+     title: "Final Girl",
++    matchReasons: {
++      luck: "Horror dice can send a rescue attempt off plan just as the killer closes in.",
++      strategy:
++        "Time spent on actions now limits which action cards you can buy for your next turn.",
++    },
+     edition:
+       "Series 1 core mechanisms; requires a Feature Film; film-specific modifiers not assessed",
+     players: [1],
+diff --git a/src/lib/ratings/design-catalog.ts b/src/lib/ratings/design-catalog.ts
+index 16b8512..8938ddc 100644
+--- a/src/lib/ratings/design-catalog.ts
++++ b/src/lib/ratings/design-catalog.ts
+@@ -34,6 +34,8 @@ export type DesignAssessment = {
+     number,
+     number,
+   ];
++  // First reason is the default when no tagged preference applies.
++  matchReasons: NonNullable<RatingRecord["matchReasons"]>;
+   source: string;
+   evidence: string;
+   familyEvidence: string;
+@@ -78,6 +80,7 @@ export function buildDesignRecord(row: DesignAssessment): RatingRecord {
+     edition: row.edition,
+     mode: "Standard",
+     playerCounts: row.players,
++    matchReasons: row.matchReasons,
+     scope: "design-baseline",
+     ratings,
+     family: {},
+diff --git a/src/routes/game.$id.index.tsx b/src/routes/game.$id.index.tsx
+index c697e89..6d75f67 100644
+--- a/src/routes/game.$id.index.tsx
++++ b/src/routes/game.$id.index.tsx
+@@ -7,6 +7,7 @@ import { GameCover } from "@/components/game-cover";
+ import { Button } from "@/components/ui/button";
+ import { EmptyState } from "@/components/empty-state";
+ import { GameRow } from "@/components/match-card";
++import { displayedMatchReason } from "@/lib/application-ratings";
+ import { getGame, similarGames, formatPlaytime, formatPlayers, formatAge } from "@/lib/scoring";
+ import { useAppStore } from "@/lib/store";
+ import { amazonSearchUrl } from "@/lib/affiliate";
+@@ -26,17 +27,12 @@ function GamePage() {
+   const removeOwned = useAppStore((s) => s.removeOwned);
+   const toggleWishlist = useAppStore((s) => s.toggleWishlist);
+   const logPlay = useAppStore((s) => s.logPlay);
+-  const fromResults = useAppStore((s) =>
+-    Boolean(
+-      s.lastResults &&
+-      [...s.lastResults.ownedTop, ...s.lastResults.unownedTop].some((g) => g.bggId === id),
+-    ),
+-  );
+   const match = useAppStore((s) =>
+     s.lastResults
+       ? [...s.lastResults.ownedTop, ...s.lastResults.unownedTop].find((g) => g.bggId === id)
+       : undefined,
+   );
++  const reason = match ? displayedMatchReason(match) : "";
+   const [logging, setLogging] = useState(false);
+   const [enjoyed, setEnjoyed] = useState(true);
+   const amazonOn = useFlag("amazon_cta");
+@@ -116,8 +112,8 @@ function GamePage() {
+         </div>
+       </div>
+ 
+-      {fromResults && match ? (
+-        <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{match.why}</p>
++      {reason ? (
++        <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{reason}</p>
+       ) : null}
+ 
+       <p className="mt-5 text-pretty leading-relaxed">{game.description}</p>
+-- 
+2.52.0
+

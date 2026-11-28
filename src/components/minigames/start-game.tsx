@@ -1,4 +1,3 @@
-import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,6 @@ export function StartGame({
   members: GroupMember[];
   you: string;
 }) {
-  const navigate = useNavigate();
   const [kind, setKind] = useState<MiniGameType>("bank");
   const [picked, setPicked] = useState<string[]>([you]);
   const [rounds, setRounds] = useState<10 | 15 | 20 | 30>(15);
@@ -38,7 +36,7 @@ export function StartGame({
       const { id } = await createMiniSession({
         data: { groupId, gameType: kind, playerIds: picked, rounds },
       });
-      navigate({ to: "/play/$sessionId", params: { sessionId: id } });
+      window.location.assign(`/play/${id}`);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Couldn't start");
     } finally {

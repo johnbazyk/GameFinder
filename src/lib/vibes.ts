@@ -1,10 +1,5 @@
-import type {
-  AgeBand,
-  Game,
-  VibeId,
-  VibeWeights,
-  WizardContext,
-} from "./types";
+import { MAX_PLAYER_COUNT } from "./types";
+import type { AgeBand, Game, VibeId, VibeWeights, WizardContext } from "./types";
 
 export const VIBE_META: Record<
   VibeId,
@@ -19,16 +14,21 @@ export const VIBE_META: Record<
   dexterity: { label: "Dexterity", tagline: "Hands, reflexes, stacking", icon: "hand" },
   family: { label: "Family", tagline: "Works across ages", icon: "home" },
   party: { label: "Party", tagline: "Loud, social, groups", icon: "party" },
-  board: { label: "Board-Based", tagline: "A board, map, or tiles", icon: "layout" },
+  board: { label: "Spatial Play", tagline: "Position, paths, or placement", icon: "layout" },
 };
 
-export const AGE_BANDS: { id: AgeBand; label: string; maxAge: number }[] = [
-  { id: "under6", label: "Under 6", maxAge: 5 },
-  { id: "6-7", label: "6–7", maxAge: 7 },
-  { id: "8-10", label: "8–10", maxAge: 10 },
-  { id: "11-13", label: "11–13", maxAge: 13 },
-  { id: "14-17", label: "14–17", maxAge: 17 },
-  { id: "adults", label: "Adults Only", maxAge: 99 },
+export const AGE_BANDS: {
+  id: AgeBand;
+  label: string;
+  youngestAge: number | null;
+}[] = [
+  // Under 6 keeps its existing cutoff pending a product decision on its meaning.
+  { id: "under6", label: "Under 6", youngestAge: 5 },
+  { id: "6-7", label: "6–7", youngestAge: 6 },
+  { id: "8-10", label: "8–10", youngestAge: 8 },
+  { id: "11-13", label: "11–13", youngestAge: 11 },
+  { id: "14-17", label: "14–17", youngestAge: 14 },
+  { id: "adults", label: "Adults Only", youngestAge: null },
 ];
 
 const ALL_ONES: VibeWeights = {
@@ -43,7 +43,7 @@ const ALL_ONES: VibeWeights = {
 
 export const DEFAULT_USER_WEIGHTS: VibeWeights = { ...ALL_ONES };
 
-const ADULT_IDS = new Set([
+const CURATED_ADULT_CONTENT_IDS = new Set([
   "188834", // Secret Hitler
   "286096", // Tainted Grail
   "37111", // Battlestar Galactica
@@ -51,7 +51,7 @@ const ADULT_IDS = new Set([
 ]);
 
 export function hasAdultContent(game: Game): boolean {
-  return Boolean(game.adultContent) || ADULT_IDS.has(game.bggId) || game.age.publisher >= 17;
+  return Boolean(game.adultContent) || CURATED_ADULT_CONTENT_IDS.has(game.bggId);
 }
 
 function clamp5(n: number): number {
@@ -69,9 +69,10 @@ export function traitScore(game: Game, vibe: VibeId): number {
     case "strategy":
       return clamp5(game.rubric.strategy / 20);
     case "dexterity": {
-      const physical = /dexterity|stack|flick|real.?time|physical|balancing|action \/ dexterity|coordination/i.test(
-        hay(game),
-      );
+      const physical =
+        /dexterity|stack|flick|real.?time|physical|balancing|action \/ dexterity|coordination/i.test(
+          hay(game),
+        );
       if (physical) return clamp5(Math.max(3.6, game.rubric.skill / 18));
       return clamp5(game.rubric.skill / 40);
     }
@@ -104,23 +105,44 @@ export function autoVibeTags(game: Game): VibeId[] {
 }
 
 export function listedPlaytime(game: Game): number {
-  return game.playtime.avg;
+  return game.playtime.max;
 }
 
 export function passesHardConstraints(game: Game, ctx: WizardContext): boolean {
   if (ctx.players != null) {
-    if (ctx.players >= 13) {
-      if (game.players.max < 13 || game.players.min > 13) return false;
+    if (
+      !Number.isInteger(ctx.players) ||
+      ctx.players < 1 ||
+      ctx.players > MAX_PLAYER_COUNT ||
+      !Number.isInteger(game.players.min) ||
+      !Number.isInteger(game.players.max) ||
+      game.players.min < 1 ||
+      game.players.max < game.players.min
+    )
+      return false;
+    if (ctx.players >= MAX_PLAYER_COUNT) {
+      if (game.players.max < MAX_PLAYER_COUNT || game.players.min > MAX_PLAYER_COUNT) return false;
     } else if (game.players.min > ctx.players || game.players.max < ctx.players) {
       return false;
     }
   }
   if (ctx.ageBand) {
     const band = AGE_BANDS.find((b) => b.id === ctx.ageBand);
-    const listedAge = game.age.publisher || game.age.community;
-    if (band && listedAge > band.maxAge) return false;
+    if (!band) return false;
+    const listedAge = game.age.publisher;
+    if (band.youngestAge != null && (!Number.isInteger(listedAge) || listedAge < 0)) return false;
+    if (band?.youngestAge != null && listedAge > band.youngestAge) return false;
     if (ctx.ageBand !== "adults" && hasAdultContent(game)) return false;
   }
+  if (typeof ctx.timeOver60 !== "boolean" || (ctx.timeOver60 && ctx.maxTimeMin != null))
+    return false;
+  if (
+    (ctx.timeOver60 || ctx.maxTimeMin != null) &&
+    (!Number.isFinite(listedPlaytime(game)) || listedPlaytime(game) <= 0)
+  )
+    return false;
+  if (ctx.maxTimeMin != null && (!Number.isFinite(ctx.maxTimeMin) || ctx.maxTimeMin <= 0))
+    return false;
   if (ctx.timeOver60) {
     if (listedPlaytime(game) <= 60) return false;
   } else if (ctx.maxTimeMin != null) {

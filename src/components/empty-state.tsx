@@ -7,17 +7,20 @@ export function EmptyState({
   body,
   cta,
   onCta,
+  pageHeading = false,
 }: {
   mood: FoxMood;
   title: string;
   body: string;
   cta?: string;
   onCta?: () => void;
+  pageHeading?: boolean;
 }) {
+  const Heading = pageHeading ? "h1" : "h2";
   return (
     <div className="flex flex-col items-center px-4 py-10 text-center">
       <FoxAvatar mood={mood} size="lg" />
-      <h2 className="mt-5 font-display text-2xl">{title}</h2>
+      <Heading className="mt-5 font-display text-2xl">{title}</Heading>
       <p className="mt-2 max-w-sm text-muted-foreground">{body}</p>
       {cta && onCta ? (
         <Button className="mt-6" size="lg" onClick={onCta}>

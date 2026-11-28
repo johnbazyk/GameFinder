@@ -1,7 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { Check, ExternalLink } from "lucide-react";
 import type { Game, MatchLabel, ScoredGame } from "@/lib/types";
+import { displayedMatchReason, unmetVibeLabels } from "@/lib/application-ratings";
 import { formatAge, formatPlaytime, formatPlayers } from "@/lib/scoring";
+import { VIBE_META } from "@/lib/vibes";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { amazonSearchUrl } from "@/lib/affiliate";
@@ -41,6 +43,12 @@ export function MatchCard({
   showMatch?: boolean;
   discover?: boolean;
 }) {
+  const reason = displayedMatchReason(game);
+  const gaps =
+    game.ratingContext && game.matchLabel === "closest"
+      ? unmetVibeLabels(game, game.ratingContext)
+      : null;
+  const ready = useAppStore((s) => s.entitlementReady);
   const addOwned = useAppStore((s) => s.addOwned);
   const amazonOn = useFlag("amazon_cta");
 
@@ -49,7 +57,16 @@ export function MatchCard({
       <Link to="/game/$id" params={{ id: game.bggId }} className="flex gap-4 text-left">
         <GameCover game={game} className="aspect-[5/7] w-24 shrink-0" />
         <div className="min-w-0 flex-1">
-          {showMatch ? <MatchLabelChip label={game.matchLabel} /> : null}
+          {showMatch ? (
+            game.ratingContext ? (
+              <span className="text-xs font-semibold">
+                {game.matchLabel === "closest" ? "Closest available" : "Matches selected filters"} ·{" "}
+                {game.ratingContext.ratingMode === "reviewed" ? "Reviewed" : "Beta"}
+              </span>
+            ) : (
+              <MatchLabelChip label={game.matchLabel} />
+            )
+          ) : null}
           <h3 className="mt-1 font-display text-xl leading-tight">{game.name}</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {formatPlayers(game)} players · {formatPlaytime(game)} · {formatAge(game)}
@@ -59,7 +76,15 @@ export function MatchCard({
               </span>
             ) : null}
           </p>
-          <p className="mt-3 text-sm leading-relaxed text-foreground/90">{game.why}</p>
+          {reason && <p className="mt-3 text-sm leading-relaxed text-foreground/90">{reason}</p>}
+          {gaps && (gaps.below.length > 0 || gaps.unknown.length > 0) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {gaps.below.length > 0 &&
+                `Below selected Vibe threshold: ${gaps.below.map((v) => VIBE_META[v].label).join(", ")}.`}
+              {gaps.unknown.length > 0 &&
+                ` Not assessed: ${gaps.unknown.map((v) => VIBE_META[v].label).join(", ")}.`}
+            </p>
+          )}
         </div>
       </Link>
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -69,7 +94,7 @@ export function MatchCard({
           </Link>
         </Button>
         <Button asChild size="sm" variant="ghost">
-          <Link to="/game/$id" params={{ id: game.bggId }} hash="ask-finn">
+          <Link to="/game/$id/teach" params={{ id: game.bggId }}>
             Teach me
           </Link>
         </Button>
@@ -85,7 +110,7 @@ export function MatchCard({
           </a>
         ) : null}
         {!game.owned && !discover ? (
-          <Button size="sm" variant="ghost" onClick={() => addOwned(game.bggId)}>
+          <Button size="sm" variant="ghost" disabled={!ready} onClick={() => addOwned(game.bggId)}>
             Add to vault
           </Button>
         ) : null}
@@ -97,10 +122,14 @@ export function MatchCard({
 export function GameRow({
   game,
   owned,
+  showOwnership = false,
 }: {
   game: Game;
   owned?: boolean;
+  showOwnership?: boolean;
 }) {
+  const inVault = useAppStore((s) => s.owned.includes(game.bggId));
+  const wishlisted = useAppStore((s) => s.wishlist.includes(game.bggId));
   return (
     <Link
       to="/game/$id"
@@ -112,7 +141,15 @@ export function GameRow({
         <p className="truncate font-semibold">{game.name}</p>
         <p className="text-xs text-muted-foreground">
           {formatPlayers(game)} · {formatPlaytime(game)}
-          {owned ? " · In vault" : ""}
+          {showOwnership
+            ? inVault
+              ? " · In vault"
+              : wishlisted
+                ? " · Wishlisted"
+                : " · Not owned"
+            : owned
+              ? " · In vault"
+              : ""}
         </p>
       </div>
     </Link>

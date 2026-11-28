@@ -1,7 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
+import { normalizeVault } from "./vault-policy";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "@/lib/piece-color";
+import { isCustomCatalogGame, type CatalogGameRecord } from "@/lib/catalog-foundation";
 
 export type Profile = {
   userId: string;
@@ -111,6 +113,38 @@ async function requireMember(groupId: string, userId: string) {
   return rows[0];
 }
 
+async function requirePremiumPlan(userId: string) {
+  const { hasPremiumPlan } = await import("./premium-entitlement.server");
+  if (!(await hasPremiumPlan(userId))) {
+    throw new Error("Scores & Win History requires GameFinder Premium.");
+  }
+}
+
+export const getPremiumEntitlement = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { hasPremiumPlan } = await import("./premium-entitlement.server");
+    return { premium: await hasPremiumPlan(context.userId) };
+  });
+
+export const getSubscriptionTestMode = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { getTestPlan } = await import("./premium-entitlement.server");
+    return getTestPlan(context.userId);
+  });
+
+export const setSubscriptionTestMode = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { mode: "actual" | "free" | "premium" }) => {
+    if (!["actual", "free", "premium"].includes(input?.mode)) throw new Error("Invalid test mode");
+    return { mode: input.mode };
+  })
+  .handler(async ({ context, data }) => {
+    const { setTestPlan } = await import("./premium-entitlement.server");
+    return setTestPlan(context.userId, data.mode);
+  });
+
 export const getMyProfile = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
@@ -131,7 +165,9 @@ export const getMyProfile = createServerFn({ method: "GET" })
       userId: r.user_id,
       displayName: r.display_name,
       avatarSeed: r.avatar_seed,
-      plan: r.plan,
+      plan: (await (await import("./premium-entitlement.server")).hasPremiumPlan(context.userId))
+        ? "premium"
+        : "free",
       pieceColor: normalizePieceColor(r.piece_color),
     } satisfies Profile;
   });
@@ -139,7 +175,9 @@ export const getMyProfile = createServerFn({ method: "GET" })
 export const updateMyProfile = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { displayName?: string; pieceColor?: string }) => ({
-    displayName: String(input?.displayName ?? "").trim().slice(0, 32),
+    displayName: String(input?.displayName ?? "")
+      .trim()
+      .slice(0, 32),
     pieceColor: input?.pieceColor ? normalizePieceColor(input.pieceColor) : undefined,
   }))
   .handler(async ({ context, data }) => {
@@ -164,7 +202,13 @@ export const updateMyProfile = createServerFn({ method: "POST" })
 
 export const getCloudVault = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async ({ context }) => {
+  .validator((input: { expectedUserId: string }) => {
+    if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
+      throw new Error("Missing account identity");
+    return { expectedUserId: input.expectedUserId };
+  })
+  .handler(async ({ context, data }) => {
+    if (data.expectedUserId !== context.userId) throw new Error("Account changed");
     const sql = await getSql();
     const rows = await sql<{ bgg_id: string; list: string }>`
       select bgg_id, list from vault_games where user_id = ${context.userId}
@@ -177,25 +221,83 @@ export const getCloudVault = createServerFn({ method: "GET" })
 
 export const replaceCloudVault = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((input: { owned: string[]; wishlist: string[] }) => ({
-    owned: Array.from(new Set((input?.owned ?? []).map(String))).slice(0, 400),
-    wishlist: Array.from(new Set((input?.wishlist ?? []).map(String))).slice(0, 400),
-  }))
+  .validator(
+    (
+      input: Parameters<typeof normalizeVault>[0] & {
+        expectedUserId: string;
+        baseline: Parameters<typeof normalizeVault>[0];
+      },
+    ) => {
+      if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
+        throw new Error("Missing Vault account");
+      return {
+        ...normalizeVault(input),
+        expectedUserId: input.expectedUserId,
+        baseline: normalizeVault(input.baseline),
+      };
+    },
+  )
   .handler(async ({ context, data }) => {
+    if (data.expectedUserId !== context.userId) throw new Error("Vault account changed");
+    await ensureProfile(context.userId);
+    const { withSqlTransaction } = await import("./db");
+    const { replaceVaultSnapshot } = await import("./vault-sync.server");
+    return withSqlTransaction((sql) => replaceVaultSnapshot(sql, context.userId, data));
+  });
+
+export const getCloudCatalogGames = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((input: { expectedUserId: string }) => {
+    if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
+      throw new Error("Missing account identity");
+    return { expectedUserId: input.expectedUserId };
+  })
+  .handler(async ({ context, data }) => {
+    if (data.expectedUserId !== context.userId) throw new Error("Account changed");
     const sql = await getSql();
-    await sql`delete from vault_games where user_id = ${context.userId}`;
-    for (const id of data.owned) {
-      await sql`
-        insert into vault_games (user_id, bgg_id, list)
-        values (${context.userId}, ${id}, 'owned')
-        on conflict do nothing
-      `;
+    const rows = await sql<{ record: unknown }>`
+      select record from catalog_games
+      where owner_user_id = ${context.userId}
+      order by created_at
+    `;
+    return rows.map(({ record }) => {
+      let value = record;
+      if (typeof value === "string") {
+        try {
+          value = JSON.parse(value) as unknown;
+        } catch (error) {
+          console.error("[catalog-sync] Stored catalog record is invalid JSON.", error);
+          throw new Error("A saved catalog record could not be read.");
+        }
+      }
+      if (!isCustomCatalogGame(value)) {
+        throw new Error("A saved catalog record has an invalid shape.");
+      }
+      return value;
+    }) satisfies CatalogGameRecord[];
+  });
+
+export const syncCloudCatalogGames = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { games: CatalogGameRecord[]; expectedUserId: string }) => {
+    if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
+      throw new Error("Missing catalog account");
+    if (!Array.isArray(input?.games)) throw new Error("Catalog records must be an array.");
+    if (input.games.length > 200) throw new Error("Too many catalog records.");
+    if (!input.games.every(isCustomCatalogGame)) {
+      throw new Error("A custom catalog record is invalid.");
     }
-    for (const id of data.wishlist) {
+    return { games: input.games, expectedUserId: input.expectedUserId };
+  })
+  .handler(async ({ context, data }) => {
+    if (context.userId !== data.expectedUserId) throw new Error("Catalog account changed");
+    const sql = await getSql();
+    for (const game of data.games) {
       await sql`
-        insert into vault_games (user_id, bgg_id, list)
-        values (${context.userId}, ${id}, 'wishlist')
-        on conflict do nothing
+        insert into catalog_games (owner_user_id, id, title, record)
+        values (${context.userId}, ${game.id}, ${game.title}, ${JSON.stringify(game)}::jsonb)
+        on conflict (owner_user_id, id) do update
+          set title = excluded.title, record = excluded.record, updated_at = now()
       `;
     }
     return { ok: true as const };
@@ -238,7 +340,9 @@ export const listFriends = createServerFn({ method: "GET" })
 export const requestFriendByEmail = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { email: string }) => ({
-    email: String(input?.email ?? "").trim().toLowerCase(),
+    email: String(input?.email ?? "")
+      .trim()
+      .toLowerCase(),
   }))
   .handler(async ({ context, data }) => {
     if (!data.email || !data.email.includes("@")) throw new Error("Need an email");
@@ -248,7 +352,10 @@ export const requestFriendByEmail = createServerFn({ method: "POST" })
       select id from "user" where lower(email) = ${data.email} limit 1
     `;
     const other = users[0]?.id;
-    if (!other) throw new Error("Nobody with that email has a GameFinder account yet. Send them an invite link.");
+    if (!other)
+      throw new Error(
+        "Nobody with that email has a GameFinder account yet. Send them an invite link.",
+      );
     if (other === context.userId) throw new Error("That's you.");
 
     const blocked = await sql<{ id: string }>`
@@ -360,8 +467,7 @@ export const listMyGroups = createServerFn({ method: "GET" })
     })) satisfies GroupRow[];
   });
 
-
-/** Everyone at your family/friends tables, plus accepted friends. For Who's home. */
+/** Everyone at your family/friends tables, plus accepted friends. For Players Tonight. */
 export const listHousehold = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
@@ -399,7 +505,9 @@ export const listHousehold = createServerFn({ method: "GET" })
       row: { user_id: string; display_name: string; piece_color: string },
       source: HouseholdPerson["source"],
     ) => {
-      const name = String(row.display_name ?? "").trim().slice(0, 20);
+      const name = String(row.display_name ?? "")
+        .trim()
+        .slice(0, 20);
       if (!name || map.has(row.user_id)) return;
       map.set(row.user_id, {
         userId: row.user_id,
@@ -420,7 +528,9 @@ export const listHousehold = createServerFn({ method: "GET" })
 export const createGroup = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { name: string; kind: "friends" | "family" }) => ({
-    name: String(input?.name ?? "").trim().slice(0, 40),
+    name: String(input?.name ?? "")
+      .trim()
+      .slice(0, 40),
     kind: input?.kind === "family" ? ("family" as const) : ("friends" as const),
   }))
   .handler(async ({ context, data }) => {
@@ -451,7 +561,12 @@ export const getGroup = createServerFn({ method: "POST" })
     if (!data.groupId) throw new Error("Missing table");
     await requireMember(data.groupId, context.userId);
     const sql = await getSql();
-    const groups = await sql<{ id: string; table_name: string; table_kind: GroupRow["kind"]; owner_id: string }>`
+    const groups = await sql<{
+      id: string;
+      table_name: string;
+      table_kind: GroupRow["kind"];
+      owner_id: string;
+    }>`
       select id, name as table_name, kind as table_kind, owner_id
       from play_groups where id = ${data.groupId} limit 1
     `;
@@ -541,7 +656,9 @@ export const updateGroup = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { groupId: string; name: string; kind: "friends" | "family" }) => ({
     groupId: String(input?.groupId ?? ""),
-    name: String(input?.name ?? "").trim().slice(0, 40),
+    name: String(input?.name ?? "")
+      .trim()
+      .slice(0, 40),
     kind: input?.kind === "friends" ? ("friends" as const) : ("family" as const),
   }))
   .handler(async ({ context, data }) => {
@@ -633,6 +750,7 @@ export const listGroupPlays = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .validator((input: { groupId: string }) => ({ groupId: String(input?.groupId ?? "") }))
   .handler(async ({ context, data }) => {
+    await requirePremiumPlan(context.userId);
     await requireMember(data.groupId, context.userId);
     const sql = await getSql();
     const plays = await sql<{
@@ -692,7 +810,9 @@ export const logGroupPlay = createServerFn({ method: "POST" })
       notes: String(input?.notes ?? "").slice(0, 280) || undefined,
       seats: (input?.seats ?? [])
         .map((s) => ({
-          playerName: String(s.playerName ?? "").trim().slice(0, 32),
+          playerName: String(s.playerName ?? "")
+            .trim()
+            .slice(0, 32),
           total: Number(s.total) || 0,
           won: Boolean(s.won),
         }))
@@ -701,6 +821,7 @@ export const logGroupPlay = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ context, data }) => {
+    await requirePremiumPlan(context.userId);
     await requireMember(data.groupId, context.userId);
     if (!data.bggId) throw new Error("Which game?");
     const sql = await getSql();
@@ -746,7 +867,9 @@ export const previewInvite = createServerFn({ method: "GET" })
     const fromName = await profileName(inv.from_user_id);
     let groupName: string | null = null;
     if (inv.group_id) {
-      const g = await sql<{ name: string }>`select name from play_groups where id = ${inv.group_id} limit 1`;
+      const g = await sql<{
+        name: string;
+      }>`select name from play_groups where id = ${inv.group_id} limit 1`;
       groupName = g[0]?.name ?? null;
     }
     const expired = new Date(inv.expires_at).getTime() < Date.now();

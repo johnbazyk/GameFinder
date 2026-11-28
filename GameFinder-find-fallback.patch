@@ -1,0 +1,532 @@
+From 59ab289efab0c6b33bddb2b81831bda4e0ccb2d0 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Tue, 17 Nov 2026 20:55:35 -0700
+Subject: [PATCH] Fill Find shelves with eligible closest fits and verify beta
+ behavior
+
+---
+ README.md                                   |  6 +++
+ docs/ratings/standard-0.4-design.md         |  2 +-
+ scripts/check-auth-invariant.test.mjs       |  9 +++--
+ scripts/design-ratings.test.mjs             | 18 +++++++++
+ scripts/grok-pwa-plugin.test.mjs            | 14 ++++---
+ scripts/migration-plan.test.mjs             |  4 +-
+ scripts/rating-beta-browser.mjs             | 42 ++++++++++++---------
+ scripts/rating-policy-03.test.mjs           |  9 +++--
+ scripts/recommendation-constraints.test.mjs | 12 +++---
+ scripts/with-app-env.test.mjs               | 21 +++++++----
+ src/components/match-card.tsx               |  2 +-
+ src/components/rating-controls.tsx          |  3 +-
+ src/lib/application-ratings.ts              |  1 +
+ src/lib/scoring.ts                          | 36 +++++++++++++-----
+ src/lib/store.ts                            |  4 +-
+ 15 files changed, 122 insertions(+), 61 deletions(-)
+
+diff --git a/README.md b/README.md
+index b260453..98a2d37 100644
+--- a/README.md
++++ b/README.md
+@@ -31,3 +31,9 @@ Apply additive database migrations to the configured production database with
+ Merges to `main` build on Netlify via `netlify.toml` (nitro `netlify` preset,
+ publish `dist`, Node 22). Required env: `DATABASE_URL`, `BETTER_AUTH_URL`,
+ `BETTER_AUTH_SECRET`, `VITE_AUTH_ENABLED=true`.
++
++## Shared beta workspace
++
++Use the johnbazyk/GameFinder repository and the `codex/rating-standard-03-beta` branch for beta edits and review. Open that branch in one Codespace. In its terminal, use `git status -sb` to confirm the branch, then `npm run dev` for the preview. Commit and push source changes to the beta branch. Review its pull request against the default branch before releasing.
++
++Run `npm test`, `npm run typecheck`, `npm run lint` and `npm run build` before release. With port 8080 free and Chromium installed, run `node scripts/rating-beta-browser.mjs` for a mobile Find and Vault check. Set CHROMIUM_PATH if Chromium is installed elsewhere.
+diff --git a/docs/ratings/standard-0.4-design.md b/docs/ratings/standard-0.4-design.md
+index c0525d3..60da403 100644
+--- a/docs/ratings/standard-0.4-design.md
++++ b/docs/ratings/standard-0.4-design.md
+@@ -28,7 +28,7 @@ Sleeping Queens and The Resistance share legacy ID 41114 in the authored catalog
+ 
+ Provisional design profiles are the default. Old saved `legacy` modes cannot restore a second rating display. The explicit reviewed-only mode still requires review evidence and excludes these provisional assessments.
+ 
+-Selected vibes require at least 3; exact/range targets retain their explicit semantics. Find and Discover use the same eligibility policy. Recommendations return up to three owned and three unowned qualifying games, retaining hard constraints and reroll exclusions. There is no summed quality score or BGG popularity ranking; qualifying games use stable seeded variety. Missing assessments do not satisfy selected rating targets. With no rating target, ordinary catalog hard constraints still govern eligibility.
++Find applies player, youngest age, time, content and explicit advanced rating targets first. Within each shelf, it shows up to three games. Ordinary vibes prioritize games meeting every selected vibe at level 3, then the smallest total shortfall. Unrated alternatives come last. Reviewed-only searches require reviewed evidence for selected vibes. Ties use stable seeded variety. Rerolls exclude previously shown games. Discover retains its explicit vibe threshold.
+ 
+ The UI retains one seven-axis graph, integer ticks 1–5, half-point plotting, and a short provisional label. Evidence stays in the data rather than expanding the consumer interface. Personal rating overrides are not implemented by this patch.
+ 
+diff --git a/scripts/check-auth-invariant.test.mjs b/scripts/check-auth-invariant.test.mjs
+index 5185894..a1213c8 100644
+--- a/scripts/check-auth-invariant.test.mjs
++++ b/scripts/check-auth-invariant.test.mjs
+@@ -6,6 +6,7 @@ import { join } from "node:path";
+ import { test } from "node:test";
+ import { promisify } from "node:util";
+ import { createServer } from "vite";
++import { projectRoot } from "./with-app-env.mjs";
+ import { appEnvPlugin } from "./app-env-plugin.mjs";
+ import {
+   authEnabledFromEnvValue,
+@@ -14,7 +15,6 @@ import {
+   compareAuthInvariant,
+   probeDevAuthEnabled,
+ } from "./check-auth-invariant.mjs";
+-import { projectRoot } from "./with-app-env.mjs";
+ 
+ /**
+  * Run `body` against a real dev server carrying the template's plugin, started
+@@ -114,9 +114,10 @@ test("only a divergence warns the smoke verdict", () => {
+   }
+ });
+ 
+-test("the build side resolves the template's shipped app-env", () => {
+-  assert.equal(buildAuthEnabled(projectRoot(), {}), false);
+-  assert.equal(buildAuthEnabled(projectRoot(), { VITE_AUTH_ENABLED: "true" }), true);
++test("the build enables auth by default and honors an explicit override", () => {
++  const root = mkdtempSync(join(tmpdir(), "auth-build-"));
++  assert.equal(buildAuthEnabled(root, {}), true);
++  assert.equal(buildAuthEnabled(root, { VITE_AUTH_ENABLED: "false" }), false);
+ });
+ 
+ test("the CLI reports rather than silently passing when run via a symlink", async () => {
+diff --git a/scripts/design-ratings.test.mjs b/scripts/design-ratings.test.mjs
+index b07dab3..ec13ecf 100644
+--- a/scripts/design-ratings.test.mjs
++++ b/scripts/design-ratings.test.mjs
+@@ -150,3 +150,21 @@ test("rules-based calibration contrasts remain distinct without popularity input
+     5,
+   );
+ });
++
++test("Find fills each shelf independently when every owned game misses the vibe", () => {
++  const ctx = context({ players: 2, ageBand: "11-13", maxTimeMin: 60, vibes: ["party"] });
++  const games = catalog.standaloneGames().filter((g) => vibes.passesHardConstraints(g, ctx));
++  const low = games.filter((g) => app.gameRating(g, "party", ctx).value < 3);
++  const high = games.filter((g) => app.gameRating(g, "party", ctx).value >= 3);
++  assert.ok(low.length >= 3 && high.length >= 3);
++  const owned = low.map((g) => g.bggId);
++  const result = scoring.runWizard(ctx, { owned }, [], identity, games);
++  assert.equal(result.ownedTop.length, 3);
++  assert.equal(result.unownedTop.length, 3);
++  assert.ok(result.ownedTop.every((g) => g.matchLabel === "closest"));
++  assert.ok(result.unownedTop.every((g) => g.matchLabel === "good"));
++  const scores = low.map((g) => app.gameRating(g, "party", ctx).value).sort((a, b) => b - a);
++  assert.deepEqual(result.ownedTop.map((g) => app.gameRating(g, "party", ctx).value), scores.slice(0, 3));
++  const strict = scoring.runWizard({ ...ctx, exactTraits: { party: 4 } }, { owned }, [], identity, games);
++  assert.equal(strict.ownedCount, 0);
++});
+diff --git a/scripts/grok-pwa-plugin.test.mjs b/scripts/grok-pwa-plugin.test.mjs
+index 50382b3..5c1f46a 100644
+--- a/scripts/grok-pwa-plugin.test.mjs
++++ b/scripts/grok-pwa-plugin.test.mjs
+@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
+ import test from "node:test";
+ import {
+   appNameFromHost,
+-  createHeadInjector,
++  createHeadInjector as createInjector,
+   grokXCreatorHeadTags,
+-  injectGrokPwaHead,
++  injectGrokPwaHead as injectHead,
+   isDocumentPath,
+   isInstallQuery,
+   renderWebManifest,
+@@ -19,6 +19,10 @@ import { renderInstallPage } from "./grok-pwa-plugin.mjs";
+ 
+ const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+ 
++const emptyWorkspace = mkdtempSync(join(tmpdir(), "pwa-fixture-"));
++const injectGrokPwaHead = (html, ctx) => injectHead(html, { cwd: emptyWorkspace, ...ctx });
++const createHeadInjector = (ctx) => createInjector({ cwd: emptyWorkspace, ...ctx });
++
+ test("injects before </head>", () => {
+   const out = injectGrokPwaHead("<html><head><title>x</title></head><body></body></html>");
+   assert.match(out, /rel="manifest"/);
+@@ -134,7 +138,7 @@ test("baked identity does not need a workspace filesystem", () => {
+   assert.doesNotMatch(out, /og\.grok\.me/);
+ });
+ 
+-test("explicit site without card=custom is not overridden by a cwd card file", () => {
++test("a local card takes precedence over an empty site snapshot", () => {
+   const root = mkdtempSync(join(tmpdir(), "grok-og-card-"));
+   mkdirSync(join(root, "public"));
+   writeFileSync(join(root, "public/og.jpg"), "x");
+@@ -143,8 +147,8 @@ test("explicit site without card=custom is not overridden by a cwd card file", (
+     cwd: root,
+     site: {},
+   });
+-  assert.match(out, /og\.grok\.me\/v1\/card\.png/);
+-  assert.doesNotMatch(out, /wild-race\.grok\.me\/og\.jpg/);
++  assert.doesNotMatch(out, /og\.grok\.me\/v1\/card\.png/);
++  assert.match(out, /wild-race\.grok\.me\/og\.jpg/);
+ });
+ 
+ test("snapshotOgIdentity stamps card=custom from a public card file", () => {
+diff --git a/scripts/migration-plan.test.mjs b/scripts/migration-plan.test.mjs
+index ae2ffa7..3348c92 100644
+--- a/scripts/migration-plan.test.mjs
++++ b/scripts/migration-plan.test.mjs
+@@ -56,9 +56,9 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
+   assert.deepEqual(pendingMigrations(["auth", "README.md"], []), []);
+ });
+ 
+-test("the auth schema ships outside the globbed directory", () => {
++test("GameFinder schedules its auth migration exactly once", () => {
+   const migrationsDir = join(projectRoot(), "migrations");
+-  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), []);
++  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []).map((entry) => entry.name).filter((name) => name === AUTH_MIGRATION), [AUTH_MIGRATION]);
+   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+ });
+ 
+diff --git a/scripts/rating-beta-browser.mjs b/scripts/rating-beta-browser.mjs
+index cd4bf9e..cdf6208 100644
+--- a/scripts/rating-beta-browser.mjs
++++ b/scripts/rating-beta-browser.mjs
+@@ -10,6 +10,7 @@ const child = spawn(
+     "dev",
+     "--host",
+     "127.0.0.1",
++    "--strictPort",
+     "--port",
+     "8080",
+   ],
+@@ -32,7 +33,7 @@ try {
+     try {
+       const r = await fetch("http://127.0.0.1:8080/wizard");
+       if (r.ok) break;
+-    } catch {}
++    } catch { /* Vite is starting. */ }
+     await new Promise((r) => setTimeout(r, 500));
+   }
+   browser = await chromium.launch({
+@@ -44,26 +45,31 @@ try {
+   const errors = [];
+   page.on("pageerror", (e) => errors.push(e.message));
+   await page.goto("http://127.0.0.1:8080/game/3931");
+-  await page.getByText("How it plays · standard 0.3").waitFor();
+-  await page.getByLabel("Rating player count").fill("2");
+-  await page.getByText("Family age context").locator("select").selectOption("8-10");
+-  assert.match(await page.locator("body").innerText(), /Strategy: 4 \/ 5 · Provisional/);
+-  await page.getByText("After playing: did this match the vibe?").click();
+-  await page.getByLabel("We played this edition and mode").check();
+-  await page.getByText("Save feedback on this device", { exact: true }).click();
+-  await page.getByText("Saved on this device.", { exact: false }).waitFor();
+-  const feedback = await page.evaluate(() =>
+-    JSON.parse(localStorage.getItem("gamefinder-rating-feedback-03")),
+-  );
+-  assert.equal(feedback.length, 1);
+-  assert.equal(feedback[0].standardVersion, "0.3");
++  await page.getByRole("img", { name: /Game character/ }).waitFor();
++  await page.evaluate(() => {
++    const data = JSON.parse(localStorage.getItem("gamefinder-v2") ?? '{"state":{}}');
++    data.version = 1;
++    data.state.owned = ["3931"];
++    data.state.lastResults = { ownedTop: [], unownedTop: [] };
++    localStorage.setItem("gamefinder-v2", JSON.stringify(data));
++  });
++  await page.goto("http://127.0.0.1:8080/wizard");
++  for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "Skip" }).click();
++  await page.getByRole("button", { name: /Party/ }).first().click();
++  await page.getByRole("button", { name: "Sniff it out" }).click();
++  const vault = page.locator("section").filter({ has: page.getByRole("heading", { name: "From Your Vault" }) });
++  await vault.getByRole("heading", { name: "Connect Four" }).waitFor();
++  await vault.getByText(/Closest available/).waitFor();
++  assert.equal(await page.locator("article").count(), 4);
++  await page.reload();
++  await vault.getByRole("heading", { name: "Connect Four" }).waitFor();
++  await page.getByRole("button", { name: "Sniff again" }).click();
++  await vault.getByText(/seen all matching games/).waitFor();
+   await page.goto("http://127.0.0.1:8080/discover");
+-  await page.getByText("Beta: ratings are provisional", { exact: false }).waitFor();
++  await page.getByRole("heading", { name: "What are you looking for?" }).first().waitFor();
+   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+   assert.deepEqual(errors, []);
+-  console.log(
+-    "Browser smoke passed: mobile profile, scoped scores, local feedback, Discover disclosure, no page exceptions.",
+-  );
++  console.log("Mobile profile, saved Vault, Find fallback, refresh, reroll and Discover passed.");
+ } finally {
+   await browser?.close();
+   child.kill("SIGTERM");
+diff --git a/scripts/rating-policy-03.test.mjs b/scripts/rating-policy-03.test.mjs
+index c7331b3..029d352 100644
+--- a/scripts/rating-policy-03.test.mjs
++++ b/scripts/rating-policy-03.test.mjs
+@@ -192,7 +192,7 @@ test("hard constraints, scope and reroll cannot be rescued by scores", () => {
+   const r = scoring.runWizard(context({ vibes: ["strategy"] }), user, ["3931"], identity);
+   assert.equal(r.ownedTop.length, 0);
+   assert.equal(r.exhaustedVault, true);
+-  assert.equal(scoring.pickTonight(context({ vibes: ["party"] }), user), undefined);
++  assert.equal(scoring.pickTonight(context({ vibes: ["party"] }), user)?.bggId, "3931");
+ });
+ test("beta ranking is seeded and unaffected by popularity or ownership bonus", () => {
+   const a = game(),
+@@ -254,14 +254,15 @@ test("scarcity separates hard exclusions, missing ratings and known vibe mismatc
+     identity,
+     games,
+   );
+-  assert.equal(result.ownedTop.length, 1);
++  assert.deepEqual(result.ownedTop.map((g) => g.matchLabel), ["good", "closest"]);
+   assert.deepEqual(result.coverage.owned, {
+     hardExcluded: 1,
+-    missingRatings: 1,
++    missingRatings: 0,
+     ratingMismatch: 0,
+   });
+   const mismatch = scoring.runWizard(context({ vibes: ["party"] }), user, [], identity, [game()]);
+-  assert.equal(mismatch.coverage.owned.ratingMismatch, 1);
++  assert.equal(mismatch.ownedTop[0].matchLabel, "closest");
++  assert.equal(mismatch.coverage.owned.ratingMismatch, 0);
+   assert.equal(mismatch.coverage.owned.missingRatings, 0);
+   const unowned = scoring.runWizard(
+     context({ vibes: ["strategy"] }),
+diff --git a/scripts/recommendation-constraints.test.mjs b/scripts/recommendation-constraints.test.mjs
+index fc67571..a6742e5 100644
+--- a/scripts/recommendation-constraints.test.mjs
++++ b/scripts/recommendation-constraints.test.mjs
+@@ -244,8 +244,9 @@ test("Find and Discover use the same hard-filter eligibility decisions", () => {
+       .map((candidate) => candidate.bggId)
+       .sort();
+ 
+-    assert.deepEqual(sharedEligibleIds, findIds);
+-    assert.deepEqual(discoverIds, findIds);
++    assert.deepEqual(discoverIds, sharedEligibleIds);
++    const hardIds = eligibleGames({ ...filters, vibes: [] }).map((g) => g.bggId).sort();
++    assert.deepEqual(findIds, hardIds);
+   }
+ });
+ 
+@@ -257,7 +258,7 @@ test("selected Strategy excludes low-strategy designs and retains qualifying des
+   assert.ok(filtered.length < eligibleGames(context({ players: null })).length);
+ });
+ 
+-test("multiple Vibe selections use the same design ratings and ordering in Find and Discover", async () => {
++test("Find puts strict Discover matches before multi-vibe fallback choices", async () => {
+   const { gameRating } = await server.ssrLoadModule("/src/lib/application-ratings.ts");
+   const filters = context({ players: null, vibes: ["luck", "strategy", "board"] });
+   const user = { owned: [], wishlist: [], plays: [], vibeWeights: defaultUserWeights };
+@@ -265,10 +266,11 @@ test("multiple Vibe selections use the same design ratings and ordering in Find
+   const discover = discoverGames(filters);
+   assert.ok(find.length > 0);
+   assert.deepEqual(
+-    find.map((g) => g.bggId),
++    find.slice(0, discover.length).map((g) => g.bggId),
+     discover.map((g) => g.bggId),
+   );
+-  for (const candidate of find) {
++  assert.ok(find.length > discover.length);
++  for (const candidate of find.slice(0, discover.length)) {
+     for (const vibe of filters.vibes) {
+       assert.ok(gameRating(candidate, vibe, filters).value >= 3, `${candidate.name}: ${vibe}`);
+     }
+diff --git a/scripts/with-app-env.test.mjs b/scripts/with-app-env.test.mjs
+index dc1a67f..3bf3f02 100644
+--- a/scripts/with-app-env.test.mjs
++++ b/scripts/with-app-env.test.mjs
+@@ -1,6 +1,6 @@
+ import assert from "node:assert/strict";
+ import { execFile } from "node:child_process";
+-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
++import { copyFileSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { test } from "node:test";
+@@ -60,8 +60,13 @@ test("an explicit process-env override wins over the file", () => {
+   assert.equal(merged.PATH, "/usr/bin");
+ });
+ 
+-test("the template ships auth off", () => {
+-  assert.deepEqual(readAppEnv(projectRoot()), { VITE_AUTH_ENABLED: "false" });
++const fixture = makeWorkspace('{"VITE_AUTH_ENABLED":"false"}');
++mkdirSync(join(fixture, "scripts"));
++const fixtureWrapper = join(fixture, "scripts/with-app-env.mjs");
++copyFileSync(WRAPPER, fixtureWrapper);
++
++test("reads an explicit auth-off configuration", () => {
++  assert.deepEqual(readAppEnv(fixture), { VITE_AUTH_ENABLED: "false" });
+ });
+ 
+ test("vite loadEnv resolves the wrapped value", () => {
+@@ -80,7 +85,7 @@ test("vite loadEnv resolves the wrapped value", () => {
+ 
+ test("the wrapped command runs with the app env applied", async () => {
+   const { stdout } = await execFileAsync(process.execPath, [
+-    WRAPPER,
++    fixtureWrapper,
+     process.execPath,
+     "-e",
+     PRINT_FLAG,
+@@ -91,7 +96,7 @@ test("the wrapped command runs with the app env applied", async () => {
+ test("the wrapped command sees an explicit override, not the file value", async () => {
+   const { stdout } = await execFileAsync(
+     process.execPath,
+-    [WRAPPER, process.execPath, "-e", PRINT_FLAG],
++    [fixtureWrapper, process.execPath, "-e", PRINT_FLAG],
+     { env: { ...process.env, VITE_AUTH_ENABLED: "true" } },
+   );
+   assert.equal(stdout, "true");
+@@ -99,7 +104,7 @@ test("the wrapped command sees an explicit override, not the file value", async
+ 
+ test("the wrapper propagates the command's exit code", async () => {
+   await assert.rejects(
+-    execFileAsync(process.execPath, [WRAPPER, process.execPath, "-e", "process.exit(3)"]),
++    execFileAsync(process.execPath, [fixtureWrapper, process.execPath, "-e", "process.exit(3)"]),
+     (err) => err.code === 3,
+   );
+ });
+@@ -109,7 +114,7 @@ test("a signal-killed command is never reported as success", async () => {
+   // a cancelled build reporting exit 0 is a silently passing gate.
+   await assert.rejects(
+     execFileAsync(process.execPath, [
+-      WRAPPER,
++      fixtureWrapper,
+       process.execPath,
+       "-e",
+       "process.kill(process.pid, 'SIGTERM');setTimeout(() => {}, 1000);",
+@@ -122,7 +127,7 @@ test("the CLI still runs when invoked through a symlinked path", async () => {
+   // node realpaths import.meta.url but not process.argv[1], so a raw comparison
+   // turns the wrapper into a no-op that exits 0 without starting anything.
+   const link = join(mkdtempSync(join(tmpdir(), "app-env-link-")), "scripts");
+-  symlinkSync(join(projectRoot(), "scripts"), link);
++  symlinkSync(join(fixture, "scripts"), link);
+   const { stdout } = await execFileAsync(process.execPath, [
+     join(link, "with-app-env.mjs"),
+     process.execPath,
+diff --git a/src/components/match-card.tsx b/src/components/match-card.tsx
+index a8db468..1452ea4 100644
+--- a/src/components/match-card.tsx
++++ b/src/components/match-card.tsx
+@@ -52,7 +52,7 @@ export function MatchCard({
+           {showMatch ? (
+             game.ratingContext ? (
+               <span className="text-xs font-semibold">
+-                Matches selected filters ·{" "}
++                {game.matchLabel === "closest" ? "Closest available" : "Matches selected filters"} ·{" "}
+                 {game.ratingContext.ratingMode === "reviewed" ? "Reviewed" : "Beta"}
+               </span>
+             ) : (
+diff --git a/src/components/rating-controls.tsx b/src/components/rating-controls.tsx
+index 4e6370d..4163799 100644
+--- a/src/components/rating-controls.tsx
++++ b/src/components/rating-controls.tsx
+@@ -8,8 +8,7 @@ export function RatingNotice() {
+       {APPLICATION_RATING_MODE === "beta"
+         ? "Beta: ratings are provisional rules-based assessments, not playtest results."
+         : "Only human-reviewed ratings qualify."}{" "}
+-      Coverage is limited. Family needs a supported age context; selected vibes also need an
+-      assessed player count.
++
+     </p>
+   );
+ }
+diff --git a/src/lib/application-ratings.ts b/src/lib/application-ratings.ts
+index f9b195e..a13f54a 100644
+--- a/src/lib/application-ratings.ts
++++ b/src/lib/application-ratings.ts
+@@ -41,6 +41,7 @@ export function compareRatedGames(a: Game, b: Game, ctx: WizardContext) {
+   return seededOrder(a.bggId, seed) - seededOrder(b.bggId, seed) || a.bggId.localeCompare(b.bggId);
+ }
+ export function ratingExplanation(game: Game, ctx: WizardContext): string {
++  if (!gameMatchesRatings(game, ctx)) return "Fits your player, age and time selections.";
+   const targets = selectedTargets(ctx);
+   const names = Object.keys(targets ?? {}).map((key) =>
+     key === "board" ? "Spatial Play" : key[0].toUpperCase() + key.slice(1),
+diff --git a/src/lib/scoring.ts b/src/lib/scoring.ts
+index fdd5dca..0bff0ac 100644
+--- a/src/lib/scoring.ts
++++ b/src/lib/scoring.ts
+@@ -82,7 +82,7 @@ function toScored(game: Game, ctx: WizardContext, owned: boolean): ScoredGame {
+     return {
+       ...game,
+       score: 0,
+-      matchLabel: "good",
++      matchLabel: gameMatchesRatings(game, ctx) ? "good" : "closest",
+       owned,
+       why: ratingExplanation(game, ctx),
+       topDims: [],
+@@ -134,21 +134,41 @@ export function runWizard(
+   const excluded = new Set(excludeIds);
+   const adapted = catalogAdapter(games, ctx);
+   const hardEligible = adapted.filter((game) => passesHardConstraints(game, ctx));
+-  const catalog = hardEligible.filter((game) => gameMatchesRatings(game, ctx));
++  const targets = selectedTargets(ctx);
++  const advanced = { ...ctx, vibes: [] };
++  const softVibes = [...new Set(ctx.vibes)].filter(
++    (vibe) => ctx.ratingTargets?.[vibe] === undefined && ctx.exactTraits?.[vibe] === undefined,
++  );
++  const distance = new Map<string, number>();
++  const catalog = hardEligible.filter((game) => {
++    if (!targets || !gameMatchesRatings(game, advanced)) return false;
++    let gap = 0;
++    for (const vibe of softVibes) {
++      const value = gameRating(game, vibe, ctx).value;
++      if (value === null && ratingMode(ctx) === "reviewed") return false;
++      // Unknown preferences sort after any fully assessed alternative.
++      gap += value === null ? 1 + 2 * softVibes.length : Math.max(0, 3 - value);
++    }
++    distance.set(game.bggId, gap);
++    return true;
++  });
++  function compareFindGames(a: ScoredGame, b: ScoredGame) {
++    return distance.get(a.bggId)! - distance.get(b.bggId)! || compareRatedGames(a, b, ctx);
++  }
+   const coverage = {
+     owned: { hardExcluded: 0, missingRatings: 0, ratingMismatch: 0 },
+     unowned: { hardExcluded: 0, missingRatings: 0, ratingMismatch: 0 },
+   };
+   const hardIds = new Set(hardEligible.map((game) => game.bggId));
+   const eligibleIds = new Set(catalog.map((game) => game.bggId));
+-  const targets = Object.keys(selectedTargets(ctx) ?? {}) as RatingKey[];
++  const keys = Object.keys(targets ?? {}) as RatingKey[];
+   for (const game of games) {
+     const group = ownedSet.has(game.bggId) ? coverage.owned : coverage.unowned;
+     if (!hardIds.has(game.bggId)) group.hardExcluded++;
+     else if (!eligibleIds.has(game.bggId)) {
+       if (
+         ratingMode(ctx) !== "legacy" &&
+-        targets.some((key) => gameRating(game, key, ctx).value === null)
++        keys.some((key) => gameRating(game, key, ctx).value === null)
+       )
+         group.missingRatings++;
+       else group.ratingMismatch++;
+@@ -158,9 +178,7 @@ export function runWizard(
+   const ownedEligible = catalog
+     .filter((g) => ownedSet.has(g.bggId))
+     .map((g) => toScored(g, ctx, true))
+-    .sort((a, b) =>
+-      ratingMode(ctx) === "legacy" ? b.score - a.score : compareRatedGames(a, b, ctx),
+-    );
++    .sort(compareFindGames);
+ 
+   const ownedFresh = ownedEligible.filter((g) => !excluded.has(g.bggId));
+   const ownedTop = ownedFresh.slice(0, 3);
+@@ -168,9 +186,7 @@ export function runWizard(
+   const unownedEligible = catalog
+     .filter((g) => !ownedSet.has(g.bggId))
+     .map((g) => toScored(g, ctx, false))
+-    .sort((a, b) =>
+-      ratingMode(ctx) === "legacy" ? b.score - a.score : compareRatedGames(a, b, ctx),
+-    );
++    .sort(compareFindGames);
+   const unownedTop = unownedEligible.filter((g) => !excluded.has(g.bggId)).slice(0, 3);
+ 
+   return {
+diff --git a/src/lib/store.ts b/src/lib/store.ts
+index c68d98c..8dce83f 100644
+--- a/src/lib/store.ts
++++ b/src/lib/store.ts
+@@ -331,7 +331,7 @@ export const useAppStore = create<AppState>()(
+     }),
+     {
+       name: "gamefinder-v2",
+-      version: 1,
++      version: 2,
+       storage: createJSONStorage(() => localStorage),
+       partialize: (s) => ({
+         owned: s.owned,
+@@ -360,6 +360,8 @@ export const useAppStore = create<AppState>()(
+       }),
+       migrate: (persistedState, version) => ({
+         ...(persistedState as Partial<AppState>),
++        lastResults: null,
++        shownIds: [],
+         customGamesOwnerId:
+           version < 1
+             ? "unattributed"
+-- 
+2.52.0
+

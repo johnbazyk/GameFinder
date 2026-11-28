@@ -1,0 +1,1765 @@
+diff --git a/AGENTS.md b/AGENTS.md
+new file mode 100644
+index 0000000..ead2d87
+--- /dev/null
++++ b/AGENTS.md
+@@ -0,0 +1,3 @@
++# GameFinder development instructions
++
++Maintain the approved product, not a competing redesign. Preserve Find, Vault, Discover, Profile, existing navigation and Finn identity. Player count, youngest age suitability and maximum playtime are hard constraints; standard vibes rank eligible games with closest-match fallback. Preserve seven equally weighted descriptive dimensions on the 1–5 half-point scale and six distinct vibe constructs. Return up to three owned and three unowned games; rerolls exclude prior results; Surprise Me uses owned games independently of filters. Keep scan review/confirmation and manual fallback; do not retain or repurpose recognition photos. Free Vault capacity is 50. Premium is $4.99 monthly or $44.99 annually; no lifetime plan. Protect paid features server-side, including Finn teaching and questions, and preserve five approved lesson chapters. Keep original assets, provenance and rating review distinctions intact. Do not invent verified rules or evidence. Never include credentials, private business documents or personal data in commits. Work on authorized development branches; no force pushes, merging main, publishing releases, spending, or changing locked product requirements without owner approval. Run targeted regression tests and typecheck; report skipped tests and blockers accurately. Treat current implementation as evidence, not authority to change requirements.
+diff --git a/CLAUDE.md b/CLAUDE.md
+new file mode 100644
+index 0000000..43c994c
+--- /dev/null
++++ b/CLAUDE.md
+@@ -0,0 +1 @@
++@AGENTS.md
+diff --git a/scripts/finn-premium.test.mjs b/scripts/finn-premium.test.mjs
+new file mode 100644
+index 0000000..e4d4165
+--- /dev/null
++++ b/scripts/finn-premium.test.mjs
+@@ -0,0 +1,107 @@
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++import { test } from "node:test";
++import ts from "typescript";
++import vm from "node:vm";
++const read = (path) => readFileSync(new URL("../" + path, import.meta.url), "utf8");
++const source = read("src/lib/premium-entitlement.server.ts");
++function helper(plan, env = {}) {
++  const exports = {};
++  const sql = async (_parts, userId) => {
++    assert.equal(userId, "verified-user");
++    return plan == null ? [] : [{ plan }];
++  };
++  vm.runInNewContext(
++    ts.transpileModule(source, {
++      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
++    }).outputText,
++    { exports, process: { env }, require: () => ({ getSql: async () => sql }) },
++  );
++  return exports;
++}
++test("Finn entitlement accepts only the verified Premium profile", async () => {
++  await helper("premium").requireFinnPremium("verified-user");
++  for (const plan of ["free", "expired", null])
++    await assert.rejects(
++      helper(plan).requireFinnPremium("verified-user"),
++      /requires GameFinder Premium/,
++    );
++});
++test("Finn denies anonymous and shared development identity without querying a plan", async () => {
++  for (const id of ["", "dev-user"])
++    await assert.rejects(
++      helper("premium").requireFinnPremium(id, async () => {
++        assert.fail("lookup must not run");
++      }),
++      /requires GameFinder Premium/,
++    );
++});
++test("Finn fails closed when entitlement lookup fails", async () => {
++  await assert.rejects(
++    helper("premium").requireFinnPremium("verified-user", async () => {
++      throw new Error("database unavailable");
++    }),
++    /database unavailable/,
++  );
++});
++test("all five Finn server functions authenticate and check entitlement before provider work", () => {
++  const ast = ts.createSourceFile(
++    "coach.ts",
++    read("src/lib/coach.ts"),
++    ts.ScriptTarget.Latest,
++    true,
++  );
++  const names = ["isFinnVoiceConfigured", "askFinn", "askFinnLesson", "speakFinn", "hearFinn"];
++  for (const name of names) {
++    const declaration = ast.statements
++      .flatMap((s) => (ts.isVariableStatement(s) ? [...s.declarationList.declarations] : []))
++      .find((d) => d.name.getText(ast) === name);
++    assert.ok(declaration, name);
++    const code = declaration.getText(ast);
++    assert.match(code, /\.middleware\(\[authMiddleware\]\)/);
++    const handler = code.slice(code.indexOf(".handler("));
++    assert.match(handler, /await requireFinnPremium\(context\.userId\)/);
++    assert.ok(handler.indexOf("await requireFinnPremium") < handler.indexOf("apiKey()"), name);
++  }
++});
++test("Finn coaching panel and full teaching route both use the Premium gate", () => {
++  for (const path of ["src/components/finn-coach.tsx", "src/routes/game.$id.teach.tsx"])
++    assert.match(read(path), /<PremiumGate feature="finn">/);
++});
++
++const isolated = {
++  NODE_ENV: "development",
++  GAMEFINDER_LOCAL_TEST_PLAN: "1",
++  VITE_AUTH_ENABLED: "false",
++};
++test("isolated lab switches actual, free, premium and back without billing writes", async () => {
++  const h = helper(null, isolated);
++  assert.equal(h.getTestPlan("dev-user").enabled, true);
++  assert.equal(await h.hasPremiumPlan("dev-user"), false);
++  h.setTestPlan("dev-user", "premium");
++  assert.equal(await h.hasPremiumPlan("dev-user"), true);
++  await h.requireFinnPremium("dev-user");
++  h.setTestPlan("dev-user", "free");
++  assert.equal(await h.hasPremiumPlan("dev-user"), false);
++  await assert.rejects(h.requireFinnPremium("dev-user"), /requires GameFinder Premium/);
++  h.setTestPlan("dev-user", "actual");
++  assert.equal(await h.hasPremiumPlan("dev-user"), false);
++});
++test("simulation fails closed for production, real databases, missing opt-in and authenticated accounts", async () => {
++  for (const env of [
++    { ...isolated, NODE_ENV: "production" },
++    { ...isolated, DATABASE_URL: "postgres://test" },
++    { ...isolated, GAMEFINDER_LOCAL_TEST_PLAN: "0" },
++    { ...isolated, VITE_AUTH_ENABLED: "true" },
++    {},
++  ]) {
++    const h = helper(null, env);
++    assert.equal(h.getTestPlan("dev-user").enabled, false);
++    assert.throws(() => h.setTestPlan("dev-user", "premium"), /unavailable/);
++    assert.equal(await h.hasPremiumPlan("dev-user"), false);
++  }
++  const h = helper("free", isolated);
++  assert.throws(() => h.setTestPlan("verified-user", "premium"), /unavailable/);
++  assert.throws(() => h.setTestPlan("dev-user", "invalid"), /unavailable/);
++  assert.equal(await h.hasPremiumPlan("verified-user"), false);
++});
+diff --git a/scripts/subscription-lab-browser.mjs b/scripts/subscription-lab-browser.mjs
+new file mode 100644
+index 0000000..9aa3a82
+--- /dev/null
++++ b/scripts/subscription-lab-browser.mjs
+@@ -0,0 +1,157 @@
++/**
++ * Local-only acceptance test. Run against the isolated, explicitly enabled
++ * auth-off development server. Never point this at a deployed environment.
++ * Uses a disposable browser context, no real accounts or provider calls.
++ */
++import { chromium } from "playwright";
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++const base = "http://127.0.0.1:8091";
++const ids = [
++  ...new Set(
++    [
++      ...readFileSync(new URL("../src/lib/catalog.ts", import.meta.url), "utf8").matchAll(
++        /bggId: "(\d+)"/g,
++      ),
++    ].map((x) => x[1]),
++  ),
++]
++  .filter((x) => !["13", "178900"].includes(x))
++  .slice(0, 50);
++assert.equal(ids.length, 50);
++const browser = await chromium.launch({ channel: "chrome", headless: true });
++try {
++  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
++  page.setDefaultTimeout(30000);
++  await page.addInitScript((ids) => {
++    if (!sessionStorage.getItem("fixture-seeded")) {
++      localStorage.setItem("gamefinder-v2", JSON.stringify({ state: { owned: ids }, version: 2 }));
++      sessionStorage.setItem("fixture-seeded", "1");
++    }
++  }, ids);
++  const go = async (path) => {
++    const response = await page.goto(base + path, { waitUntil: "domcontentloaded" });
++    assert.equal(response.status(), 200);
++  };
++  const mode = async (m) => {
++    await go("/internal/flags");
++    await page.getByRole("heading", { name: "Subscription testing" }).waitFor();
++    await page.getByRole("button", { name: m, exact: true }).click();
++    await page.waitForFunction(
++      (m) =>
++        [...document.querySelectorAll("button")].some(
++          (b) => b.textContent.trim() === m && b.getAttribute("aria-pressed") === "true",
++        ),
++      m,
++    );
++    console.log("PASS mode", m);
++  };
++  const count = async (n) => {
++    await page.waitForFunction(
++      (n) => JSON.parse(localStorage.getItem("gamefinder-v2") || "{}").state?.owned?.length === n,
++      n,
++    );
++  };
++  const advanceWizard = async () => {
++    await go("/wizard");
++    for (const [before, after] of [
++      ["How many people are playing?", "How old is the youngest player?"],
++      ["How old is the youngest player?", "How much time do you want to play?"],
++      ["How much time do you want to play?", "What kind of game are you in the mood for?"],
++    ]) {
++      await page.getByRole("heading", { name: before, exact: true }).waitFor();
++      // SSR can expose a button before hydration attaches its click handler.
++      const next = page.getByRole("button", { name: "Skip", exact: true });
++      for (let attempt = 0; attempt < 5; attempt++) {
++        await next.click();
++        if (
++          await page
++            .getByRole("heading", { name: after, exact: true })
++            .waitFor({ timeout: 2000 })
++            .then(
++              () => true,
++              () => false,
++            )
++        )
++          break;
++        if (attempt === 4) throw new Error("Wizard did not advance from " + before);
++      }
++    }
++  };
++  await mode("Free");
++  await go("/vault");
++  await count(50);
++  await page.getByText(/50\s*\/\s*50 owned/).waitFor();
++  await page.getByText("Ad · GameFinder Free", { exact: true }).waitFor();
++  console.log("PASS Free Vault and banner");
++  await go("/game/13");
++  await page.getByRole("button", { name: "Add to Vault", exact: true }).click();
++  console.log(
++    "AFTER ADD",
++    await page.evaluate(() => ({
++      count: JSON.parse(localStorage.getItem("gamefinder-v2") || "{}").state?.owned?.length,
++      text: document.body.innerText.slice(-1000),
++    })),
++  );
++  await page.getByText("Free vaults hold up to 50 games.", { exact: false }).waitFor();
++  await count(50);
++  console.log("PASS Free 51st game rejected");
++  await go("/scoreboard");
++  await page.getByRole("heading", { name: "Scores & Win History is Premium" }).waitFor();
++  console.log("PASS Free scoreboard locked");
++  await advanceWizard();
++  await page.getByRole("button", { name: "Premium · Exact-score filters" }).waitFor();
++  console.log("PASS Free exact filters locked");
++  await go("/game/13/teach");
++  await page.getByRole("heading", { name: "Learn with Finn is Premium" }).waitFor();
++  console.log("PASS Free Finn locked");
++  await mode("Premium");
++  await go("/vault");
++  await page.getByText(/^50 owned/).waitFor();
++  assert.equal(await page.getByText("Ad · GameFinder Free", { exact: true }).count(), 0);
++  console.log("PASS Premium banner hidden");
++  await go("/game/13");
++  await page.getByRole("button", { name: "Add to Vault", exact: true }).click();
++  console.log(
++    "AFTER ADD",
++    await page.evaluate(() => ({
++      count: JSON.parse(localStorage.getItem("gamefinder-v2") || "{}").state?.owned?.length,
++      text: document.body.innerText.slice(-1000),
++    })),
++  );
++  await page.getByRole("button", { name: "In Your Vault" }).waitFor();
++  await count(51);
++  await go("/vault");
++  await page.getByText(/^51 owned/).waitFor();
++  console.log("PASS Premium 51st game accepted");
++  await go("/scoreboard");
++  await page.getByRole("heading", { name: "Lifetime standings" }).waitFor();
++  console.log("PASS Premium scoreboard");
++  await advanceWizard();
++  await page.getByRole("button", { name: "Advanced exact-score filters", exact: true }).click();
++  console.log("PASS Premium advanced control opened");
++  await go("/game/13/teach");
++  await page.getByRole("heading", { name: "Learn with Finn" }).waitFor();
++  console.log("PASS Premium Finn unlocked");
++  await mode("Free");
++  await go("/vault");
++  await count(51);
++  await page.getByText(/51\s*\/\s*50 owned/).waitFor();
++  console.log("PASS downgrade preserves all 51");
++  await go("/game/178900");
++  await page.getByRole("button", { name: "Add to Vault", exact: true }).click();
++  console.log(
++    "AFTER ADD",
++    await page.evaluate(() => ({
++      count: JSON.parse(localStorage.getItem("gamefinder-v2") || "{}").state?.owned?.length,
++      text: document.body.innerText.slice(-1000),
++    })),
++  );
++  await page.getByText("Free vaults hold up to 50 games.", { exact: false }).waitFor();
++  await count(51);
++  console.log("PASS downgrade additional game blocked");
++  await mode("Actual");
++  console.log("ALL PASS");
++} finally {
++  await browser.close();
++}
+diff --git a/scripts/vault-sync.test.mjs b/scripts/vault-sync.test.mjs
+new file mode 100644
+index 0000000..16969ef
+--- /dev/null
++++ b/scripts/vault-sync.test.mjs
+@@ -0,0 +1,72 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { createServer } from "vite";
++import { PGlite } from "@electric-sql/pglite";
++import { readFileSync } from "node:fs";
++let server, db, policy, replace;
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    logLevel: "silent",
++    server: { middlewareMode: true },
++    resolve: { alias: { "@": new URL("../src", import.meta.url).pathname } },
++  });
++  policy = await server.ssrLoadModule("/src/lib/vault-policy.ts");
++  ({ replaceVaultSnapshot: replace } = await server.ssrLoadModule("/src/lib/vault-sync.server.ts"));
++  db = new PGlite();
++  await db.waitReady;
++  await db.exec(readFileSync(new URL("../migrations/0002_social.sql", import.meta.url), "utf8"));
++  await db.exec(
++    "insert into profiles (user_id, display_name, plan) values ('free-fixture','Free','free'), ('paid-fixture','Paid','premium')",
++  );
++});
++after(async () => {
++  await db?.close();
++  await server?.close();
++});
++const ids = (n) => Array.from({ length: n }, (_, i) => "fixture-" + i);
++const snapshot = (owned) => ({ owned, wishlist: [] });
++const sqlFor =
++  (tx, fail = false) =>
++  async (parts, ...params) => {
++    const query = parts.reduce((out, p, i) => out + (i ? "$" + i : "") + p, "");
++    if (fail && query.startsWith("insert into vault_games")) throw new Error("injected failure");
++    return (await tx.query(query, params)).rows;
++  };
++const save = (user, owned, fail = false) =>
++  db.transaction((tx) => replace(sqlFor(tx, fail), user, snapshot(owned)));
++const rows = async (user) =>
++  (
++    await db.query(
++      "select bgg_id from vault_games where user_id=$1 and list='owned' order by bgg_id",
++      [user],
++    )
++  ).rows.map((r) => r.bgg_id);
++test("free Vault accepts 50 and rejects 51 without data loss", async () => {
++  await save("free-fixture", ids(50));
++  await assert.rejects(save("free-fixture", ids(51)), /50 games/);
++  assert.equal((await rows("free-fixture")).length, 50);
++});
++test("Premium persists 501 games and downgrade retains them while denying additions", async () => {
++  await save("paid-fixture", ids(501));
++  assert.equal((await rows("paid-fixture")).length, 501);
++  await db.exec("update profiles set plan='free' where user_id='paid-fixture'");
++  await save("paid-fixture", ids(501));
++  await assert.rejects(save("paid-fixture", ids(502)), /50 games/);
++  assert.equal((await rows("paid-fixture")).length, 501);
++  await save("paid-fixture", ids(500));
++  assert.equal((await rows("paid-fixture")).length, 500);
++});
++test("rollback preserves prior rows if replacement insert fails", async () => {
++  const prior = await rows("free-fixture");
++  await assert.rejects(save("free-fixture", ["different"], true), /injected failure/);
++  assert.deepEqual(await rows("free-fixture"), prior);
++});
++test("normalization validates inputs and deduplicates ownership", () => {
++  assert.deepEqual(policy.normalizeVault({ owned: ["a", "a"], wishlist: ["a", "b", "b"] }), {
++    owned: ["a"],
++    wishlist: ["b"],
++  });
++  assert.throws(() => policy.normalizeVault({ owned: [null], wishlist: [] }), /Invalid/);
++  assert.throws(() => policy.normalizeVault({ owned: "abc", wishlist: [] }), /Invalid/);
++});
+diff --git a/src/components/account-sync.tsx b/src/components/account-sync.tsx
+index 765b8be..fbb6e6b 100644
+--- a/src/components/account-sync.tsx
++++ b/src/components/account-sync.tsx
+@@ -4,6 +4,7 @@ import {
+   getCloudVault,
+   getCloudCatalogGames,
+   getMyProfile,
++  getPremiumEntitlement,
+   replaceCloudVault,
+   syncCloudCatalogGames,
+ } from "@/lib/social";
+@@ -18,6 +19,24 @@ export function AccountSync() {
+   const [catalogSyncError, setCatalogSyncError] = useState(false);
+   const [catalogRetry, setCatalogRetry] = useState(0);
+ 
++  const userId = user?.id;
++  useEffect(() => {
++    let active = true;
++    useAppStore.setState({ isPremium: false, entitlementReady: !isPending && !userId });
++    if (!isPending && userId) {
++      void getPremiumEntitlement()
++        .then(({ premium }) => {
++          if (active) useAppStore.setState({ isPremium: premium, entitlementReady: true });
++        })
++        .catch(() => {
++          if (active) useAppStore.setState({ isPremium: false, entitlementReady: true });
++        });
++    }
++    return () => {
++      active = false;
++    };
++  }, [userId, isPending, catalogRetry]);
++
+   useEffect(() => {
+     if (isPending || !user) {
+       mergedFor.current = null;
+@@ -28,7 +47,6 @@ export function AccountSync() {
+     mergedFor.current = user.id;
+     catalogLoadedFor.current = null;
+     setCatalogSyncError(false);
+-    useAppStore.setState({ isPremium: false });
+     let active = true;
+     const isCurrent = () => active && mergedFor.current === user.id;
+     void (async () => {
+@@ -79,11 +97,9 @@ export function AccountSync() {
+           const prof = await getMyProfile();
+           if (!isCurrent()) return;
+           if (prof.pieceColor) useAppStore.getState().setPieceColor(prof.pieceColor);
+-          useAppStore.setState({ isPremium: prof.plan === "premium" });
+         } catch (error) {
+           if (!isCurrent()) return;
+-          useAppStore.setState({ isPremium: false });
+-          console.error("[account-sync] Couldn't verify Premium plan status.", error);
++          console.error("[account-sync] Couldn't load profile.", error);
+         }
+         if (isCurrent()) await replaceCloudVault({ data: { owned, wishlist } });
+       } catch (error) {
+@@ -102,13 +118,18 @@ export function AccountSync() {
+     let vaultTimer: number | null = null;
+     let catalogTimer: number | null = null;
+     const unsub = useAppStore.subscribe((state, prev) => {
+-      if (state.owned !== prev.owned || state.wishlist !== prev.wishlist) {
++      if (
++        mergedFor.current === user.id &&
++        catalogLoadedFor.current === user.id &&
++        (state.owned !== prev.owned || state.wishlist !== prev.wishlist)
++      ) {
+         if (vaultTimer) window.clearTimeout(vaultTimer);
+         vaultTimer = window.setTimeout(() => {
+           const latest = useAppStore.getState();
+           void replaceCloudVault({
+             data: { owned: latest.owned, wishlist: latest.wishlist },
+           }).catch((error) => {
++            setCatalogSyncError(true);
+             console.error("[account-sync] Couldn't save the cloud Vault.", error);
+           });
+         }, 900);
+@@ -121,10 +142,7 @@ export function AccountSync() {
+         if (catalogTimer) window.clearTimeout(catalogTimer);
+         catalogTimer = window.setTimeout(() => {
+           const latest = useAppStore.getState();
+-          if (
+-            latest.customGamesOwnerId !== user.id ||
+-            catalogLoadedFor.current !== user.id
+-          ) {
++          if (latest.customGamesOwnerId !== user.id || catalogLoadedFor.current !== user.id) {
+             return;
+           }
+           void syncCloudCatalogGames({ data: { games: latest.customGames } })
+@@ -150,7 +168,7 @@ export function AccountSync() {
+       role="alert"
+       className="fixed inset-x-3 bottom-3 z-[100] flex items-center justify-between gap-3 rounded-card bg-destructive p-3 text-sm text-destructive-foreground shadow-lift"
+     >
+-      <span>Saved account data could not be synced. Your local catalog is still here.</span>
++      <span>Saved account data could not be synced. Your local collection is still here.</span>
+       <button
+         type="button"
+         className="shrink-0 font-semibold underline"
+diff --git a/src/components/ad-banner.tsx b/src/components/ad-banner.tsx
+index 4a0911c..7a8dc09 100644
+--- a/src/components/ad-banner.tsx
++++ b/src/components/ad-banner.tsx
+@@ -3,8 +3,9 @@ import { useFlag } from "@/lib/flags";
+ 
+ export function AdBanner() {
+   const premium = useAppStore((s) => s.isPremium);
++  const ready = useAppStore((s) => s.entitlementReady);
+   const ads = useFlag("banner_ads");
+-  if (premium || !ads) return null;
++  if (!ready || premium || !ads) return null;
+   return (
+     <div className="mt-6 rounded-card bg-muted/80 px-4 py-3 text-center ring-1 ring-border">
+       <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+diff --git a/src/components/add-game-dialog.tsx b/src/components/add-game-dialog.tsx
+index 339e302..c4a3c94 100644
+--- a/src/components/add-game-dialog.tsx
++++ b/src/components/add-game-dialog.tsx
+@@ -8,6 +8,7 @@ import { toast } from "sonner";
+ 
+ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+   const [q, setQ] = useState("");
++  const ready = useAppStore((s) => s.entitlementReady);
+   const owned = useAppStore((s) => s.owned);
+   const addOwned = useAppStore((s) => s.addOwned);
+   const customGames = useAppStore((s) => s.customGames);
+@@ -72,6 +73,7 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
+               className="mt-3 flex gap-2"
+               onSubmit={(event) => {
+                 event.preventDefault();
++                if (!ready) return;
+                 try {
+                   const game = addCustomGame(customTitle);
+                   const result = addOwned(game.id);
+@@ -125,7 +127,7 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
+                   size="sm"
+                   variant={onShelf ? "moss" : "primary"}
+                   onClick={() => addOwned(game.id)}
+-                  disabled={onShelf}
++                  disabled={!ready || onShelf}
+                 >
+                   {onShelf ? "Owned" : "Add"}
+                 </Button>
+@@ -145,7 +147,7 @@ export function AddGameDialog({ open, onClose }: { open: boolean; onClose: () =>
+                   size="sm"
+                   variant={onShelf ? "moss" : "primary"}
+                   onClick={() => addOwned(g.bggId)}
+-                  disabled={onShelf}
++                  disabled={!ready || onShelf}
+                 >
+                   {onShelf ? "Owned" : "Add"}
+                 </Button>
+diff --git a/src/components/finn-coach.tsx b/src/components/finn-coach.tsx
+index 2a055e7..7a8035f 100644
+--- a/src/components/finn-coach.tsx
++++ b/src/components/finn-coach.tsx
+@@ -8,12 +8,17 @@ import { guides, type Guide } from "@/lib/written-guides";
+ import { cn } from "@/lib/utils";
+ import { FoxAvatar } from "./fox-avatar";
+ import { VoicePlayer } from "./voice-player";
++import { PremiumGate } from "./premium-gate";
+ import { FinnQuestions } from "./finn-questions";
+ 
+ type Props = { game: Game; variant?: "panel" | "table" };
+ 
+ export function FinnCoach({ game, variant = "panel" }: Props) {
+-  return <Lesson key={game.bggId} game={game} guide={guides[game.name]} variant={variant} />;
++  return (
++    <PremiumGate feature="finn">
++      <Lesson key={game.bggId} game={game} guide={guides[game.name]} variant={variant} />
++    </PremiumGate>
++  );
+ }
+ 
+ function Lesson({ game, guide, variant }: Props & { guide?: Guide }) {
+diff --git a/src/components/match-card.tsx b/src/components/match-card.tsx
+index 9d17a9d..30ef16f 100644
+--- a/src/components/match-card.tsx
++++ b/src/components/match-card.tsx
+@@ -43,6 +43,7 @@ export function MatchCard({
+   discover?: boolean;
+ }) {
+   const reason = displayedMatchReason(game);
++  const ready = useAppStore((s) => s.entitlementReady);
+   const addOwned = useAppStore((s) => s.addOwned);
+   const amazonOn = useFlag("amazon_cta");
+ 
+@@ -96,7 +97,7 @@ export function MatchCard({
+           </a>
+         ) : null}
+         {!game.owned && !discover ? (
+-          <Button size="sm" variant="ghost" onClick={() => addOwned(game.bggId)}>
++          <Button size="sm" variant="ghost" disabled={!ready} onClick={() => addOwned(game.bggId)}>
+             Add to vault
+           </Button>
+         ) : null}
+diff --git a/src/components/premium-gate.tsx b/src/components/premium-gate.tsx
+index 81d29ed..1d984a0 100644
+--- a/src/components/premium-gate.tsx
++++ b/src/components/premium-gate.tsx
+@@ -4,12 +4,21 @@ import { LockKeyhole } from "lucide-react";
+ import { Button } from "@/components/ui/button";
+ import { usePremiumAccess } from "@/lib/use-premium-access";
+ 
+-export function PremiumGate({ children }: { children: ReactNode }) {
++export function PremiumGate({
++  children,
++  feature = "scores",
++}: {
++  children: ReactNode;
++  feature?: "scores" | "finn";
++}) {
+   const { access, retry } = usePremiumAccess();
+   if (access === "premium") return <>{children}</>;
+   if (access === "loading") {
+     return (
+-      <p role="status" className="rounded-card bg-card p-4 text-sm text-muted-foreground shadow-card">
++      <p
++        role="status"
++        className="rounded-card bg-card p-4 text-sm text-muted-foreground shadow-card"
++      >
+         Checking your Premium access…
+       </p>
+     );
+@@ -21,12 +30,16 @@ export function PremiumGate({ children }: { children: ReactNode }) {
+       <h1 className="mt-3 font-display text-2xl">
+         {access === "error"
+           ? "Couldn’t verify Premium access"
+-          : "Scores & Win History is Premium"}
++          : feature === "finn"
++            ? "Learn with Finn is Premium"
++            : "Scores & Win History is Premium"}
+       </h1>
+       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+         {access === "error"
+-          ? "We couldn’t confirm this account’s subscription. Scoring stays locked until access can be verified."
+-          : "Premium unlocks game scorecards, winning records, win/loss statistics, and lifetime standings. Your recorded score data is preserved if a subscription expires or is cancelled."}
++          ? "We couldn’t confirm this account’s subscription. This feature stays locked until access can be verified."
++          : feature === "finn"
++            ? "Premium unlocks Teach Me and Ask Finn."
++            : "Premium unlocks game scorecards, winning records, win/loss statistics, and lifetime standings. Your recorded score data is preserved if a subscription expires or is cancelled."}
+       </p>
+       {access === "error" ? (
+         <Button className="mt-4 w-full" variant="secondary" onClick={retry}>
+diff --git a/src/components/scan-games.tsx b/src/components/scan-games.tsx
+index 02d1bfe..5ec57a5 100644
+--- a/src/components/scan-games.tsx
++++ b/src/components/scan-games.tsx
+@@ -19,9 +19,13 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+   const [progress, setProgress] = useState("");
+   const [message, setMessage] = useState("");
+   const [report, setReport] = useState("");
+-  const diagnostics = import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("scanDebug") === "1";
++  const diagnostics =
++    import.meta.env.DEV &&
++    typeof window !== "undefined" &&
++    new URLSearchParams(window.location.search).get("scanDebug") === "1";
+   const [manual, setManual] = useState(false);
+   const owned = useAppStore((s) => s.owned);
++  const ready = useAppStore((s) => s.entitlementReady);
+   const premium = useAppStore((s) => s.isPremium);
+   const available = premium ? Infinity : Math.max(0, FREE_VAULT_LIMIT - owned.length);
+   const selected = rows.filter((row) => row.selected && !(row.bggId && owned.includes(row.bggId)));
+@@ -90,9 +94,21 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+           }
+           try {
+             phoneStatus = "Stopped during text recognition";
+-            await reader.read(photo, (hit) => localHits.push(hit), diagnostics ? (stage, text, titles) => {
+-              passes.push(stage + " · " + (titles.join(", ") || "no match") + "\n" + text.trim().slice(0, 2000));
+-            } : undefined);
++            await reader.read(
++              photo,
++              (hit) => localHits.push(hit),
++              diagnostics
++                ? (stage, text, titles) => {
++                    passes.push(
++                      stage +
++                        " · " +
++                        (titles.join(", ") || "no match") +
++                        "\n" +
++                        text.trim().slice(0, 2000),
++                    );
++                  }
++                : undefined,
++            );
+             phoneStatus = "Completed";
+             return true;
+           } catch {
+@@ -104,17 +120,21 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+         const [remote, local] = await Promise.race([
+           Promise.all([remoteTask, localTask]),
+           cancelled,
+-        ]).finally(() => { photo.width = photo.height = 0; });
++        ]).finally(() => {
++          photo.width = photo.height = 0;
++        });
+         signal.throwIfAborted();
+         if (diagnostics) {
+-          const names = (items: ScanHit[]) => items.map(hit => hit.name).join(", ") || "none";
+-          setReport([
+-            "Photo " + (index + 1) + " · " + dimensions,
+-            "Phone reader · " + phoneStatus + " · " + passes.length + " passes",
+-            "Phone matches · " + names(localHits),
+-            "Server matches · " + (remote?.ok ? names(remote.hits) : "unavailable"),
+-            ...passes,
+-          ].join("\n\n"));
++          const names = (items: ScanHit[]) => items.map((hit) => hit.name).join(", ") || "none";
++          setReport(
++            [
++              "Photo " + (index + 1) + " · " + dimensions,
++              "Phone reader · " + phoneStatus + " · " + passes.length + " passes",
++              "Phone matches · " + names(localHits),
++              "Server matches · " + (remote?.ok ? names(remote.hits) : "unavailable"),
++              ...passes,
++            ].join("\n\n"),
++          );
+         }
+         const hits = [...(remote?.ok ? remote.hits : []), ...localHits];
+         if (hits.length) {
+@@ -129,8 +149,12 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+       signal.throwIfAborted();
+       setMessage(
+         [
+-          unopened ? `Couldn’t open ${unopened} photo${unopened === 1 ? "" : "s"}. Try a JPEG or PNG copy.` : "",
+-          unavailable ? `The scanner couldn’t finish ${unavailable} photo${unavailable === 1 ? "" : "s"}. Try the same photo again.` : "",
++          unopened
++            ? `Couldn’t open ${unopened} photo${unopened === 1 ? "" : "s"}. Try a JPEG or PNG copy.`
++            : "",
++          unavailable
++            ? `The scanner couldn’t finish ${unavailable} photo${unavailable === 1 ? "" : "s"}. Try the same photo again.`
++            : "",
+           partial ? "Scanning stopped early. You can review the titles found so far." : "",
+           empty ? `No titles recognized in ${empty} photo${empty === 1 ? "" : "s"}.` : "",
+           empty ? "Add another angle or search for a missing title." : "",
+@@ -253,7 +277,9 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+         {rows.length > 0 && (
+           <>
+             <div className="flex items-center justify-between text-sm">
+-              <span>{rows.length} found · {selected.length} selected</span>
++              <span>
++                {rows.length} found · {selected.length} selected
++              </span>
+               <button
+                 disabled={!rows.some(canSelect)}
+                 onClick={() => {
+@@ -302,7 +328,7 @@ export function ScanGames({ open, onClose }: { open: boolean; onClose: () => voi
+                 </li>
+               ))}
+             </ul>
+-            <Button disabled={!!progress || !selected.length} onClick={addSelected}>
++            <Button disabled={!ready || !!progress || !selected.length} onClick={addSelected}>
+               Add selected to Vault
+             </Button>
+           </>
+diff --git a/src/lib/coach.ts b/src/lib/coach.ts
+index af824c5..fb78142 100644
+--- a/src/lib/coach.ts
++++ b/src/lib/coach.ts
+@@ -1,4 +1,5 @@
+ import { createServerFn } from "@tanstack/react-start";
++import { authMiddleware } from "@/lib/auth/middleware";
+ import { guides } from "./written-guides";
+ import { getGame } from "./scoring";
+ import { CATALOG_EXTERNAL_ID_CONFLICTS } from "./catalog";
+@@ -21,9 +22,13 @@ function apiKey() {
+   return process.env.XAI_API_KEY;
+ }
+ 
+-export const isFinnVoiceConfigured = createServerFn({ method: "GET" }).handler(async () =>
+-  Boolean(apiKey()),
+-);
++export const isFinnVoiceConfigured = createServerFn({ method: "GET" })
++  .middleware([authMiddleware])
++  .handler(async ({ context }) => {
++    const { requireFinnPremium } = await import("./premium-entitlement.server");
++    await requireFinnPremium(context.userId);
++    return Boolean(apiKey());
++  });
+ 
+ function brief(gameId: string) {
+   if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === gameId)) {
+@@ -43,7 +48,8 @@ function brief(gameId: string) {
+     ].join("\n");
+   }
+   const guide = guides[game.name];
+-  if (guide) return [game.name, guide.goal, guide.setup, guide.turn, guide.win, guide.tip].join("\n");
++  if (guide)
++    return [game.name, guide.goal, guide.setup, guide.turn, guide.win, guide.tip].join("\n");
+   return `Game title only: ${game.name}. No edition or rulebook has been verified.`;
+ }
+ 
+@@ -82,6 +88,7 @@ function trimMessages(messages: CoachMessage[]) {
+ }
+ 
+ export const askFinn = createServerFn({ method: "POST" })
++  .middleware([authMiddleware])
+   .validator((input: { gameId: string; mode: CoachMode; messages: CoachMessage[] }) => {
+     if (!input?.gameId) throw new Error("Missing game");
+     if (input.mode !== "teach" && input.mode !== "table") throw new Error("Bad mode");
+@@ -91,7 +98,9 @@ export const askFinn = createServerFn({ method: "POST" })
+       messages: trimMessages(Array.isArray(input.messages) ? input.messages : []),
+     };
+   })
+-  .handler(async ({ data }) => {
++  .handler(async ({ data, context }) => {
++    const { requireFinnPremium } = await import("./premium-entitlement.server");
++    await requireFinnPremium(context.userId);
+     if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === data.gameId)) {
+       return { ok: false as const, error: "ambiguous-game" };
+     }
+@@ -176,10 +185,13 @@ function parseLesson(raw: string): LessonPack | null {
+ }
+ 
+ export const askFinnLesson = createServerFn({ method: "POST" })
++  .middleware([authMiddleware])
+   .validator((input: { gameId: string }) => ({
+     gameId: String(input?.gameId ?? "").slice(0, 32),
+   }))
+-  .handler(async ({ data }) => {
++  .handler(async ({ data, context }) => {
++    const { requireFinnPremium } = await import("./premium-entitlement.server");
++    await requireFinnPremium(context.userId);
+     if (CATALOG_EXTERNAL_ID_CONFLICTS.some((conflict) => conflict.externalId === data.gameId)) {
+       return { ok: false as const, error: "ambiguous-game" };
+     }
+@@ -213,10 +225,13 @@ export const askFinnLesson = createServerFn({ method: "POST" })
+   });
+ 
+ export const speakFinn = createServerFn({ method: "POST" })
++  .middleware([authMiddleware])
+   .validator((input: { text: string }) => ({
+     text: stripForSpeech(String(input?.text ?? "")),
+   }))
+-  .handler(async ({ data }) => {
++  .handler(async ({ data, context }) => {
++    const { requireFinnPremium } = await import("./premium-entitlement.server");
++    await requireFinnPremium(context.userId);
+     const key = apiKey();
+     if (!key) return { ok: false as const, error: "unavailable" };
+     if (!data.text) return { ok: false as const, error: "empty" };
+@@ -248,11 +263,14 @@ export const speakFinn = createServerFn({ method: "POST" })
+   });
+ 
+ export const hearFinn = createServerFn({ method: "POST" })
++  .middleware([authMiddleware])
+   .validator((input: { audioBase64: string; mime: string }) => ({
+     audioBase64: String(input?.audioBase64 ?? ""),
+     mime: String(input?.mime ?? "audio/webm").slice(0, 80),
+   }))
+-  .handler(async ({ data }) => {
++  .handler(async ({ data, context }) => {
++    const { requireFinnPremium } = await import("./premium-entitlement.server");
++    await requireFinnPremium(context.userId);
+     const key = apiKey();
+     if (!key) return { ok: false as const, error: "unavailable" };
+     if (!data.audioBase64 || data.audioBase64.length < 80) {
+diff --git a/src/lib/db.ts b/src/lib/db.ts
+index 4471e93..8553813 100644
+--- a/src/lib/db.ts
++++ b/src/lib/db.ts
+@@ -5,10 +5,8 @@ export type DbSource = "neon" | "pglite";
+ 
+ // An empty/whitespace DATABASE_URL (an easy misconfig in deploy UIs) must mean
+ // "unset" — otherwise production would silently run on the PGLite fallback.
+-const rawDatabaseUrl =
+-  typeof process !== "undefined" ? process.env.DATABASE_URL : undefined;
+-const databaseUrl =
+-  rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
++const rawDatabaseUrl = typeof process !== "undefined" ? process.env.DATABASE_URL : undefined;
++const databaseUrl = rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
+ 
+ /**
+  * Active backend: real **Neon** when `DATABASE_URL` is set (deployed / configured
+@@ -27,14 +25,8 @@ export const dbSource: DbSource = databaseUrl ? "neon" : "pglite";
+  *   const rows2 = await sql.query("select * from todos where id = $1", [id]);
+  */
+ export interface Sql {
+-  <T = Record<string, unknown>>(
+-    strings: TemplateStringsArray,
+-    ...values: unknown[]
+-  ): Promise<T[]>;
+-  query<T = Record<string, unknown>>(
+-    text: string,
+-    params?: unknown[],
+-  ): Promise<T[]>;
++  <T = Record<string, unknown>>(strings: TemplateStringsArray, ...values: unknown[]): Promise<T[]>;
++  query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]>;
+ }
+ 
+ /**
+@@ -46,6 +38,7 @@ export interface Sql {
+  */
+ const globalRef = globalThis as typeof globalThis & {
+   __pgSqlPromise__?: Promise<Sql>;
++  __gamefinderPgPool__?: import("pg").Pool;
+   __pgliteInstance__?: Promise<import("@electric-sql/pglite").PGlite>;
+   __pgliteMigrateChain__?: Promise<void>;
+ };
+@@ -105,6 +98,7 @@ function createNeonSql(): Promise<Sql> {
+     await pool.query(
+       "insert into _migrations (name) values ('0005_piece_color.sql') on conflict (name) do nothing",
+     );
++    globalRef.__gamefinderPgPool__ = pool;
+     return toSql(async <T>(text: string, params: unknown[]) => {
+       const res = await pool.query(text, params);
+       return res.rows as T[];
+@@ -153,9 +147,7 @@ async function createPgliteSql(): Promise<Sql> {
+       import: "default",
+       eager: true,
+     }) as Record<string, string>;
+-    const doneRows = await pg.query<{ name: string }>(
+-      "select name from _migrations",
+-    );
++    const doneRows = await pg.query<{ name: string }>("select name from _migrations");
+     const done = doneRows.rows.map((r) => r.name);
+     for (const { name, path } of pendingMigrations(Object.keys(migrations), done)) {
+       // Apply + record atomically (parity with scripts/migrate.mjs) so a failed
+@@ -247,3 +239,40 @@ if (typeof window === "undefined" && dbSource === "pglite") {
+     throw err;
+   });
+ }
++
++/** A single connection for the entire transaction, never pooled BEGIN/COMMIT. */
++export async function withSqlTransaction<T>(work: (sql: Sql) => Promise<T>): Promise<T> {
++  await getSql();
++  if (dbSource === "pglite") {
++    const pg = await getPglite();
++    return pg.transaction((tx) =>
++      work(
++        toSql(async <R>(text: string, params: unknown[]) => (await tx.query<R>(text, params)).rows),
++      ),
++    );
++  }
++  const pool = globalRef.__gamefinderPgPool__;
++  if (!pool) throw new Error("Database pool unavailable");
++  const client = await pool.connect();
++  let broken = false;
++  try {
++    await client.query("begin");
++    const result = await work(
++      toSql(
++        async <R>(text: string, params: unknown[]) =>
++          (await client.query(text, params)).rows as R[],
++      ),
++    );
++    await client.query("commit");
++    return result;
++  } catch (error) {
++    try {
++      await client.query("rollback");
++    } catch {
++      broken = true;
++    }
++    throw error;
++  } finally {
++    client.release(broken);
++  }
++}
+diff --git a/src/lib/flags.ts b/src/lib/flags.ts
+index ed2ccc4..df11b25 100644
+--- a/src/lib/flags.ts
++++ b/src/lib/flags.ts
+@@ -41,7 +41,8 @@ export const FLAG_DEFS: FlagDef[] = [
+   {
+     key: "scan_games",
+     name: "Scan Games",
+-    description: "Photo identification of boxes on Vault and Profile. Manual search stays available.",
++    description:
++      "Photo identification of boxes on Vault and Profile. Manual search stays available.",
+     owner: "Mary / shelf",
+     defaultMode: "on",
+     defaultPercent: 100,
+@@ -64,7 +65,7 @@ export const FLAG_DEFS: FlagDef[] = [
+   },
+   {
+     key: "bookworm",
+-    name: "Bookworm (voice coach)",
++    name: "Finn (voice coach)",
+     description: "Finn teaches rules aloud with Grok voice, and stays at the table for rulings.",
+     owner: "John / teach",
+     defaultMode: "on",
+@@ -193,7 +194,10 @@ export const useFlagStore = create<FlagsState>()(
+         const cur = get().flags[flag];
+         const p = Math.max(0, Math.min(100, Math.round(percent)));
+         set({
+-          flags: { ...get().flags, [flag]: { ...cur, percent: p, mode: p === 0 ? "off" : p === 100 ? "on" : "percent" } },
++          flags: {
++            ...get().flags,
++            [flag]: { ...cur, percent: p, mode: p === 0 ? "off" : p === 100 ? "on" : "percent" },
++          },
+           log: pushLog(get().log, { at: Date.now(), flag, detail: `percent → ${p}%` }),
+         });
+       },
+@@ -217,7 +221,11 @@ export const useFlagStore = create<FlagsState>()(
+         set({
+           flags: defaults(),
+           bucketOverride: null,
+-          log: pushLog(get().log, { at: Date.now(), flag: "lab", detail: "reset all flags to defaults" }),
++          log: pushLog(get().log, {
++            at: Date.now(),
++            flag: "lab",
++            detail: "reset all flags to defaults",
++          }),
+         }),
+       rotateDevice: () =>
+         set({
+@@ -247,7 +255,12 @@ export function useFlag(key: FlagKey): boolean {
+       percent: def?.defaultPercent ?? 0,
+       override: "inherit" as const,
+     };
+-    return evaluate(key, runtime, s.deviceId === "pending" ? "pending" : s.deviceId, s.bucketOverride).on;
++    return evaluate(
++      key,
++      runtime,
++      s.deviceId === "pending" ? "pending" : s.deviceId,
++      s.bucketOverride,
++    ).on;
+   });
+ }
+ 
+diff --git a/src/lib/lesson-cache.ts b/src/lib/lesson-cache.ts
+index f57fe10..d15bef2 100644
+--- a/src/lib/lesson-cache.ts
++++ b/src/lib/lesson-cache.ts
+@@ -69,7 +69,7 @@ export async function ensureLesson(gameId: string): Promise<LessonPack | null> {
+   if (hit) {
+     if (!refreshed.has(gameId)) {
+       refreshed.add(gameId);
+-      void fetchPack(gameId);
++      void fetchPack(gameId).catch(() => null);
+     }
+     return hit;
+   }
+diff --git a/src/lib/premium-entitlement.server.ts b/src/lib/premium-entitlement.server.ts
+new file mode 100644
+index 0000000..ec53b47
+--- /dev/null
++++ b/src/lib/premium-entitlement.server.ts
+@@ -0,0 +1,42 @@
++import { getSql } from "@/lib/db";
++
++export type TestPlan = "actual" | "free" | "premium";
++let testPlan: TestPlan = "actual";
++
++// Explicit opt-in, isolated embedded database, and auth-off local test identity.
++// Never enable this for a deployed or shared authenticated environment.
++export function testPlanAllowed(userId: string, env = process.env) {
++  return (
++    userId === "dev-user" &&
++    env.NODE_ENV === "development" &&
++    env.GAMEFINDER_LOCAL_TEST_PLAN === "1" &&
++    env.VITE_AUTH_ENABLED === "false" &&
++    !env.DATABASE_URL?.trim()
++  );
++}
++export function getTestPlan(userId: string) {
++  return {
++    enabled: testPlanAllowed(userId),
++    mode: testPlanAllowed(userId) ? testPlan : ("actual" as const),
++  };
++}
++export function setTestPlan(userId: string, mode: TestPlan) {
++  if (!testPlanAllowed(userId) || !["actual", "free", "premium"].includes(mode))
++    throw new Error("Subscription simulation unavailable");
++  testPlan = mode;
++  return getTestPlan(userId);
++}
++export async function hasPremiumPlan(userId: string) {
++  if (userId === "dev-user") return testPlanAllowed(userId) && testPlan === "premium";
++  const sql = await getSql();
++  const rows = await sql<{ plan: string }>`
++    select plan from profiles where user_id = ${userId} limit 1
++  `;
++  return rows[0]?.plan === "premium";
++}
++
++export async function requireFinnPremium(userId: string, lookup = hasPremiumPlan) {
++  if (!userId || (userId === "dev-user" && !testPlanAllowed(userId)) || !(await lookup(userId))) {
++    throw new Error("Learn with Finn requires GameFinder Premium.");
++  }
++}
+diff --git a/src/lib/social.ts b/src/lib/social.ts
+index 4d273b3..a880d7d 100644
+--- a/src/lib/social.ts
++++ b/src/lib/social.ts
+@@ -1,5 +1,6 @@
+ import { createServerFn } from "@tanstack/react-start";
+ import { getSql } from "@/lib/db";
++import { normalizeVault } from "./vault-policy";
+ import { authMiddleware } from "@/lib/auth/middleware";
+ import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "@/lib/piece-color";
+ import { isCustomCatalogGame, type CatalogGameRecord } from "@/lib/catalog-foundation";
+@@ -112,15 +113,8 @@ async function requireMember(groupId: string, userId: string) {
+   return rows[0];
+ }
+ 
+-async function hasPremiumPlan(userId: string) {
+-  const sql = await getSql();
+-  const rows = await sql<{ plan: string }>`
+-    select plan from profiles where user_id = ${userId} limit 1
+-  `;
+-  return rows[0]?.plan === "premium";
+-}
+-
+ async function requirePremiumPlan(userId: string) {
++  const { hasPremiumPlan } = await import("./premium-entitlement.server");
+   if (!(await hasPremiumPlan(userId))) {
+     throw new Error("Scores & Win History requires GameFinder Premium.");
+   }
+@@ -128,9 +122,28 @@ async function requirePremiumPlan(userId: string) {
+ 
+ export const getPremiumEntitlement = createServerFn({ method: "GET" })
+   .middleware([authMiddleware])
+-  .handler(async ({ context }) => ({
+-    premium: await hasPremiumPlan(context.userId),
+-  }));
++  .handler(async ({ context }) => {
++    const { hasPremiumPlan } = await import("./premium-entitlement.server");
++    return { premium: await hasPremiumPlan(context.userId) };
++  });
++
++export const getSubscriptionTestMode = createServerFn({ method: "GET" })
++  .middleware([authMiddleware])
++  .handler(async ({ context }) => {
++    const { getTestPlan } = await import("./premium-entitlement.server");
++    return getTestPlan(context.userId);
++  });
++
++export const setSubscriptionTestMode = createServerFn({ method: "POST" })
++  .middleware([authMiddleware])
++  .validator((input: { mode: "actual" | "free" | "premium" }) => {
++    if (!["actual", "free", "premium"].includes(input?.mode)) throw new Error("Invalid test mode");
++    return { mode: input.mode };
++  })
++  .handler(async ({ context, data }) => {
++    const { setTestPlan } = await import("./premium-entitlement.server");
++    return setTestPlan(context.userId, data.mode);
++  });
+ 
+ export const getMyProfile = createServerFn({ method: "GET" })
+   .middleware([authMiddleware])
+@@ -152,7 +165,9 @@ export const getMyProfile = createServerFn({ method: "GET" })
+       userId: r.user_id,
+       displayName: r.display_name,
+       avatarSeed: r.avatar_seed,
+-      plan: r.plan,
++      plan: (await (await import("./premium-entitlement.server")).hasPremiumPlan(context.userId))
++        ? "premium"
++        : "free",
+       pieceColor: normalizePieceColor(r.piece_color),
+     } satisfies Profile;
+   });
+@@ -200,28 +215,12 @@ export const getCloudVault = createServerFn({ method: "GET" })
+ 
+ export const replaceCloudVault = createServerFn({ method: "POST" })
+   .middleware([authMiddleware])
+-  .validator((input: { owned: string[]; wishlist: string[] }) => ({
+-    owned: Array.from(new Set((input?.owned ?? []).map(String))).slice(0, 400),
+-    wishlist: Array.from(new Set((input?.wishlist ?? []).map(String))).slice(0, 400),
+-  }))
++  .validator(normalizeVault)
+   .handler(async ({ context, data }) => {
+-    const sql = await getSql();
+-    await sql`delete from vault_games where user_id = ${context.userId}`;
+-    for (const id of data.owned) {
+-      await sql`
+-        insert into vault_games (user_id, bgg_id, list)
+-        values (${context.userId}, ${id}, 'owned')
+-        on conflict do nothing
+-      `;
+-    }
+-    for (const id of data.wishlist) {
+-      await sql`
+-        insert into vault_games (user_id, bgg_id, list)
+-        values (${context.userId}, ${id}, 'wishlist')
+-        on conflict do nothing
+-      `;
+-    }
+-    return { ok: true as const };
++    await ensureProfile(context.userId);
++    const { withSqlTransaction } = await import("./db");
++    const { replaceVaultSnapshot } = await import("./vault-sync.server");
++    return withSqlTransaction((sql) => replaceVaultSnapshot(sql, context.userId, data));
+   });
+ 
+ export const getCloudCatalogGames = createServerFn({ method: "GET" })
+diff --git a/src/lib/store.ts b/src/lib/store.ts
+index 8dce83f..7af8308 100644
+--- a/src/lib/store.ts
++++ b/src/lib/store.ts
+@@ -16,6 +16,11 @@ import { STARTER_SHELF_IDS } from "./catalog";
+ import { createCustomCatalogGame, type CatalogGameRecord } from "./catalog-foundation";
+ import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "./piece-color";
+ 
++/** Advanced targets are effective only while the current plan permits them. */
++export function entitledWizard(context: WizardContext, premium: boolean): WizardContext {
++  return premium ? context : { ...context, exactTraits: null, ratingTargets: {} };
++}
++
+ export const DEFAULT_WIZARD: WizardContext = {
+   players: 4,
+   ageBand: null,
+@@ -74,6 +79,7 @@ type AppState = {
+   dismissPlayPrompt: () => void;
+ 
+   isPremium: boolean;
++  entitlementReady: boolean;
+   lastSurpriseId: string | null;
+   setLastSurprise: (id: string | null) => void;
+ 
+@@ -120,9 +126,9 @@ export const useAppStore = create<AppState>()(
+         });
+       },
+       sniffAgain: () => {
+-        const { wizard, owned, wishlist, plays, vibeWeights, shownIds, recPool } = get();
++        const { wizard, owned, wishlist, plays, vibeWeights, shownIds, recPool, isPremium } = get();
+         const result = runWizard(
+-          wizard,
++          entitledWizard(wizard, isPremium),
+           {
+             owned: recPool?.ids.length ? recPool.ids : owned,
+             wishlist,
+@@ -318,6 +324,7 @@ export const useAppStore = create<AppState>()(
+       dismissPlayPrompt: () => set({ pendingPlayPrompt: null }),
+ 
+       isPremium: false,
++      entitlementReady: false,
+       lastSurpriseId: null,
+       setLastSurprise: (id) => set({ lastSurpriseId: id }),
+       upgradePrompt: null,
+@@ -357,6 +364,7 @@ export const useAppStore = create<AppState>()(
+         ...currentState,
+         ...(persistedState as Partial<AppState>),
+         isPremium: false,
++        entitlementReady: false,
+       }),
+       migrate: (persistedState, version) => ({
+         ...(persistedState as Partial<AppState>),
+diff --git a/src/lib/vault-policy.ts b/src/lib/vault-policy.ts
+new file mode 100644
+index 0000000..ef284cf
+--- /dev/null
++++ b/src/lib/vault-policy.ts
+@@ -0,0 +1,20 @@
++import { FREE_VAULT_LIMIT } from "./types";
++export type VaultSnapshot = { owned: string[]; wishlist: string[] };
++export function normalizeVault(input: VaultSnapshot): VaultSnapshot {
++  if (!Array.isArray(input?.owned) || !Array.isArray(input?.wishlist))
++    throw new Error("Invalid Vault snapshot");
++  const ids = (values: string[]) => {
++    if (values.some((id) => typeof id !== "string" || !id.trim() || id.length > 256))
++      throw new Error("Invalid Vault game id");
++    return Array.from(new Set(values));
++  };
++  const owned = ids(input.owned);
++  const set = new Set(owned);
++  return { owned, wishlist: ids(input.wishlist).filter((id) => !set.has(id)) };
++}
++export function assertVaultCapacity(previous: string[], next: string[], premium: boolean) {
++  if (premium || next.length <= FREE_VAULT_LIMIT) return;
++  const prior = new Set(previous);
++  if (next.some((id) => !prior.has(id)))
++    throw new Error("Free vaults hold up to 50 games. Existing games are preserved.");
++}
+diff --git a/src/lib/vault-sync.server.ts b/src/lib/vault-sync.server.ts
+new file mode 100644
+index 0000000..db4e8c5
+--- /dev/null
++++ b/src/lib/vault-sync.server.ts
+@@ -0,0 +1,31 @@
++import type { Sql } from "./db";
++import { normalizeVault, assertVaultCapacity, type VaultSnapshot } from "./vault-policy";
++import { hasPremiumPlan } from "./premium-entitlement.server";
++
++/** Caller must provide an atomic transaction and lock the account row first. */
++export async function replaceVaultSnapshot(sql: Sql, userId: string, input: VaultSnapshot) {
++  const data = normalizeVault(input);
++  const profile = await sql<{
++    plan: string;
++  }>`select plan from profiles where user_id = ${userId} for update`;
++  if (!profile.length) throw new Error("Vault account unavailable");
++  const current = await sql<{
++    bgg_id: string;
++  }>`select bgg_id from vault_games where user_id = ${userId} and list = 'owned'`;
++  const premium =
++    userId === "dev-user" ? await hasPremiumPlan(userId) : profile[0].plan === "premium";
++  assertVaultCapacity(
++    current.map((row) => row.bgg_id),
++    data.owned,
++    premium,
++  );
++  await sql`delete from vault_games where user_id = ${userId}`;
++  for (const [list, ids] of [
++    ["owned", data.owned],
++    ["wishlist", data.wishlist],
++  ] as const) {
++    if (ids.length)
++      await sql`insert into vault_games (user_id, bgg_id, list) select ${userId}, value, ${list} from jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb) as value`;
++  }
++  return { ok: true as const };
++}
+diff --git a/src/routes/game.$id.index.tsx b/src/routes/game.$id.index.tsx
+index 429f1ee..63bbdd7 100644
+--- a/src/routes/game.$id.index.tsx
++++ b/src/routes/game.$id.index.tsx
+@@ -21,6 +21,7 @@ function GamePage() {
+   const game = getGame(id);
+   const wizardContext = useAppStore((s) => s.wizard);
+   const customGame = useAppStore((s) => s.customGames.find((entry) => entry.id === id));
++  const entitlementReady = useAppStore((s) => s.entitlementReady);
+   const owned = useAppStore((s) => s.owned.includes(id));
+   const wish = useAppStore((s) => s.wishlist.includes(id));
+   const addOwned = useAppStore((s) => s.addOwned);
+@@ -59,7 +60,7 @@ function GamePage() {
+               Remove from Vault
+             </Button>
+           ) : (
+-            <Button className="w-full" onClick={() => addOwned(id)}>
++            <Button className="w-full" disabled={!entitlementReady} onClick={() => addOwned(id)}>
+               <Library className="size-4" />
+               Add to Vault
+             </Button>
+@@ -112,9 +113,7 @@ function GamePage() {
+         </div>
+       </div>
+ 
+-      {reason ? (
+-        <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{reason}</p>
+-      ) : null}
++      {reason ? <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{reason}</p> : null}
+ 
+       <p className="mt-5 text-pretty leading-relaxed">{game.description}</p>
+ 
+@@ -133,6 +132,7 @@ function GamePage() {
+           <>
+             <Button
+               variant="primary"
++              disabled={!entitlementReady}
+               onClick={() => {
+                 const r = addOwned(game.bggId);
+                 if (r === "ok") toast("Added to your vault");
+diff --git a/src/routes/game.$id.teach.tsx b/src/routes/game.$id.teach.tsx
+index 70241bb..6cac404 100644
+--- a/src/routes/game.$id.teach.tsx
++++ b/src/routes/game.$id.teach.tsx
+@@ -5,6 +5,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
+ import { CATALOG_EXTERNAL_ID_CONFLICTS } from "@/lib/catalog";
+ import { DESIGN_ASSESSMENTS } from "@/lib/ratings/design-assessments";
+ import { getGame } from "@/lib/scoring";
++import { PremiumGate } from "@/components/premium-gate";
+ import { FinnCoach } from "@/components/finn-coach";
+ import { guides } from "@/lib/written-guides";
+ import { Button } from "@/components/ui/button";
+@@ -70,41 +71,43 @@ function TeachGame() {
+         Back to {game.name}
+       </Link>
+       <h1 className="font-display text-3xl">How to play {game.name}</h1>
+-      <FinnCoach game={game} />
+-      {guide ? (
+-        <dl className="space-y-4 rounded-card bg-card p-5 shadow-card">
+-          {(
+-            [
+-              ["Set up", guide.setup],
+-              ["On your turn", guide.turn],
+-              ["How to win", guide.win],
+-            ] as const
+-          ).map(([label, text]) => (
+-            <div key={label}>
+-              <dt className="font-semibold">{label}</dt>
+-              <dd className="mt-1">{text}</dd>
+-            </div>
+-          ))}
+-        </dl>
+-      ) : (
+-        <p>
+-          {ambiguous
+-            ? "Check the title and edition on your box before using the rules."
+-            : profile
+-              ? Object.values(profile.matchReasons)[0]
+-              : "Use the instructions that came with this edition."}
+-        </p>
+-      )}
+-      {source?.startsWith("https://") && (
+-        <Button asChild>
+-          <a href={source} target="_blank" rel="noreferrer">
+-            {guide?.rules || /\.pdf(?:$|\?)/i.test(source)
+-              ? "Open game rules"
+-              : "Open game reference"}
+-          </a>
+-        </Button>
+-      )}
+-      {!guide && !ambiguous && <MoreTeaching key={id} id={id} />}
++      <PremiumGate feature="finn">
++        <FinnCoach game={game} />
++        {guide ? (
++          <dl className="space-y-4 rounded-card bg-card p-5 shadow-card">
++            {(
++              [
++                ["Set up", guide.setup],
++                ["On your turn", guide.turn],
++                ["How to win", guide.win],
++              ] as const
++            ).map(([label, text]) => (
++              <div key={label}>
++                <dt className="font-semibold">{label}</dt>
++                <dd className="mt-1">{text}</dd>
++              </div>
++            ))}
++          </dl>
++        ) : (
++          <p>
++            {ambiguous
++              ? "Check the title and edition on your box before using the rules."
++              : profile
++                ? Object.values(profile.matchReasons)[0]
++                : "Use the instructions that came with this edition."}
++          </p>
++        )}
++        {source?.startsWith("https://") && (
++          <Button asChild>
++            <a href={source} target="_blank" rel="noreferrer">
++              {guide?.rules || /\.pdf(?:$|\?)/i.test(source)
++                ? "Open game rules"
++                : "Open game reference"}
++            </a>
++          </Button>
++        )}
++        {!guide && !ambiguous && <MoreTeaching key={id} id={id} />}
++      </PremiumGate>
+     </main>
+   );
+ }
+diff --git a/src/routes/internal.flags.tsx b/src/routes/internal.flags.tsx
+index d96b3be..a6bb6a5 100644
+--- a/src/routes/internal.flags.tsx
++++ b/src/routes/internal.flags.tsx
+@@ -1,5 +1,14 @@
++import { useEffect, useState } from "react";
++import { getSubscriptionTestMode, setSubscriptionTestMode } from "@/lib/social";
+ import { createFileRoute, Link } from "@tanstack/react-router";
+-import { FLAG_DEFS, evaluate, useFlagStore, type DeviceOverride, type FlagKey, type RolloutMode } from "@/lib/flags";
++import {
++  FLAG_DEFS,
++  evaluate,
++  useFlagStore,
++  type DeviceOverride,
++  type FlagKey,
++  type RolloutMode,
++} from "@/lib/flags";
+ import { Button } from "@/components/ui/button";
+ import { cn } from "@/lib/utils";
+ import { toast } from "sonner";
+@@ -8,6 +17,51 @@ export const Route = createFileRoute("/internal/flags")({ component: FlagsConsol
+ 
+ const STEPS = [0, 5, 10, 25, 50, 100];
+ 
++function SubscriptionTestControl() {
++  const [mode, setMode] = useState<"actual" | "free" | "premium" | null>(null);
++  const [busy, setBusy] = useState(false);
++  useEffect(() => {
++    if (import.meta.env.DEV)
++      void getSubscriptionTestMode()
++        .then((result) => {
++          if (result.enabled) setMode(result.mode);
++        })
++        .catch(() => {});
++  }, []);
++  if (mode === null) return null;
++  return (
++    <section className="mt-5 rounded-card bg-card p-4 shadow-card">
++      <h2 className="font-display text-xl">Subscription testing</h2>
++      <p className="mt-1 text-sm text-muted-foreground">
++        Local test account only. No purchases or billing changes. Switching reloads the app and
++        preserves your Vault.
++      </p>
++      <div className="mt-3 flex flex-wrap gap-2">
++        {(["actual", "free", "premium"] as const).map((value) => (
++          <Button
++            key={value}
++            disabled={busy}
++            variant={mode === value ? "primary" : "outline"}
++            aria-pressed={mode === value}
++            onClick={async () => {
++              setBusy(true);
++              try {
++                await setSubscriptionTestMode({ data: { mode: value } });
++                window.location.reload();
++              } catch {
++                toast.error("Could not change test subscription");
++                setBusy(false);
++              }
++            }}
++          >
++            {value === "actual" ? "Actual" : value === "free" ? "Free" : "Premium"}
++          </Button>
++        ))}
++      </div>
++    </section>
++  );
++}
++
+ function FlagsConsole() {
+   const deviceId = useFlagStore((s) => s.deviceId);
+   const flags = useFlagStore((s) => s.flags);
+@@ -24,7 +78,9 @@ function FlagsConsole() {
+   if (!hydrated) {
+     return (
+       <div className="pb-12">
+-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-fox">Internal · staged rollouts</p>
++        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-fox">
++          Internal · staged rollouts
++        </p>
+         <h1 className="mt-1 font-display text-3xl">Feature flags</h1>
+         <p className="mt-3 text-sm text-muted-foreground">Loading this device’s lab…</p>
+       </div>
+@@ -38,16 +94,22 @@ function FlagsConsole() {
+ 
+   return (
+     <div className="pb-12">
+-      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-fox">Internal · staged rollouts</p>
++      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-fox">
++        Internal · staged rollouts
++      </p>
+       <h1 className="mt-1 font-display text-3xl">Feature flags</h1>
+       <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+-        Percent rollouts use a stable device bucket (0–99). Testers on this phone keep the same slice unless you rotate the id. Overrides apply only here.
++        Percent rollouts use a stable device bucket (0–99). Testers on this phone keep the same
++        slice unless you rotate the id. Overrides apply only here.
+       </p>
+ 
++      <SubscriptionTestControl />
+       <section className="mt-5 rounded-card bg-card p-4 shadow-card">
+         <div className="flex flex-wrap items-center justify-between gap-2">
+           <div>
+-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">This device</p>
++            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
++              This device
++            </p>
+             <p className="mt-1 font-mono text-sm">{deviceId === "pending" ? "…" : deviceId}</p>
+             <p className="mt-1 text-xs text-muted-foreground">
+               {live} / {FLAG_DEFS.length} flags on
+@@ -88,7 +150,11 @@ function FlagsConsole() {
+             />
+             <span className="w-10 tabular-nums">{bucketOverride ?? "auto"}</span>
+             {bucketOverride != null ? (
+-              <button type="button" className="text-sm font-semibold text-sky" onClick={() => setBucketOverride(null)}>
++              <button
++                type="button"
++                className="text-sm font-semibold text-sky"
++                onClick={() => setBucketOverride(null)}
++              >
+                 Clear
+               </button>
+             ) : null}
+@@ -101,7 +167,11 @@ function FlagsConsole() {
+           const runtime = flags[def.key];
+           const ev = evaluate(def.key, runtime, deviceId, bucketOverride);
+           return (
+-            <article key={def.key} data-flag={def.key} className="rounded-card bg-card p-4 shadow-card">
++            <article
++              key={def.key}
++              data-flag={def.key}
++              className="rounded-card bg-card p-4 shadow-card"
++            >
+               <div className="flex items-start justify-between gap-3">
+                 <div>
+                   <div className="flex flex-wrap items-center gap-2">
+@@ -121,7 +191,15 @@ function FlagsConsole() {
+                   <button
+                     key={m}
+                     type="button"
+-                    onClick={() => setMode(def.key, m, m === "percent" ? Math.min(99, Math.max(1, runtime.percent || 25)) : runtime.percent)}
++                    onClick={() =>
++                      setMode(
++                        def.key,
++                        m,
++                        m === "percent"
++                          ? Math.min(99, Math.max(1, runtime.percent || 25))
++                          : runtime.percent,
++                      )
++                    }
+                     aria-label={`${def.name} ${m}`}
+                     className={cn(
+                       "rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wide",
+@@ -159,12 +237,16 @@ function FlagsConsole() {
+                     className="mt-2 w-full accent-fox"
+                     aria-label={`${def.name} percent`}
+                   />
+-                  <p className="text-xs tabular-nums text-muted-foreground">{runtime.percent}% of devices</p>
++                  <p className="text-xs tabular-nums text-muted-foreground">
++                    {runtime.percent}% of devices
++                  </p>
+                 </div>
+               ) : null}
+ 
+               <div className="mt-3">
+-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">This device</p>
++                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
++                  This device
++                </p>
+                 <div className="mt-1 flex flex-wrap gap-1.5">
+                   {(["inherit", "force_on", "force_off"] as DeviceOverride[]).map((o) => (
+                     <button
+@@ -177,7 +259,11 @@ function FlagsConsole() {
+                         runtime.override === o ? "bg-moss text-cream" : "bg-muted",
+                       )}
+                     >
+-                      {o === "inherit" ? "Follow rollout" : o === "force_on" ? "Force on" : "Force off"}
++                      {o === "inherit"
++                        ? "Follow rollout"
++                        : o === "force_on"
++                          ? "Force on"
++                          : "Force off"}
+                     </button>
+                   ))}
+                 </div>
+diff --git a/src/routes/premium.tsx b/src/routes/premium.tsx
+index 7ee08b2..9f6cc16 100644
+--- a/src/routes/premium.tsx
++++ b/src/routes/premium.tsx
+@@ -2,7 +2,13 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+ import { useEffect, useState } from "react";
+ import { toast } from "sonner";
+ import { FoxAvatar } from "@/components/fox-avatar";
+-import { BILLING, billingStatus, confirmCheckout, startCheckout, type BillingTier } from "@/lib/billing";
++import {
++  BILLING,
++  billingStatus,
++  confirmCheckout,
++  startCheckout,
++  type BillingTier,
++} from "@/lib/billing";
+ import { useCurrentUserState } from "@/lib/auth/use-current-user";
+ import { useAppStore } from "@/lib/store";
+ import { cn } from "@/lib/utils";
+@@ -102,14 +108,14 @@ function PremiumPage() {
+         {isPremium ? "You're on Premium" : "More room for game night"}
+       </h1>
+       <p className="mx-auto mt-3 max-w-sm text-center text-sm text-muted-foreground">
+-        Keep an unlimited Vault, enjoy an ad-free experience, tune exact scores in Vibe filters,
+-        and unlock Scores &amp; Win History. Your plays stay yours.
++        Keep an unlimited Vault, enjoy an ad-free experience, tune exact scores in Vibe filters, and
++        unlock Scores &amp; Win History. Your plays stay yours.
+       </p>
+ 
+       {access === "error" ? (
+         <p role="alert" className="mt-5 rounded-card bg-muted p-3 text-sm text-muted-foreground">
+-          We couldn’t verify this account’s Premium entitlement. Scoring remains locked until it
+-          can be verified.
++          We couldn’t verify this account’s Premium entitlement. Scoring remains locked until it can
++          be verified.
+         </p>
+       ) : null}
+ 
+@@ -120,8 +126,7 @@ function PremiumPage() {
+         {(Object.keys(BILLING) as BillingTier[]).map((id) => {
+           const plan = BILLING[id];
+           const featured = id === "yearly";
+-          const available =
+-            subscriptionManagement && stripe === true && prices[id];
++          const available = subscriptionManagement && stripe === true && prices[id];
+           return (
+             <button
+               key={id}
+@@ -178,6 +183,7 @@ function PremiumPage() {
+           <li>Unlimited Vault; Free includes up to 50 games.</li>
+           <li>Ad-free experience.</li>
+           <li>Advanced exact-score filters in the Vibe step.</li>
++          <li>Teach Me and Ask Finn.</li>
+           <li>Scorecards, winning records, win/loss statistics, and lifetime standings.</li>
+         </ul>
+       </section>
+diff --git a/src/routes/vault.tsx b/src/routes/vault.tsx
+index a61113c..e5bfa14 100644
+--- a/src/routes/vault.tsx
++++ b/src/routes/vault.tsx
+@@ -20,6 +20,7 @@ function VaultPage() {
+   const owned = useAppStore((s) => s.owned);
+   const wishlist = useAppStore((s) => s.wishlist);
+   const customGames = useAppStore((s) => s.customGames);
++  const ready = useAppStore((s) => s.entitlementReady);
+   const isPremium = useAppStore((s) => s.isPremium);
+   const stockStarterShelf = useAppStore((s) => s.stockStarterShelf);
+   const [scan, setScan] = useState(false);
+@@ -67,12 +68,13 @@ function VaultPage() {
+           <button
+             type="button"
+             className="text-sm font-semibold text-sky"
++            disabled={!ready}
+             onClick={() => stockStarterShelf()}
+           >
+             Or stock a starter shelf
+           </button>
+         </div>
+-        <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />
++        {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
+         <ScanGames open={scan} onClose={() => setScan(false)} />
+         <AddGameDialog open={manual} onClose={() => setManual(false)} />
+       </>
+@@ -86,7 +88,8 @@ function VaultPage() {
+           <h1 className="font-display text-3xl">Vault</h1>
+           <p className="text-sm text-muted-foreground">
+             {owned.length}
+-            {!isPremium ? ` / ${FREE_VAULT_LIMIT}` : ""} owned · {wishlist.length} wishlisted
++            {!ready ? " · checking plan" : !isPremium ? ` / ${FREE_VAULT_LIMIT}` : ""} owned ·{" "}
++            {wishlist.length} wishlisted
+           </p>
+         </div>
+         {scanOn ? (
+@@ -102,7 +105,7 @@ function VaultPage() {
+         )}
+       </div>
+ 
+-      <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />
++      {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
+ 
+       <div className="mt-4 flex gap-2">
+         <Tab on={tab === "owned"} onClick={() => setTab("owned")}>
+@@ -130,7 +133,10 @@ function VaultPage() {
+           const title = isLegacyGame ? game.name : game.title;
+           return (
+             <Link key={id} to="/game/$id" params={{ id }} aria-label={title} title={title}>
+-              <GameCover game={{ name: title, bggId: id }} className="vault-cover aspect-[5/7] w-full" />
++              <GameCover
++                game={{ name: title, bggId: id }}
++                className="vault-cover aspect-[5/7] w-full"
++              />
+             </Link>
+           );
+         })}
+diff --git a/src/routes/wizard.tsx b/src/routes/wizard.tsx
+index f49b7f5..ea18f76 100644
+--- a/src/routes/wizard.tsx
++++ b/src/routes/wizard.tsx
+@@ -7,7 +7,7 @@ import { FoxAvatar } from "@/components/fox-avatar";
+ import { Button } from "@/components/ui/button";
+ import { VibeGrid } from "@/components/vibe-grid";
+ import { AgeBands, PlayerPicker, TimeChips, WIZARD_QUESTIONS } from "@/components/wizard-controls";
+-import { useAppStore } from "@/lib/store";
++import { entitledWizard, useAppStore } from "@/lib/store";
+ import { runWizard } from "@/lib/scoring";
+ import type { VibeId } from "@/lib/types";
+ import { cn } from "@/lib/utils";
+@@ -31,6 +31,7 @@ function WizardPage() {
+   const wizard = useAppStore((s) => s.wizard);
+   const setWizard = useAppStore((s) => s.setWizard);
+   const setResults = useAppStore((s) => s.setResults);
++  const ready = useAppStore((s) => s.entitlementReady);
+   const isPremium = useAppStore((s) => s.isPremium);
+   const setUpgradePrompt = useAppStore((s) => s.setUpgradePrompt);
+   const advancedOn = useFlag("advanced_filters");
+@@ -44,11 +45,12 @@ function WizardPage() {
+   }, [sniffing, navigate]);
+ 
+   function finish() {
++    if (!useAppStore.getState().entitlementReady) return;
+     setSniffing(true);
+     useAppStore.setState({ shownIds: [] });
+     setWizard({ ratingSeed: crypto.randomUUID() });
+     const { owned, wishlist, plays, vibeWeights, wizard: ctx, recPool } = useAppStore.getState();
+-    const result = runWizard(ctx, {
++    const result = runWizard(entitledWizard(ctx, useAppStore.getState().isPremium), {
+       owned: recPool?.ids.length ? recPool.ids : owned,
+       wishlist,
+       plays,
+@@ -105,7 +107,12 @@ function WizardPage() {
+             />
+           ))}
+         </div>
+-        <button type="button" onClick={skip} className="h-11 px-2 text-sm font-semibold text-sky">
++        <button
++          type="button"
++          disabled={last && !ready}
++          onClick={skip}
++          className="h-11 px-2 text-sm font-semibold text-sky"
++        >
+           Skip
+         </button>
+       </div>
+@@ -135,6 +142,7 @@ function WizardPage() {
+               <div>
+                 <button
+                   type="button"
++                  disabled={!ready}
+                   className="text-sm font-semibold text-sky"
+                   onClick={() => {
+                     if (!isPremium) {
+@@ -196,6 +204,7 @@ function WizardPage() {
+       <div className="sticky bottom-4 mt-8">
+         <Button
+           size="xl"
++          disabled={last && !ready}
+           className="w-full"
+           onClick={() => (last ? finish() : setStep((s) => s + 1))}
+         >

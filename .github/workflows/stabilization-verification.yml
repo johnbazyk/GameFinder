@@ -1,0 +1,24 @@
+name: Stabilization verification
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'stabilization/07-*'
+      - 'stabilization/08-*'
+      - 'stabilization/09-*'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:postgres

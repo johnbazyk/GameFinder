@@ -1,19 +1,16 @@
+import { GameCharacterDetails } from "@/components/game-character-details";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ExternalLink, Heart, Library, Mic, Play, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { GameCover } from "@/components/game-cover";
-import { RubricRadar } from "@/components/rubric-radar";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
 import { GameRow } from "@/components/match-card";
+import { displayedMatchReason } from "@/lib/application-ratings";
 import { getGame, similarGames, formatPlaytime, formatPlayers, formatAge } from "@/lib/scoring";
 import { useAppStore } from "@/lib/store";
-import { VIBE_META, traitScore } from "@/lib/vibes";
 import { amazonSearchUrl } from "@/lib/affiliate";
-import { BANK_BGG_ID } from "@/lib/bank";
-import { STOCKPILE_ID } from "@/lib/minigames/stockpile";
-import type { VibeId } from "@/lib/types";
 import { useFlag } from "@/lib/flags";
 import { FinnCoach } from "@/components/finn-coach";
 
@@ -22,28 +19,67 @@ export const Route = createFileRoute("/game/$id/")({ component: GamePage });
 function GamePage() {
   const { id } = Route.useParams();
   const game = getGame(id);
+  const wizardContext = useAppStore((s) => s.wizard);
+  const customGame = useAppStore((s) => s.customGames.find((entry) => entry.id === id));
+  const entitlementReady = useAppStore((s) => s.entitlementReady);
   const owned = useAppStore((s) => s.owned.includes(id));
   const wish = useAppStore((s) => s.wishlist.includes(id));
   const addOwned = useAppStore((s) => s.addOwned);
   const removeOwned = useAppStore((s) => s.removeOwned);
   const toggleWishlist = useAppStore((s) => s.toggleWishlist);
   const logPlay = useAppStore((s) => s.logPlay);
-  const fromResults = useAppStore((s) =>
-    Boolean(
-      s.lastResults &&
-        [...s.lastResults.ownedTop, ...s.lastResults.unownedTop].some((g) => g.bggId === id),
-    ),
-  );
   const match = useAppStore((s) =>
     s.lastResults
       ? [...s.lastResults.ownedTop, ...s.lastResults.unownedTop].find((g) => g.bggId === id)
       : undefined,
   );
+  const reason = match ? displayedMatchReason(match) : "";
   const [logging, setLogging] = useState(false);
   const [enjoyed, setEnjoyed] = useState(true);
   const amazonOn = useFlag("amazon_cta");
 
   if (!game) {
+    if (customGame) {
+      return (
+        <section className="space-y-4 pb-10">
+          <div className="grid aspect-[5/7] max-h-72 place-items-center rounded-card bg-muted text-sm font-semibold text-muted-foreground">
+            Custom game
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-fox">
+              Personal catalog entry
+            </p>
+            <h1 className="mt-1 font-display text-3xl">{customGame.title}</h1>
+          </div>
+          <p className="rounded-card bg-muted px-4 py-3 text-sm text-muted-foreground">
+            Player count, age, playtime, and rule sources are unknown. This entry is kept in your
+            Vault but will not be recommended against hard filters until verified details are added.
+          </p>
+          {owned ? (
+            <Button className="w-full" variant="outline" onClick={() => removeOwned(id)}>
+              Remove from Vault
+            </Button>
+          ) : (
+            <Button className="w-full" disabled={!entitlementReady} onClick={() => addOwned(id)}>
+              <Library className="size-4" />
+              Add to Vault
+            </Button>
+          )}
+          <Button
+            className="w-full"
+            variant={wish ? "secondary" : "outline"}
+            onClick={() => toggleWishlist(id)}
+          >
+            <Heart className={wish ? "size-4 fill-fox text-fox" : "size-4"} />
+            {wish ? "On Wishlist" : "Add to Wishlist"}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Finn is unavailable for this entry until a correct edition and authorized source are
+            identified.
+          </p>
+        </section>
+      );
+    }
     return (
       <EmptyState
         mood="shrug"
@@ -55,7 +91,7 @@ function GamePage() {
     );
   }
 
-  const related = similarGames(game);
+  const related = similarGames(game, undefined, match?.ratingContext ?? wizardContext);
   const amazon = amazonSearchUrl(game.name);
   const bgg = /^\d+$/.test(game.bggId)
     ? `https://boardgamegeek.com/boardgame/${game.bggId}`
@@ -74,19 +110,10 @@ function GamePage() {
             {formatPlayers(game)} players · {formatPlaytime(game)} · {formatAge(game)}
           </p>
           <p className="mt-2 text-sm font-semibold">BGG Rating: {game.bggRating.toFixed(1)} / 10</p>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {game.vibes.map((v) => (
-              <span key={v} className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold">
-                {VIBE_META[v].label}
-              </span>
-            ))}
-          </div>
         </div>
       </div>
 
-      {fromResults && match ? (
-        <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{match.why}</p>
-      ) : null}
+      {reason ? <p className="mt-4 rounded-card bg-fox/10 px-4 py-3 text-sm">{reason}</p> : null}
 
       <p className="mt-5 text-pretty leading-relaxed">{game.description}</p>
 
@@ -105,6 +132,7 @@ function GamePage() {
           <>
             <Button
               variant="primary"
+              disabled={!entitlementReady}
               onClick={() => {
                 const r = addOwned(game.bggId);
                 if (r === "ok") toast("Added to your vault");
@@ -113,7 +141,10 @@ function GamePage() {
               <Library className="size-4" />
               Add to Vault
             </Button>
-            <Button variant={wish ? "secondary" : "outline"} onClick={() => toggleWishlist(game.bggId)}>
+            <Button
+              variant={wish ? "secondary" : "outline"}
+              onClick={() => toggleWishlist(game.bggId)}
+            >
               <Heart className={wish ? "size-4 fill-fox text-fox" : "size-4"} />
               {wish ? "On Wishlist" : "Add to Wishlist"}
             </Button>
@@ -132,34 +163,18 @@ function GamePage() {
       ) : null}
 
       <Button className="mt-3 w-full" variant="secondary" asChild>
-        <Link to="/game/$id/table" params={{ id: game.bggId }}>
+        <Link to="/game/$id/teach" params={{ id: game.bggId }}>
           <Mic className="size-4" />
-          Teach me with Finn
+          Teach me
         </Link>
       </Button>
       <FinnCoach game={game} />
 
-      <section className="mt-8 rounded-card bg-card p-4 shadow-card">
-        <h2 className="font-display text-xl">How it plays</h2>
-        <ul className="mt-3 space-y-2">
-          {(Object.keys(VIBE_META) as VibeId[]).map((v) => (
-            <li key={v} className="flex items-center gap-3 text-sm">
-              <span className="w-28 shrink-0 text-muted-foreground">{VIBE_META[v].label}</span>
-              <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                <span
-                  className="block h-full rounded-full bg-fox"
-                  style={{ width: `${(traitScore(game, v) / 5) * 100}%` }}
-                />
-              </span>
-              <span className="w-8 text-right tabular-nums">{traitScore(game, v).toFixed(1)}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-2 text-xs text-muted-foreground">Scores are 1–5 for each vibe trait.</p>
-        <div className="mt-4">
-          <RubricRadar rubric={game.rubric} />
-        </div>
-      </section>
+      <GameCharacterDetails
+        key={game.bggId}
+        game={game}
+        context={match?.ratingContext ?? wizardContext}
+      />
 
       <section className="mt-6 rounded-card bg-card p-4 shadow-card">
         <h2 className="font-display text-xl">Scorecard</h2>
@@ -172,30 +187,22 @@ function GamePage() {
             Open {game.name} scorecard
           </Link>
         </Button>
-        {game.bggId === BANK_BGG_ID ? (
-          <Button className="mt-3 w-full" variant="secondary" asChild>
-            <Link to="/play/bank">
-              <Play className="size-4" />
-              Play Bank at the table
-            </Link>
-          </Button>
-        ) : null}
-        {game.bggId === STOCKPILE_ID ? (
-          <Button className="mt-3 w-full" variant="secondary" asChild>
-            <Link to="/play/stockpile">
-              <Play className="size-4" />
-              Play Stockpile at the table
-            </Link>
-          </Button>
-        ) : null}
         {logging ? (
           <div className="mt-4 space-y-3">
             <p className="text-sm text-muted-foreground">Quick vibe check instead?</p>
             <div className="flex gap-2">
-              <Button size="sm" variant={enjoyed ? "primary" : "outline"} onClick={() => setEnjoyed(true)}>
+              <Button
+                size="sm"
+                variant={enjoyed ? "primary" : "outline"}
+                onClick={() => setEnjoyed(true)}
+              >
                 We loved it
               </Button>
-              <Button size="sm" variant={!enjoyed ? "berry" : "outline"} onClick={() => setEnjoyed(false)}>
+              <Button
+                size="sm"
+                variant={!enjoyed ? "berry" : "outline"}
+                onClick={() => setEnjoyed(false)}
+              >
                 Not our night
               </Button>
             </div>
@@ -222,7 +229,7 @@ function GamePage() {
         )}
       </section>
 
-      {!owned && amazonOn && game.bggId !== BANK_BGG_ID && game.bggId !== STOCKPILE_ID ? (
+      {!owned && amazonOn ? (
         <a
           href={amazon}
           target="_blank"
@@ -263,10 +270,13 @@ function GamePage() {
 
       {related.length ? (
         <section className="mt-8">
-          <h2 className="mb-2 font-display text-xl">If you like this</h2>
-          <div className="divide-y divide-border rounded-card bg-card px-3 py-1 shadow-card">
+          <h2 className="mb-2 font-display text-xl">Similar Games</h2>
+          <div
+            aria-label="Similar game recommendations"
+            className="divide-y divide-border rounded-card bg-card px-3 py-1 shadow-card"
+          >
             {related.map((g) => (
-              <GameRow key={g.bggId} game={g} />
+              <GameRow key={g.bggId} game={g} showOwnership />
             ))}
           </div>
         </section>

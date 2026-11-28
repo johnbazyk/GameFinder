@@ -1,0 +1,2010 @@
+diff --git a/docs/billing-account-lifecycle.md b/docs/billing-account-lifecycle.md
+new file mode 100644
+index 0000000..ac7a935
+--- /dev/null
++++ b/docs/billing-account-lifecycle.md
+@@ -0,0 +1,22 @@
++# Phase 06 — Billing and account lifecycle stabilization
++
++Base: dd5f339 (integrated Phase 05). Pricing remains USD 4.99 monthly and 44.99 annually. Free Vault limit remains 50; existing over-limit collections survive downgrade. No purchase activation or production migration is authorized by this package.
++
++## Implementation
++
++- Device-local account shelves, play history and custom games are partitioned on account change. Guest and legacy unassigned shelves are preserved separately rather than automatically attributed to a signed-in user.
++- Vault writes verify expected authenticated identity; use a persisted cloud baseline, transactional delta merge and serialized client requests. Catalog writes also verify expected account. Existing capacity restrictions and rollback are preserved.
++- Managed subscription records override legacy manually granted plan flags, including paid-through expiry and cancellation. Legacy accounts without a billing record retain existing behavior. Premium UI periodically refreshes and server authorization remains authoritative.
++- Additive migration 0007 adds a unique account/customer/subscription ledger and webhook receipts with row level security. Apply migration before deploying code against an existing Postgres database.
++- Stripe HMAC verification uses raw payload, bounded timestamp tolerance and timing-safe comparison. Event reconciliation retrieves current subscription and invoice evidence, deduplicates receipts transactionally, and rejects unrelated or unbound identities.
++- Checkout confirmation code uses the ledger rather than a permanent plan write. Portal code resolves customer from authenticated account only. Both remain hard-disabled. Webhook has separate explicit test-only configuration gate; live mode is rejected. No actual Stripe requests or charges were made.
++
++## Verification
++
++TypeScript passed. Full automated suite: 434 tests, 423 passed, zero failed, 11 skipped (external PostgreSQL). Local disabled webhook HTTP response: 503 as intended. Chrome at 390 x 844: scripts/subscription-lab-browser.mjs passed all assertions, including pricing, Free/Premium feature gates, advertising, 51st game, and downgrade preservation. First browser run was interrupted by Vite optimizer reload; warmed rerun passed (exit 0). Lab uses disposable auth-off account, embedded database, no Stripe or AI credentials. Not equivalent to authenticated multi-account or live provider acceptance.
++
++## Release blockers / decisions not to infer from passing tests
++
++- Checkout and portal stay disabled; do not flip the constant merely because tests passed. End-to-end Stripe test-mode enrollment, portal configuration, webhook delivery, idempotent checkout session creation, duplicate subscription prevention, initial enrollment independent of browser redirect, resubscription/replacement, refund/dispute handling, API-version contract and verified price/amount policy still require dedicated acceptance. Live activation requires explicit approval. Current one-binding ledger deliberately rejects replacement identity. The receipt/ledger tests simulate provider data; they do not certify Stripe API behavior.
++- Existing local shelves with unknown ownership are preserved in the guest slot. No explicit guest-to-account transfer/recovery interface is provided yet. Local archives are not encrypted; account switching isolates normal UI state, not access by someone inspecting the same browser storage. Authenticated account switching, cross-tab races, offline reconnect, delayed requests, hydration/session transitions and unsynced custom-catalog recovery need real browser acceptance. Local history partitioning is not cloud history backup.
++- PostgreSQL integration was skipped; migrate and test a disposable staging database before any production deployment. No production database changes or payments were made. No claim of launch readiness.
+diff --git a/migrations/0007_subscription_lifecycle.sql b/migrations/0007_subscription_lifecycle.sql
+new file mode 100644
+index 0000000..79d6754
+--- /dev/null
++++ b/migrations/0007_subscription_lifecycle.sql
+@@ -0,0 +1,19 @@
++-- Dormant billing ledger. Only trusted server-side reconciliation may write it.
++-- Existing manually granted plans are not silently converted into paid subscriptions.
++create table if not exists billing_subscriptions (
++  user_id text primary key references profiles(user_id) on delete cascade,
++  provider_subscription_id text not null unique,
++  provider_customer_id text not null unique,
++  status text not null check (status in ('active','past_due','canceled','unpaid','incomplete','incomplete_expired','paused','trialing')),
++  paid_through_ms bigint not null check (paid_through_ms >= 0),
++  verified_at_ms bigint not null check (verified_at_ms >= 0),
++  cancel_at_period_end boolean not null default false
++);
++alter table billing_subscriptions enable row level security;
++
++create table if not exists billing_webhook_events (
++  event_id text primary key,
++  event_type text not null,
++  processed_at timestamptz not null default now()
++);
++alter table billing_webhook_events enable row level security;
+diff --git a/scripts/account-vault.test.mjs b/scripts/account-vault.test.mjs
+new file mode 100644
+index 0000000..de7a92e
+--- /dev/null
++++ b/scripts/account-vault.test.mjs
+@@ -0,0 +1,41 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { createServer } from "vite";
++let server, v;
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    logLevel: "silent",
++    server: { middlewareMode: true },
++  });
++  v = await server.ssrLoadModule("/src/lib/account-vault.ts");
++});
++after(async () => server?.close());
++const shelf = (owned = [], wishlist = []) => ({ owned, wishlist });
++test("account changes isolate and preserve guest and each signed-in shelf", () => {
++  const guest = { ...shelf(["guest-game"]), ownerId: null };
++  const a = v.switchVault(guest, {}, "A");
++  assert.deepEqual(a.vault, { ...shelf(), ownerId: "A" });
++  const b = v.switchVault({ ...shelf(["a-game"]), ownerId: "A" }, a.archives, "B");
++  assert.deepEqual(b.vault, { ...shelf(), ownerId: "B" });
++  const back = v.switchVault({ ...shelf(["b-game"]), ownerId: "B" }, b.archives, "A");
++  assert.deepEqual(back.vault, { ...shelf(["a-game"]), ownerId: "A" });
++  assert.deepEqual(v.switchVault(back.vault, back.archives, null).vault, guest);
++});
++test("delta merge keeps remote additions and removals and applies local changes", () => {
++  assert.deepEqual(
++    v.mergeVaultDelta(shelf(["a", "b", "c"]), shelf(["b", "c", "d"]), shelf(["a", "c", "e"])),
++    shelf(["c", "e", "d"]),
++  );
++  assert.deepEqual(v.mergeVaultDelta(shelf(["a"]), shelf(["a"]), shelf()), shelf());
++});
++test("owned takes precedence over wishlist after concurrent changes", () => {
++  assert.deepEqual(
++    v.mergeVaultDelta(shelf([], ["a"]), shelf(["a"]), shelf([], ["a", "b"])),
++    shelf(["a"], ["b"]),
++  );
++});
++test("snapshot comparison is independent of ordering", () => {
++  assert.equal(v.sameVault(shelf(["a", "b"]), shelf(["b", "a"])), true);
++  assert.equal(v.sameVault(shelf(["a"]), shelf(["b"])), false);
++});
+diff --git a/scripts/finn-premium.test.mjs b/scripts/finn-premium.test.mjs
+index e4d4165..68a4b37 100644
+--- a/scripts/finn-premium.test.mjs
++++ b/scripts/finn-premium.test.mjs
+@@ -15,7 +15,14 @@ function helper(plan, env = {}) {
+     ts.transpileModule(source, {
+       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+     }).outputText,
+-    { exports, process: { env }, require: () => ({ getSql: async () => sql }) },
++    {
++      exports,
++      process: { env },
++      require: (id) =>
++        id.includes("subscription-ledger")
++          ? { readManagedEntitlement: async () => null }
++          : { getSql: async () => sql },
++    },
+   );
+   return exports;
+ }
+diff --git a/scripts/stripe-event-handler.test.mjs b/scripts/stripe-event-handler.test.mjs
+new file mode 100644
+index 0000000..ec36aaa
+--- /dev/null
++++ b/scripts/stripe-event-handler.test.mjs
+@@ -0,0 +1,97 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { readFileSync } from "node:fs";
++import { createServer } from "vite";
++import { PGlite } from "@electric-sql/pglite";
++let server, db, handler;
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    logLevel: "silent",
++    server: { middlewareMode: true },
++  });
++  handler = await server.ssrLoadModule("/src/lib/stripe-event-handler.server.ts");
++  db = new PGlite();
++  await db.waitReady;
++  for (const migration of ["0002_social.sql", "0007_subscription_lifecycle.sql"])
++    await db.exec(readFileSync(new URL("../migrations/" + migration, import.meta.url), "utf8"));
++  await db.exec(
++    "insert into profiles (user_id,display_name) values ('a','A'); insert into billing_subscriptions values ('a','sub_A','cus_A','active',2000000,1000,false)",
++  );
++});
++after(async () => {
++  await db?.close();
++  await server?.close();
++});
++const sql =
++  (tx) =>
++  async (parts, ...values) =>
++    (
++      await tx.query(
++        parts.reduce((s, p, i) => s + (i ? "$" + i : "") + p, ""),
++        values,
++      )
++    ).rows;
++const event = {
++  id: "evt_A",
++  type: "customer.subscription.updated",
++  livemode: false,
++  created: 1000,
++  data: { object: { id: "sub_A" } },
++};
++let calls = 0;
++const provider = async (path) => {
++  calls++;
++  assert.equal(path, "subscriptions/sub_A");
++  return {
++    id: "sub_A",
++    customer: "cus_A",
++    status: "canceled",
++    cancel_at_period_end: false,
++    items: { data: [{ price: "price_A", quantity: 1 }] },
++  };
++};
++const process = (e = event, fetcher = provider) =>
++  db.transaction((tx) => handler.processStripeEvent(sql(tx), e, fetcher, ["price_A"], false));
++test("event applies cancellation once and duplicate delivery never calls provider", async () => {
++  assert.equal(await process(), "reconciled");
++  assert.equal(await process(), "duplicate");
++  assert.equal(calls, 1);
++  assert.equal(
++    (await db.query("select status from billing_subscriptions")).rows[0].status,
++    "canceled",
++  );
++});
++test("failed provider request rolls back event receipt", async () => {
++  const e = { ...event, id: "evt_retry" };
++  await assert.rejects(
++    process(e, async () => {
++      throw new Error("offline");
++    }),
++    /offline/,
++  );
++  assert.equal(
++    (await db.query("select event_id from billing_webhook_events where event_id='evt_retry'")).rows
++      .length,
++    0,
++  );
++});
++test("unknown binding does not consume event and live mode is rejected", async () => {
++  await assert.rejects(
++    process({ ...event, id: "evt_unknown", data: { object: { id: "sub_UNKNOWN" } } }),
++    /not bound/,
++  );
++  await assert.rejects(process({ ...event, id: "evt_live", livemode: true }), /environment/);
++  assert.equal((await db.query("select event_id from billing_webhook_events")).rows.length, 1);
++});
++test("extracts nested invoice subscription and ignores unrelated event", () => {
++  assert.equal(
++    handler.subscriptionForEvent({
++      ...event,
++      type: "invoice.paid",
++      data: { object: { parent: { subscription_details: { subscription: "sub_A" } } } },
++    }),
++    "sub_A",
++  );
++  assert.equal(handler.subscriptionForEvent({ ...event, type: "charge.succeeded" }), null);
++});
+diff --git a/scripts/stripe-reconciliation.test.mjs b/scripts/stripe-reconciliation.test.mjs
+new file mode 100644
+index 0000000..dc0e1fb
+--- /dev/null
++++ b/scripts/stripe-reconciliation.test.mjs
+@@ -0,0 +1,60 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { createServer } from "vite";
++let server, verify;
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    logLevel: "silent",
++    server: { middlewareMode: true },
++  });
++  ({ verifiedSubscriptionState: verify } = await server.ssrLoadModule(
++    "/src/lib/stripe-reconciliation.server.ts",
++  ));
++});
++after(async () => server?.close());
++const binding = {
++  user_id: "a",
++  provider_subscription_id: "sub_A",
++  provider_customer_id: "cus_A",
++  paid_through_ms: 2000000,
++  verified_at_ms: 1000000,
++};
++const sub = {
++  id: "sub_A",
++  customer: "cus_A",
++  status: "active",
++  cancel_at_period_end: false,
++  latest_invoice: "in_A",
++  items: { data: [{ price: { id: "price_A" }, quantity: 1, current_period_end: 3000 }] },
++};
++const invoice = {
++  id: "in_A",
++  customer: "cus_A",
++  subscription: "sub_A",
++  status: "paid",
++  paid: true,
++  currency: "usd",
++  amount_paid: 499,
++  lines: { data: [{ price: { id: "price_A" }, quantity: 1, period: { start: 2000, end: 3000 } }] },
++};
++const check = (s = sub, i = invoice) => verify(s, i, binding, ["price_A"], 2100000);
++test("verified matching paid invoice extends entitlement", () =>
++  assert.equal(check().paidThrough, 3000000));
++test("failed, zero, unrelated, and mismatched invoices cannot extend paid term", () => {
++  for (const patch of [
++    { status: "open" },
++    { amount_paid: 0 },
++    { customer: "cus_B" },
++    { subscription: "sub_B" },
++    { id: "in_B" },
++    { currency: "eur" },
++    { lines: { data: [] } },
++  ])
++    assert.equal(check(sub, { ...invoice, ...patch }).paidThrough, 2000000);
++  assert.equal(check({ ...sub, status: "past_due" }).paidThrough, 2000000);
++});
++test("identity and unexpected price are rejected", () => {
++  assert.throws(() => check({ ...sub, customer: "cus_B" }), /identity/);
++  assert.throws(() => verify(sub, invoice, binding, ["price_B"], 2100000), /price/);
++});
+diff --git a/scripts/stripe-webhook.test.mjs b/scripts/stripe-webhook.test.mjs
+new file mode 100644
+index 0000000..8f802a8
+--- /dev/null
++++ b/scripts/stripe-webhook.test.mjs
+@@ -0,0 +1,45 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { createHmac } from "node:crypto";
++import { createServer } from "vite";
++let server, verify;
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    logLevel: "silent",
++    server: { middlewareMode: true },
++  });
++  ({ verifyStripeEvent: verify } = await server.ssrLoadModule("/src/lib/stripe-webhook.server.ts"));
++});
++after(async () => server?.close());
++const secret = "whsec_fixture",
++  time = 1800000000;
++const body = JSON.stringify({
++  id: "evt_Fixture",
++  type: "invoice.paid",
++  livemode: false,
++  created: time,
++  data: { object: { id: "in_Fixture" } },
++});
++const sign = (raw = body, t = time) =>
++  "t=" +
++  t +
++  ",v1=" +
++  createHmac("sha256", secret)
++    .update(t + "." + raw)
++    .digest("hex");
++test("signed raw payload validates and modified payload fails", () => {
++  assert.equal(verify(body, sign(), secret, time * 1000).id, "evt_Fixture");
++  assert.throws(() => verify(body + " ", sign(), secret, time * 1000), /signature/);
++  assert.throws(() => verify(body, sign(), "whsec_other", time * 1000), /signature/);
++});
++test("stale and future signatures and malformed headers fail closed", () => {
++  for (const t of [time - 301, time + 301])
++    assert.throws(() => verify(body, sign(body, t), secret, time * 1000), /timestamp/);
++  assert.throws(() => verify(body, sign() + ",t=" + time, secret, time * 1000), /timestamp/);
++  assert.throws(() => verify(body, "t=" + time + ",v1=bad", secret, time * 1000), /signature/);
++});
++test("valid signature is not sufficient for malformed event", () => {
++  const bad = JSON.stringify({ id: "evt_Fixture" });
++  assert.throws(() => verify(bad, sign(bad), secret, time * 1000), /event/);
++});
+diff --git a/scripts/subscription-lab-browser.mjs b/scripts/subscription-lab-browser.mjs
+index 9aa3a82..ab96d0c 100644
+--- a/scripts/subscription-lab-browser.mjs
++++ b/scripts/subscription-lab-browser.mjs
+@@ -6,7 +6,7 @@
+ import { chromium } from "playwright";
+ import assert from "node:assert/strict";
+ import { readFileSync } from "node:fs";
+-const base = "http://127.0.0.1:8091";
++const base = "http://127.0.0.1:8097";
+ const ids = [
+   ...new Set(
+     [
+@@ -23,9 +23,15 @@ const browser = await chromium.launch({ channel: "chrome", headless: true });
+ try {
+   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+   page.setDefaultTimeout(30000);
++  await page.route("**/*", (route) =>
++    route.request().url().startsWith(base) ? route.continue() : route.abort(),
++  );
+   await page.addInitScript((ids) => {
+     if (!sessionStorage.getItem("fixture-seeded")) {
+-      localStorage.setItem("gamefinder-v2", JSON.stringify({ state: { owned: ids }, version: 2 }));
++      localStorage.setItem(
++        "gamefinder-v2",
++        JSON.stringify({ state: { owned: ids, vaultOwnerId: "dev-user" }, version: 2 }),
++      );
+       sessionStorage.setItem("fixture-seeded", "1");
+     }
+   }, ids);
+@@ -79,6 +85,15 @@ try {
+     }
+   };
+   await mode("Free");
++  await go("/premium");
++  await page
++    .getByText(
++      "Checkout is disabled until Stripe pricing and subscription management are configured.",
++    )
++    .waitFor();
++  assert.equal(await page.getByRole("button", { name: /Monthly.*4\.99/ }).isDisabled(), true);
++  assert.equal(await page.getByRole("button", { name: /Annual.*44\.99/ }).isDisabled(), true);
++  console.log("PASS locked pricing");
+   await go("/vault");
+   await count(50);
+   await page.getByText(/50\s*\/\s*50 owned/).waitFor();
+diff --git a/scripts/subscription-ledger.test.mjs b/scripts/subscription-ledger.test.mjs
+new file mode 100644
+index 0000000..9a39b7a
+--- /dev/null
++++ b/scripts/subscription-ledger.test.mjs
+@@ -0,0 +1,85 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { readFileSync } from "node:fs";
++import { createServer } from "vite";
++import { PGlite } from "@electric-sql/pglite";
++let server, db, ledger, entitlement;
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    logLevel: "silent",
++    server: { middlewareMode: true },
++    resolve: { alias: { "@": new URL("../src", import.meta.url).pathname } },
++  });
++  ledger = await server.ssrLoadModule("/src/lib/subscription-ledger.server.ts");
++  entitlement = await server.ssrLoadModule("/src/lib/premium-entitlement.server.ts");
++  db = new PGlite();
++  await db.waitReady;
++  for (const migration of ["0002_social.sql", "0007_subscription_lifecycle.sql"])
++    await db.exec(readFileSync(new URL("../migrations/" + migration, import.meta.url), "utf8"));
++  await db.exec(
++    "insert into profiles (user_id,display_name,plan) values ('a','A','premium'),('b','B','free')",
++  );
++});
++after(async () => {
++  await db?.close();
++  await server?.close();
++});
++const sql =
++  (tx) =>
++  async (parts, ...values) =>
++    (
++      await tx.query(
++        parts.reduce((s, p, i) => s + (i ? "$" + i : "") + p, ""),
++        values,
++      )
++    ).rows;
++const active = { status: "active", paidThrough: 2000, verifiedAt: 1000, cancelAtPeriodEnd: false };
++const record = (user, sub, customer, state) =>
++  db.transaction((tx) =>
++    ledger.recordVerifiedSubscription(sql(tx), user, sub, customer, state, 4000),
++  );
++test("managed subscription overrides legacy plan and expires without deleting account", async () => {
++  assert.equal(await entitlement.resolveAccountPremium(sql(db), "a", 1500), true);
++  assert.equal(await entitlement.resolveAccountPremium(sql(db), "b", 1500), false);
++  assert.equal(await record("a", "sub_A", "cus_A", active), true);
++  assert.equal(await entitlement.resolveAccountPremium(sql(db), "a", 1999), true);
++  assert.equal(await entitlement.resolveAccountPremium(sql(db), "a", 2000), false);
++  assert.equal(
++    (await db.query("select plan from profiles where user_id='a'")).rows[0].plan,
++    "premium",
++  );
++});
++test("ledger rejects duplicate or older evidence and cross-account subscription reuse", async () => {
++  assert.equal(await record("a", "sub_A", "cus_A", active), false);
++  assert.equal(await record("a", "sub_A", "cus_A", { ...active, verifiedAt: 999 }), false);
++  await assert.rejects(record("b", "sub_A", "cus_B", active));
++  await assert.rejects(record("b", "sub_B", "cus_A", active));
++  await assert.rejects(
++    record("a", "sub_B", "cus_A", { ...active, verifiedAt: 1100 }),
++    /identity changed/,
++  );
++  assert.equal(await entitlement.resolveAccountPremium(sql(db), "b", 1500), false);
++});
++test("renewal, scheduled cancellation and revoked status reconcile persisted access", async () => {
++  assert.equal(
++    await record("a", "sub_A", "cus_A", {
++      ...active,
++      verifiedAt: 1900,
++      paidThrough: 3000,
++      cancelAtPeriodEnd: true,
++    }),
++    true,
++  );
++  assert.equal(await entitlement.resolveAccountPremium(sql(db), "a", 2500), true);
++  assert.equal(
++    await record("a", "sub_A", "cus_A", {
++      ...active,
++      status: "canceled",
++      verifiedAt: 2600,
++      paidThrough: 3000,
++    }),
++    true,
++  );
++  assert.equal(await entitlement.resolveAccountPremium(sql(db), "a", 2700), false);
++});
+diff --git a/scripts/subscription-policy.test.mjs b/scripts/subscription-policy.test.mjs
+new file mode 100644
+index 0000000..6c08d07
+--- /dev/null
++++ b/scripts/subscription-policy.test.mjs
+@@ -0,0 +1,47 @@
++import assert from "node:assert/strict";
++import { before, after, test } from "node:test";
++import { createServer } from "vite";
++let server, p;
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    logLevel: "silent",
++    server: { middlewareMode: true },
++  });
++  p = await server.ssrLoadModule("/src/lib/subscription-policy.ts");
++});
++after(async () => server?.close());
++const active = { status: "active", paidThrough: 2000, verifiedAt: 1000, cancelAtPeriodEnd: false };
++test("paid active and scheduled cancellation retain access until the paid term ends", () => {
++  assert.equal(p.subscriptionEntitlement(active, 1500), true);
++  assert.equal(p.subscriptionEntitlement({ ...active, cancelAtPeriodEnd: true }, 1999), true);
++  assert.equal(p.subscriptionEntitlement(active, 2000), false);
++});
++test("failed renewal cannot extend an unpaid term and revoked states fail closed", () => {
++  assert.equal(p.subscriptionEntitlement({ ...active, status: "past_due" }, 1500), true);
++  assert.equal(p.subscriptionEntitlement({ ...active, status: "past_due" }, 2001), false);
++  for (const status of [
++    "canceled",
++    "unpaid",
++    "incomplete",
++    "incomplete_expired",
++    "paused",
++    "trialing",
++    "unknown",
++  ])
++    assert.equal(p.subscriptionEntitlement({ ...active, status }, 1500), false);
++  assert.equal(p.subscriptionEntitlement(null, 1500), false);
++});
++test("renewal extends verified period; stale and duplicate updates cannot overwrite newer evidence", () => {
++  const renewed = { ...active, verifiedAt: 1900, paidThrough: 3000 };
++  assert.equal(p.acceptSubscriptionUpdate(active, renewed), true);
++  assert.equal(p.subscriptionEntitlement(renewed, 2500), true);
++  assert.equal(p.acceptSubscriptionUpdate(renewed, active), false);
++  assert.equal(p.acceptSubscriptionUpdate(renewed, renewed), false);
++});
++test("invalid timestamps and unknown provider states are rejected", () => {
++  assert.equal(p.subscriptionEntitlement({ ...active, verifiedAt: 1600 }, 1500), false);
++  assert.equal(p.subscriptionEntitlement({ ...active, paidThrough: Infinity }, 1500), false);
++  assert.equal(p.acceptSubscriptionUpdate(null, { ...active, paidThrough: NaN }), false);
++  assert.equal(p.acceptSubscriptionUpdate(null, { ...active, status: "unknown" }), false);
++});
+diff --git a/scripts/vault-sync.test.mjs b/scripts/vault-sync.test.mjs
+index 16969ef..afd1665 100644
+--- a/scripts/vault-sync.test.mjs
++++ b/scripts/vault-sync.test.mjs
+@@ -16,6 +16,9 @@ before(async () => {
+   db = new PGlite();
+   await db.waitReady;
+   await db.exec(readFileSync(new URL("../migrations/0002_social.sql", import.meta.url), "utf8"));
++  await db.exec(
++    readFileSync(new URL("../migrations/0007_subscription_lifecycle.sql", import.meta.url), "utf8"),
++  );
+   await db.exec(
+     "insert into profiles (user_id, display_name, plan) values ('free-fixture','Free','free'), ('paid-fixture','Paid','premium')",
+   );
+@@ -70,3 +73,16 @@ test("normalization validates inputs and deduplicates ownership", () => {
+   assert.throws(() => policy.normalizeVault({ owned: [null], wishlist: [] }), /Invalid/);
+   assert.throws(() => policy.normalizeVault({ owned: "abc", wishlist: [] }), /Invalid/);
+ });
++
++test("transactional delta preserves unrelated concurrent cloud edits", async () => {
++  await save("free-fixture", ["base", "remove"]);
++  const baseline = snapshot(["base", "remove"]);
++  await db.transaction((tx) =>
++    replace(sqlFor(tx), "free-fixture", { ...snapshot(["base", "remote"]), baseline }),
++  );
++  const merged = await db.transaction((tx) =>
++    replace(sqlFor(tx), "free-fixture", { ...snapshot(["base", "local"]), baseline }),
++  );
++  assert.deepEqual(merged.owned.sort(), ["base", "local", "remote"]);
++  assert.deepEqual(await rows("free-fixture"), ["base", "local", "remote"]);
++});
+diff --git a/src/components/account-sync.tsx b/src/components/account-sync.tsx
+index 785c855..81583dc 100644
+--- a/src/components/account-sync.tsx
++++ b/src/components/account-sync.tsx
+@@ -1,4 +1,4 @@
+-import { useEffect, useRef, useState } from "react";
++import { useEffect, useState } from "react";
+ import { useCurrentUserState } from "@/lib/auth/use-current-user";
+ import {
+   getCloudVault,
+@@ -8,162 +8,207 @@ import {
+   replaceCloudVault,
+   syncCloudCatalogGames,
+ } from "@/lib/social";
+-import { useAppStore } from "@/lib/store";
+-import { loadAndMergeAccountCatalog } from "@/lib/catalog-sync";
++import { useAppStore, DEFAULT_WIZARD } from "@/lib/store";
++import { accountVaultKey, switchVault, mergeVaultDelta, sameVault } from "@/lib/account-vault";
++import { DEFAULT_USER_WEIGHTS } from "@/lib/vibes";
++import { DEFAULT_PIECE_COLOR } from "@/lib/piece-color";
++import type { VaultSnapshot } from "@/lib/vault-policy";
++
++const empty = (): VaultSnapshot => ({ owned: [], wishlist: [] });
++const snapshot = (): VaultSnapshot => {
++  const { owned, wishlist } = useAppStore.getState();
++  return { owned, wishlist };
++};
+ 
+-/** Merge the device vault with the signed-in cloud shelf. Guests are untouched. */
+ export function AccountSync() {
+   const { user, isPending } = useCurrentUserState();
+-  const mergedFor = useRef<string | null>(null);
+-  const catalogLoadedFor = useRef<string | null>(null);
+-  const [catalogSyncError, setCatalogSyncError] = useState(false);
+-  const [catalogRetry, setCatalogRetry] = useState(0);
++  const userId = user?.id ?? null;
++  const [error, setError] = useState(false);
++  const [retry, setRetry] = useState(0);
+ 
+-  const userId = user?.id;
+   useEffect(() => {
+     let active = true;
+-    useAppStore.setState({ isPremium: false, entitlementReady: !isPending && !userId });
+-    if (!isPending && userId) {
++    let sequence = 0;
++    const refresh = () => {
++      const request = ++sequence;
++      if (isPending || !userId) {
++        useAppStore.setState({ isPremium: false, entitlementReady: !isPending });
++        return;
++      }
+       void getPremiumEntitlement()
+         .then(({ premium }) => {
+-          if (active) useAppStore.setState({ isPremium: premium, entitlementReady: true });
++          if (active && request === sequence && useAppStore.getState().vaultOwnerId === userId)
++            useAppStore.setState({ isPremium: premium, entitlementReady: true });
+         })
+         .catch(() => {
+-          if (active) useAppStore.setState({ isPremium: false, entitlementReady: true });
++          if (active && request === sequence)
++            useAppStore.setState({ isPremium: false, entitlementReady: true });
+         });
+-    }
++    };
++    useAppStore.setState({ isPremium: false, entitlementReady: false });
++    refresh();
++    window.addEventListener("focus", refresh);
++    const timer = window.setInterval(refresh, 60000);
+     return () => {
+       active = false;
++      window.removeEventListener("focus", refresh);
++      window.clearInterval(timer);
+     };
+-  }, [userId, isPending, catalogRetry]);
++  }, [userId, isPending, retry]);
+ 
+   useEffect(() => {
+-    if (isPending || !user) {
+-      mergedFor.current = null;
+-      catalogLoadedFor.current = null;
+-      return;
++    if (isPending) return;
++    const s = useAppStore.getState();
++    if (s.vaultOwnerId !== userId) {
++      const switched = switchVault(
++        { ...snapshot(), ownerId: s.vaultOwnerId },
++        s.vaultArchives,
++        userId,
++      );
++      const history = {
++        ...s.accountHistory,
++        [accountVaultKey(s.vaultOwnerId)]: {
++          plays: s.plays,
++          scoreSessions: s.scoreSessions,
++          tablePlayers: s.tablePlayers,
++          lastPlayerIds: s.lastPlayerIds,
++          vibeWeights: s.vibeWeights,
++          customGames: s.customGames,
++        },
++      };
++      const target = history[accountVaultKey(userId)];
++      useAppStore.setState({
++        owned: switched.vault.owned,
++        wishlist: switched.vault.wishlist,
++        vaultOwnerId: userId,
++        vaultArchives: switched.archives,
++        accountHistory: history,
++        plays: target?.plays ?? [],
++        scoreSessions: target?.scoreSessions ?? [],
++        tablePlayers: target?.tablePlayers ?? [],
++        lastPlayerIds: target?.lastPlayerIds ?? [],
++        vibeWeights: target?.vibeWeights ?? { ...DEFAULT_USER_WEIGHTS },
++        customGames: target?.customGames ?? [],
++        customGamesOwnerId: userId,
++        wizard: { ...DEFAULT_WIZARD },
++        lastResults: null,
++        shownIds: [],
++        recPool: null,
++        pendingPlayPrompt: null,
++        lastSurpriseId: null,
++        upgradePrompt: null,
++        pieceColor: DEFAULT_PIECE_COLOR,
++        isPremium: false,
++        entitlementReady: false,
++      });
+     }
+-    if (mergedFor.current === user.id && catalogLoadedFor.current === user.id) return;
+-    mergedFor.current = user.id;
+-    catalogLoadedFor.current = null;
+-    setCatalogSyncError(false);
+-    let active = true;
+-    const isCurrent = () => active && mergedFor.current === user.id;
+-    void (async () => {
++    setError(false);
++    if (!userId) return;
++    let active = true,
++      ready = false,
++      running = false,
++      queued = false,
++      catalogDirty = false;
++    let timer: number | undefined;
++    const key = accountVaultKey(userId);
++    const current = () => active && useAppStore.getState().vaultOwnerId === userId;
++    const fail = () => {
++      if (current()) setError(true);
++    };
++    // Persist the acknowledged baseline, so a reconnect never resurrects remote deletions.
++    const acknowledge = (cloud: VaultSnapshot, sent: VaultSnapshot) => {
++      if (!current()) return;
++      const next = mergeVaultDelta(sent, snapshot(), cloud);
++      useAppStore.setState({
++        ...next,
++        vaultBaselines: { ...useAppStore.getState().vaultBaselines, [key]: cloud },
++      });
++    };
++    const flush = async () => {
++      if (!current() || !ready) return;
++      if (running) {
++        queued = true;
++        return;
++      }
++      running = true;
+       try {
+-        const cloud = await getCloudVault();
+-        if (!isCurrent()) return;
+-        const catalogResult = await loadAndMergeAccountCatalog({
+-          userId: user.id,
+-          loadCloudCatalog: getCloudCatalogGames,
+-          getLocalCatalog: () => {
+-            const state = useAppStore.getState();
+-            return { games: state.customGames, ownerId: state.customGamesOwnerId };
+-          },
+-          setLocalCatalog: (games, ownerId, preservedLocalGames) => {
+-            const state = useAppStore.getState();
+-            const unattributedCustomGames = Array.from(
+-              new Map(
+-                [...state.unattributedCustomGames, ...preservedLocalGames].map((game) => [
+-                  game.id,
+-                  game,
+-                ]),
+-              ).values(),
+-            );
+-            useAppStore.setState({
+-              customGames: games,
+-              customGamesOwnerId: ownerId,
+-              unattributedCustomGames,
++        const sent = snapshot();
++        const baseline = useAppStore.getState().vaultBaselines[key] ?? empty();
++        if (!sameVault(sent, baseline)) {
++          const saved = await replaceCloudVault({
++            data: { ...sent, baseline, expectedUserId: userId },
++          });
++          acknowledge(saved, sent);
++        }
++        if (current() && catalogDirty) {
++          catalogDirty = false;
++          try {
++            await syncCloudCatalogGames({
++              data: { games: useAppStore.getState().customGames, expectedUserId: userId },
+             });
+-          },
+-          syncCloudCatalog: async () => {
+-            if (!isCurrent()) return;
+-            const latest = useAppStore.getState();
+-            if (latest.customGamesOwnerId !== user.id) return;
+-            await syncCloudCatalogGames({ data: { games: latest.customGames } });
+-          },
+-          isCurrent,
+-        });
+-        if (!catalogResult || !isCurrent()) return;
+-        catalogLoadedFor.current = user.id;
+-
+-        const local = useAppStore.getState();
+-        const owned = Array.from(new Set([...cloud.owned, ...local.owned]));
+-        const wishlist = Array.from(new Set([...cloud.wishlist, ...local.wishlist])).filter(
+-          (id) => !owned.includes(id),
+-        );
+-        useAppStore.setState({ owned, wishlist });
+-        try {
+-          const prof = await getMyProfile();
+-          if (!isCurrent()) return;
+-          if (prof.pieceColor) useAppStore.getState().setPieceColor(prof.pieceColor);
+-        } catch (error) {
+-          if (!isCurrent()) return;
+-          console.error("[account-sync] Couldn't load profile.", error);
++          } catch (e) {
++            catalogDirty = true;
++            throw e;
++          }
++        }
++        if (current()) setError(false);
++      } catch {
++        fail();
++      } finally {
++        running = false;
++        if (queued && current()) {
++          queued = false;
++          void flush();
+         }
+-        if (isCurrent()) await replaceCloudVault({ data: { owned, wishlist } });
+-      } catch (error) {
+-        if (!isCurrent()) return;
+-        setCatalogSyncError(true);
+-        console.error("[account-sync] Couldn't load or sync saved account data.", error);
+       }
+-    })();
+-    return () => {
+-      active = false;
+     };
+-  }, [user, isPending, catalogRetry]);
+-
+-  useEffect(() => {
+-    if (!user) return;
+-    let vaultTimer: number | null = null;
+-    let catalogTimer: number | null = null;
+-    const unsub = useAppStore.subscribe((state, prev) => {
+-      if (
+-        mergedFor.current === user.id &&
+-        catalogLoadedFor.current === user.id &&
+-        (state.owned !== prev.owned || state.wishlist !== prev.wishlist)
+-      ) {
+-        if (vaultTimer) window.clearTimeout(vaultTimer);
+-        vaultTimer = window.setTimeout(() => {
+-          const latest = useAppStore.getState();
+-          void replaceCloudVault({
+-            data: { owned: latest.owned, wishlist: latest.wishlist },
+-          }).catch((error) => {
+-            setCatalogSyncError(true);
+-            console.error("[account-sync] Couldn't save the cloud Vault.", error);
+-          });
+-        }, 900);
+-      }
+-      if (
+-        state.customGames !== prev.customGames &&
+-        state.customGamesOwnerId === user.id &&
+-        catalogLoadedFor.current === user.id
+-      ) {
+-        if (catalogTimer) window.clearTimeout(catalogTimer);
+-        catalogTimer = window.setTimeout(() => {
+-          const latest = useAppStore.getState();
+-          if (latest.customGamesOwnerId !== user.id || catalogLoadedFor.current !== user.id) {
+-            return;
+-          }
+-          void syncCloudCatalogGames({ data: { games: latest.customGames } })
+-            .then(() => {
+-              if (mergedFor.current === user.id) setCatalogSyncError(false);
+-            })
+-            .catch((error) => {
+-              if (mergedFor.current === user.id) setCatalogSyncError(true);
+-              console.error("[account-sync] Couldn't save custom catalog records.", error);
+-            });
+-        }, 900);
++    const schedule = () => {
++      window.clearTimeout(timer);
++      timer = window.setTimeout(() => void flush(), 500);
++    };
++    const unsub = useAppStore.subscribe((next, prev) => {
++      if (!current() || !ready) return;
++      if (next.customGames !== prev.customGames) {
++        catalogDirty = true;
++        schedule();
+       }
++      if (next.owned !== prev.owned || next.wishlist !== prev.wishlist) schedule();
+     });
++    void (async () => {
++      try {
++        const cloud = await getCloudVault();
++        if (!current()) return;
++        const games = await getCloudCatalogGames();
++        if (!current()) return;
++        const state = useAppStore.getState();
++        const base = state.vaultBaselines[key] ?? empty();
++        const next = mergeVaultDelta(base, snapshot(), cloud);
++        const local = state.customGamesOwnerId === userId ? state.customGames : [];
++        const merged = Array.from(new Map([...games, ...local].map((g) => [g.id, g])).values());
++        useAppStore.setState({
++          ...next,
++          vaultBaselines: { ...state.vaultBaselines, [key]: cloud },
++          customGames: merged,
++          customGamesOwnerId: userId,
++        });
++        catalogDirty = local.some((g) => !games.some((c) => c.id === g.id));
++        ready = true;
++        await flush();
++        const profile = await getMyProfile();
++        if (current() && profile.pieceColor)
++          useAppStore.getState().setPieceColor(profile.pieceColor);
++      } catch {
++        fail();
++      }
++    })();
+     return () => {
++      active = false;
+       unsub();
+-      if (vaultTimer) window.clearTimeout(vaultTimer);
+-      if (catalogTimer) window.clearTimeout(catalogTimer);
++      window.clearTimeout(timer);
+     };
+-  }, [user]);
++  }, [userId, isPending, retry]);
+ 
+-  return catalogSyncError ? (
++  return error ? (
+     <div
+       role="alert"
+       className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 bg-destructive p-3 text-sm text-destructive-foreground"
+@@ -172,18 +217,14 @@ export function AccountSync() {
+       <button
+         type="button"
+         className="shrink-0 font-semibold underline"
+-        onClick={() => {
+-          mergedFor.current = null;
+-          catalogLoadedFor.current = null;
+-          setCatalogRetry((retry) => retry + 1);
+-        }}
++        onClick={() => setRetry((n) => n + 1)}
+       >
+         Retry
+       </button>
+       <button
+         type="button"
+         className="shrink-0 font-semibold underline"
+-        onClick={() => setCatalogSyncError(false)}
++        onClick={() => setError(false)}
+         aria-label="Dismiss sync warning"
+       >
+         Dismiss
+diff --git a/src/lib/account-vault.ts b/src/lib/account-vault.ts
+new file mode 100644
+index 0000000..be55a70
+--- /dev/null
++++ b/src/lib/account-vault.ts
+@@ -0,0 +1,38 @@
++import { normalizeVault, type VaultSnapshot } from "./vault-policy";
++
++export type VaultOwner = string | null;
++export type LocalVault = VaultSnapshot & { ownerId: VaultOwner };
++export type VaultArchives = Record<string, VaultSnapshot>;
++export const GUEST_VAULT = "guest:";
++export const accountVaultKey = (owner: VaultOwner) =>
++  owner === null ? GUEST_VAULT : "account:" + owner;
++
++// Switch the active shelf without merging one account's collection into another.
++// The outgoing snapshot remains available on this device to its original owner.
++export function switchVault(local: LocalVault, archives: VaultArchives, owner: VaultOwner) {
++  if (local.ownerId === owner) return { vault: local, archives };
++  const saved = { ...archives, [accountVaultKey(local.ownerId)]: normalizeVault(local) };
++  const target = saved[accountVaultKey(owner)] ?? { owned: [], wishlist: [] };
++  return { vault: { ...normalizeVault(target), ownerId: owner }, archives: saved };
++}
++
++// A cloud read is the baseline, not a permanent union that resurrects deletions.
++export function mergeVaultDelta(base: VaultSnapshot, local: VaultSnapshot, cloud: VaultSnapshot) {
++  const merge = (before: string[], after: string[], remote: string[]) => {
++    const removed = new Set(before.filter((id) => !after.includes(id)));
++    const added = after.filter((id) => !before.includes(id));
++    return [...new Set([...remote.filter((id) => !removed.has(id)), ...added])];
++  };
++  return normalizeVault({
++    owned: merge(base.owned, local.owned, cloud.owned),
++    wishlist: merge(base.wishlist, local.wishlist, cloud.wishlist),
++  });
++}
++export function sameVault(a: VaultSnapshot, b: VaultSnapshot) {
++  return (
++    a.owned.length === b.owned.length &&
++    a.wishlist.length === b.wishlist.length &&
++    a.owned.every((id) => b.owned.includes(id)) &&
++    a.wishlist.every((id) => b.wishlist.includes(id))
++  );
++}
+diff --git a/src/lib/billing.ts b/src/lib/billing.ts
+index 4808f44..0c4e58a 100644
+--- a/src/lib/billing.ts
++++ b/src/lib/billing.ts
+@@ -1,6 +1,9 @@
+ import { createServerFn } from "@tanstack/react-start";
+ import { authMiddleware } from "@/lib/auth/middleware";
+-import { getSql } from "@/lib/db";
++import { getSql, withSqlTransaction } from "@/lib/db";
++import { recordVerifiedSubscription } from "./subscription-ledger.server";
++import { verifiedSubscriptionState } from "./stripe-reconciliation.server";
++import { subscriptionEntitlement } from "./subscription-policy";
+ 
+ const MONTHLY_AMOUNT = 499;
+ const YEARLY_AMOUNT = 4499;
+@@ -62,17 +65,20 @@ function stripeConfigured() {
+ async function stripeForm(path: string, body: Record<string, string>) {
+   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+     method: "POST",
++    signal: AbortSignal.timeout(15000),
+     headers: {
+       Authorization: `Bearer ${stripeKey()}`,
+       "Content-Type": "application/x-www-form-urlencoded",
+     },
+     body: new URLSearchParams(body),
+   });
++  if (!res.ok) throw new Error("Billing provider request failed.");
+   return (await res.json()) as Record<string, unknown>;
+ }
+ 
+ async function stripeGet(path: string) {
+   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
++    signal: AbortSignal.timeout(15000),
+     headers: { Authorization: `Bearer ${stripeKey()}` },
+   });
+   const data = (await res.json()) as Record<string, unknown>;
+@@ -87,9 +93,7 @@ async function approvedStripePrice(tier: BillingTier) {
+   const id = priceId(tier);
+   if (!stripeKey() || !id) return false;
+   const data = await stripeGet(`prices/${encodeURIComponent(id)}`);
+-  const recurring = data.recurring as
+-    | { interval?: string; interval_count?: number }
+-    | undefined;
++  const recurring = data.recurring as { interval?: string; interval_count?: number } | undefined;
+   const expected = BILLING[tier];
+   return (
+     data.active === true &&
+@@ -100,21 +104,12 @@ async function approvedStripePrice(tier: BillingTier) {
+   );
+ }
+ 
+-async function writePlan(userId: string, plan: string) {
+-  const sql = await getSql();
+-  await sql`
+-    insert into profiles (user_id, display_name, plan, updated_at)
+-    values (${userId}, 'Player', ${plan}, now())
+-    on conflict (user_id) do update set plan = excluded.plan, updated_at = now()
+-  `;
+-}
+-
+ export const billingStatus = createServerFn({ method: "GET" }).handler(async () => ({
+-  stripe: stripeConfigured(),
++  stripe: SUBSCRIPTION_MANAGEMENT_AVAILABLE && stripeConfigured(),
+   subscriptionManagement: SUBSCRIPTION_MANAGEMENT_AVAILABLE,
+   prices: {
+-    monthly: await approvedStripePrice("monthly"),
+-    yearly: await approvedStripePrice("yearly"),
++    monthly: SUBSCRIPTION_MANAGEMENT_AVAILABLE && (await approvedStripePrice("monthly")),
++    yearly: SUBSCRIPTION_MANAGEMENT_AVAILABLE && (await approvedStripePrice("yearly")),
+   },
+ }));
+ 
+@@ -139,7 +134,9 @@ export const startCheckout = createServerFn({ method: "POST" })
+     }
+     const price = priceId(data.tier);
+     if (!price) return { ok: false as const, reason: "not-configured" as const };
+-    const origin = data.origin.replace(/\/$/, "") || "https://gamefinderapp.netlify.app";
++    const origin = process.env.GAMEFINDER_BILLING_ORIGIN?.trim();
++    if (!origin || !/^https:\/\/[a-z0-9.-]+$/i.test(origin))
++      throw new Error("Billing return origin is not configured.");
+     const spec = BILLING[data.tier];
+     const session = await stripeForm("checkout/sessions", {
+       mode: spec.mode,
+@@ -168,13 +165,12 @@ export const confirmCheckout = createServerFn({ method: "POST" })
+     if (!SUBSCRIPTION_MANAGEMENT_AVAILABLE) {
+       throw new Error("Purchases are disabled until subscription management is available.");
+     }
+-    if (!data.sessionId.startsWith("cs_")) throw new Error("Missing checkout");
++    if (!/^cs_(test|live)_[a-zA-Z0-9]+$/.test(data.sessionId)) throw new Error("Missing checkout");
+     if (!stripeKey()) throw new Error("Billing isn't connected");
+-    const session = await stripeGet(
+-      `checkout/sessions/${encodeURIComponent(data.sessionId)}`,
+-    );
++    const session = await stripeGet(`checkout/sessions/${encodeURIComponent(data.sessionId)}`);
+     const meta = (session.metadata ?? {}) as Record<string, string>;
+-    if (meta.userId !== context.userId) throw new Error("That's not your checkout");
++    if (meta.userId !== context.userId || session.client_reference_id !== context.userId)
++      throw new Error("That's not your checkout");
+     if (meta.tier !== "monthly" && meta.tier !== "yearly") {
+       throw new Error("This checkout isn't for an active GameFinder plan.");
+     }
+@@ -190,24 +186,59 @@ export const confirmCheckout = createServerFn({ method: "POST" })
+       session.currency === "usd" &&
+       session.amount_total === expected.amount;
+     if (!paid) return { ok: false as const, plan: "free" };
+-    const subscriptionId =
+-      typeof session.subscription === "string" ? session.subscription : "";
++    const subscriptionId = typeof session.subscription === "string" ? session.subscription : "";
+     if (!subscriptionId) throw new Error("Checkout has no subscription.");
+-    const subscription = await stripeGet(
+-      `subscriptions/${encodeURIComponent(subscriptionId)}`,
++    const subscription = await stripeGet(`subscriptions/${encodeURIComponent(subscriptionId)}`);
++    const customerId = typeof session.customer === "string" ? session.customer : "";
++    if (!/^cus_[a-zA-Z0-9]+$/.test(customerId) || !/^sub_[a-zA-Z0-9]+$/.test(subscriptionId))
++      throw new Error("Invalid checkout identity.");
++    const invoiceId =
++      typeof subscription.latest_invoice === "string" ? subscription.latest_invoice : "";
++    if (!/^in_[a-zA-Z0-9]+$/.test(invoiceId)) throw new Error("Missing paid invoice.");
++    const invoice = await stripeGet("invoices/" + invoiceId);
++    const now = Date.now();
++    const state = verifiedSubscriptionState(
++      subscription,
++      invoice,
++      {
++        user_id: context.userId,
++        provider_subscription_id: subscriptionId,
++        provider_customer_id: customerId,
++        paid_through_ms: 0,
++        verified_at_ms: 0,
++      },
++      [priceId(tier)],
++      now,
+     );
+-    if (subscription.status !== "active" && subscription.status !== "trialing") {
+-      throw new Error("This subscription isn't active.");
+-    }
+-    const items = subscription.items as
+-      | { data?: { price?: string | { id?: string } }[] }
+-      | undefined;
+-    const subscriptionPrice = items?.data?.[0]?.price;
+-    const subscriptionPriceId =
+-      typeof subscriptionPrice === "string" ? subscriptionPrice : subscriptionPrice?.id;
+-    if (items?.data?.length !== 1 || subscriptionPriceId !== priceId(tier)) {
+-      throw new Error("The active subscription price doesn't match this plan.");
+-    }
+-    await writePlan(context.userId, "premium");
++    if (!subscriptionEntitlement(state, now)) throw new Error("No verified paid term.");
++    await withSqlTransaction(async (sql) => {
++      await sql`insert into profiles (user_id, display_name) values (${context.userId}, 'Player') on conflict (user_id) do nothing`;
++      await recordVerifiedSubscription(sql, context.userId, subscriptionId, customerId, state);
++    });
+     return { ok: true as const, plan: "premium" as const };
+   });
++
++export const openBillingPortal = createServerFn({ method: "POST" })
++  .middleware([authMiddleware])
++  .handler(async ({ context }) => {
++    // Keep this gate closed until the provider portal is configured and tested.
++    if (!SUBSCRIPTION_MANAGEMENT_AVAILABLE)
++      throw new Error("Subscription management is unavailable.");
++    const sql = await getSql();
++    const rows = await sql<{
++      provider_customer_id: string;
++    }>`select provider_customer_id from billing_subscriptions where user_id=${context.userId}`;
++    const customer = rows[0]?.provider_customer_id;
++    if (!customer || !/^cus_[a-zA-Z0-9]+$/.test(customer)) throw new Error("No billing account.");
++    const origin = process.env.GAMEFINDER_BILLING_ORIGIN?.trim();
++    if (!origin || !/^https:\/\/[a-z0-9.-]+$/i.test(origin))
++      throw new Error("Billing return origin is not configured.");
++    const session = await stripeForm("billing_portal/sessions", {
++      customer,
++      return_url: origin + "/premium",
++    });
++    const url = typeof session.url === "string" ? session.url : "";
++    if (!url || new URL(url).origin !== "https://billing.stripe.com")
++      throw new Error("Invalid portal URL.");
++    return { url };
++  });
+diff --git a/src/lib/premium-entitlement.server.ts b/src/lib/premium-entitlement.server.ts
+index ec53b47..2653f0e 100644
+--- a/src/lib/premium-entitlement.server.ts
++++ b/src/lib/premium-entitlement.server.ts
+@@ -1,4 +1,5 @@
+-import { getSql } from "@/lib/db";
++import { getSql, type Sql } from "@/lib/db";
++import { readManagedEntitlement } from "./subscription-ledger.server";
+ 
+ export type TestPlan = "actual" | "free" | "premium";
+ let testPlan: TestPlan = "actual";
+@@ -29,6 +30,12 @@ export function setTestPlan(userId: string, mode: TestPlan) {
+ export async function hasPremiumPlan(userId: string) {
+   if (userId === "dev-user") return testPlanAllowed(userId) && testPlan === "premium";
+   const sql = await getSql();
++  return resolveAccountPremium(sql, userId);
++}
++
++export async function resolveAccountPremium(sql: Sql, userId: string, now = Date.now()) {
++  const managed = await readManagedEntitlement(sql, userId, now);
++  if (managed !== null) return managed;
+   const rows = await sql<{ plan: string }>`
+     select plan from profiles where user_id = ${userId} limit 1
+   `;
+diff --git a/src/lib/social.ts b/src/lib/social.ts
+index a880d7d..2790b49 100644
+--- a/src/lib/social.ts
++++ b/src/lib/social.ts
+@@ -215,8 +215,24 @@ export const getCloudVault = createServerFn({ method: "GET" })
+ 
+ export const replaceCloudVault = createServerFn({ method: "POST" })
+   .middleware([authMiddleware])
+-  .validator(normalizeVault)
++  .validator(
++    (
++      input: Parameters<typeof normalizeVault>[0] & {
++        expectedUserId: string;
++        baseline: Parameters<typeof normalizeVault>[0];
++      },
++    ) => {
++      if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
++        throw new Error("Missing Vault account");
++      return {
++        ...normalizeVault(input),
++        expectedUserId: input.expectedUserId,
++        baseline: normalizeVault(input.baseline),
++      };
++    },
++  )
+   .handler(async ({ context, data }) => {
++    if (data.expectedUserId !== context.userId) throw new Error("Vault account changed");
+     await ensureProfile(context.userId);
+     const { withSqlTransaction } = await import("./db");
+     const { replaceVaultSnapshot } = await import("./vault-sync.server");
+@@ -251,15 +267,18 @@ export const getCloudCatalogGames = createServerFn({ method: "GET" })
+ 
+ export const syncCloudCatalogGames = createServerFn({ method: "POST" })
+   .middleware([authMiddleware])
+-  .validator((input: { games: CatalogGameRecord[] }) => {
++  .validator((input: { games: CatalogGameRecord[]; expectedUserId: string }) => {
++    if (typeof input?.expectedUserId !== "string" || !input.expectedUserId)
++      throw new Error("Missing catalog account");
+     if (!Array.isArray(input?.games)) throw new Error("Catalog records must be an array.");
+     if (input.games.length > 200) throw new Error("Too many catalog records.");
+     if (!input.games.every(isCustomCatalogGame)) {
+       throw new Error("A custom catalog record is invalid.");
+     }
+-    return { games: input.games };
++    return { games: input.games, expectedUserId: input.expectedUserId };
+   })
+   .handler(async ({ context, data }) => {
++    if (context.userId !== data.expectedUserId) throw new Error("Catalog account changed");
+     const sql = await getSql();
+     for (const game of data.games) {
+       await sql`
+diff --git a/src/lib/store.ts b/src/lib/store.ts
+index 0c91e7c..81586a1 100644
+--- a/src/lib/store.ts
++++ b/src/lib/store.ts
+@@ -1,3 +1,4 @@
++import type { VaultArchives, VaultOwner } from "./account-vault";
+ import { create } from "zustand";
+ import { persist, createJSONStorage } from "zustand/middleware";
+ import type {
+@@ -45,6 +46,16 @@ type AppState = {
+ 
+   owned: string[];
+   wishlist: string[];
++  vaultOwnerId: VaultOwner;
++  vaultArchives: VaultArchives;
++  vaultBaselines: VaultArchives;
++  accountHistory: Record<
++    string,
++    Pick<
++      AppState,
++      "plays" | "scoreSessions" | "tablePlayers" | "lastPlayerIds" | "vibeWeights" | "customGames"
++    >
++  >;
+   customGames: CatalogGameRecord[];
+   customGamesOwnerId: string | null | "unattributed";
+   unattributedCustomGames: CatalogGameRecord[];
+@@ -163,6 +174,10 @@ export const useAppStore = create<AppState>()(
+ 
+       owned: [],
+       wishlist: [],
++      vaultOwnerId: null,
++      vaultArchives: {},
++      vaultBaselines: {},
++      accountHistory: {},
+       customGames: [],
+       customGamesOwnerId: null,
+       unattributedCustomGames: [],
+@@ -355,6 +370,10 @@ export const useAppStore = create<AppState>()(
+       partialize: (s) => ({
+         owned: s.owned,
+         wishlist: s.wishlist,
++        vaultOwnerId: s.vaultOwnerId,
++        vaultArchives: s.vaultArchives,
++        vaultBaselines: s.vaultBaselines,
++        accountHistory: s.accountHistory,
+         customGames: s.customGames,
+         customGamesOwnerId: s.customGamesOwnerId,
+         unattributedCustomGames: s.unattributedCustomGames,
+diff --git a/src/lib/stripe-event-handler.server.ts b/src/lib/stripe-event-handler.server.ts
+new file mode 100644
+index 0000000..445b8ff
+--- /dev/null
++++ b/src/lib/stripe-event-handler.server.ts
+@@ -0,0 +1,59 @@
++import type { Sql } from "./db";
++import { verifyStripeEvent } from "./stripe-webhook.server";
++import { reconcileBoundSubscription } from "./stripe-reconciliation.server";
++
++type Event = ReturnType<typeof verifyStripeEvent>;
++type ProviderObject = Record<string, unknown>;
++function asObject(x: unknown): ProviderObject {
++  return x && typeof x === "object" && !Array.isArray(x) ? (x as ProviderObject) : {};
++}
++export function subscriptionForEvent(event: Event): string | null {
++  const o = event.data.object;
++  let candidate: unknown;
++  if (
++    [
++      "customer.subscription.created",
++      "customer.subscription.updated",
++      "customer.subscription.deleted",
++      "customer.subscription.paused",
++      "customer.subscription.resumed",
++    ].includes(event.type)
++  )
++    candidate = o.id;
++  else if (
++    [
++      "invoice.paid",
++      "invoice.payment_failed",
++      "invoice.payment_action_required",
++      "invoice.voided",
++      "invoice.marked_uncollectible",
++    ].includes(event.type)
++  ) {
++    candidate = o.subscription ?? asObject(asObject(o.parent).subscription_details).subscription;
++  } else return null;
++  if (typeof candidate !== "string" || !/^sub_[a-zA-Z0-9]+$/.test(candidate)) return null;
++  return candidate;
++}
++// Must run inside one DB transaction. Failed reconciliation rolls back the
++// event receipt, allowing delivery retry. Repeated IDs have no side effects.
++export async function processStripeEvent(
++  sql: Sql,
++  event: Event,
++  fetchProvider: (path: string) => Promise<ProviderObject>,
++  priceIds: string[],
++  liveMode: boolean,
++) {
++  if (event.livemode !== liveMode) throw new Error("Webhook environment mismatch");
++  const subscriptionId = subscriptionForEvent(event);
++  if (!subscriptionId) return "ignored" as const;
++  const receipt =
++    await sql`insert into billing_webhook_events(event_id,event_type) values (${event.id},${event.type}) on conflict (event_id) do nothing returning event_id`;
++  if (!receipt.length) return "duplicate" as const;
++  const reconciled = await reconcileBoundSubscription(sql, subscriptionId, fetchProvider, priceIds);
++  if (!reconciled) {
++    // Never mark an unbound subscription as handled: initial enrollment is
++    // not enabled, and a later binding must permit retry.
++    throw new Error("Subscription not bound or observation not applied");
++  }
++  return "reconciled" as const;
++}
+diff --git a/src/lib/stripe-reconciliation.server.ts b/src/lib/stripe-reconciliation.server.ts
+new file mode 100644
+index 0000000..0f7efc5
+--- /dev/null
++++ b/src/lib/stripe-reconciliation.server.ts
+@@ -0,0 +1,125 @@
++import type { Sql } from "./db";
++import { recordVerifiedSubscription } from "./subscription-ledger.server";
++import type { SubscriptionState } from "./subscription-policy";
++
++type ProviderObject = Record<string, unknown>;
++type Binding = {
++  user_id: string;
++  provider_subscription_id: string;
++  provider_customer_id: string;
++  paid_through_ms: number | string | bigint;
++  verified_at_ms: number | string | bigint;
++};
++const object = (x: unknown): ProviderObject =>
++  x && typeof x === "object" && !Array.isArray(x) ? (x as ProviderObject) : {};
++const id = (x: unknown) => (typeof x === "string" ? x : object(x).id);
++const seconds = (x: unknown) =>
++  typeof x === "number" && Number.isSafeInteger(x) && x > 0 && Number.isSafeInteger(x * 1000)
++    ? x * 1000
++    : 0;
++
++// Only an already bound subscription can be reconciled by this path.
++// Initial checkout binding and replacement subscription onboarding remain locked.
++export function verifiedSubscriptionState(
++  subscription: ProviderObject,
++  invoice: ProviderObject,
++  binding: Binding,
++  priceIds: string[],
++  observedAt: number,
++): SubscriptionState {
++  if (
++    subscription.id !== binding.provider_subscription_id ||
++    id(subscription.customer) !== binding.provider_customer_id
++  )
++    throw new Error("Subscription identity mismatch");
++  const items = object(subscription.items);
++  const list = items.data;
++  if (!Array.isArray(list) || list.length !== 1 || items.has_more === true)
++    throw new Error("Unexpected subscription items");
++  const item = object(list[0]);
++  const price = id(item.price);
++  if (typeof price !== "string" || !priceIds.includes(price) || item.quantity !== 1)
++    throw new Error("Unexpected subscription price");
++  const status = subscription.status;
++  if (typeof status !== "string" || typeof subscription.cancel_at_period_end !== "boolean")
++    throw new Error("Invalid subscription status");
++  let paidThrough = Number(binding.paid_through_ms);
++  // Never extend a term from a failed invoice, a trial or an unbound invoice.
++  const parent = object(invoice.parent);
++  const subscriptionDetails = object(parent.subscription_details);
++  const invoiceSubscription = id(invoice.subscription ?? subscriptionDetails.subscription);
++  const lines = object(invoice.lines);
++  const entries = lines.data;
++  if (
++    status === "active" &&
++    invoice.status === "paid" &&
++    invoice.paid !== false &&
++    invoice.currency === "usd" &&
++    typeof invoice.amount_paid === "number" &&
++    invoice.amount_paid > 0 &&
++    invoice.id === id(subscription.latest_invoice) &&
++    id(invoice.customer) === binding.provider_customer_id &&
++    invoiceSubscription === binding.provider_subscription_id &&
++    Array.isArray(entries) &&
++    entries.length === 1 &&
++    lines.has_more !== true
++  ) {
++    const line = object(entries[0]);
++    const linePrice = id(line.price ?? object(object(line.pricing).price_details).price);
++    const period = object(line.period);
++    const end = seconds(period.end);
++    const start = seconds(period.start);
++    const itemEnd = seconds(item.current_period_end ?? subscription.current_period_end);
++    if (
++      linePrice === price &&
++      line.quantity === 1 &&
++      start > 0 &&
++      end > start &&
++      end === itemEnd &&
++      line.proration !== true
++    )
++      paidThrough = Math.max(paidThrough, end);
++  }
++  return {
++    status,
++    paidThrough,
++    verifiedAt: observedAt,
++    cancelAtPeriodEnd: subscription.cancel_at_period_end,
++  };
++}
++
++export async function reconcileBoundSubscription(
++  sql: Sql,
++  subscriptionId: string,
++  fetchProvider: (path: string) => Promise<ProviderObject>,
++  priceIds: string[],
++  now = Date.now,
++) {
++  if (!/^sub_[a-zA-Z0-9]+$/.test(subscriptionId)) throw new Error("Invalid subscription id");
++  const bindings =
++    await sql<Binding>`select user_id,provider_subscription_id,provider_customer_id,paid_through_ms,verified_at_ms from billing_subscriptions where provider_subscription_id=${subscriptionId}`;
++  const binding = bindings[0];
++  if (!binding) return false;
++  // Caller holds a transaction; serialize provider observations for this account.
++  await sql`select user_id from profiles where user_id=${binding.user_id} for update`;
++  const latest = (
++    await sql<Binding>`select user_id,provider_subscription_id,provider_customer_id,paid_through_ms,verified_at_ms from billing_subscriptions where provider_subscription_id=${subscriptionId}`
++  )[0];
++  if (!latest || latest.user_id !== binding.user_id) throw new Error("Billing binding changed");
++  const observedAt = now();
++  const subscription = await fetchProvider("subscriptions/" + subscriptionId);
++  const invoiceId = id(subscription.latest_invoice);
++  const invoice =
++    typeof invoiceId === "string" && /^in_[a-zA-Z0-9]+$/.test(invoiceId)
++      ? await fetchProvider("invoices/" + invoiceId)
++      : {};
++  const next = verifiedSubscriptionState(subscription, invoice, latest, priceIds, observedAt);
++  return recordVerifiedSubscription(
++    sql,
++    latest.user_id,
++    subscriptionId,
++    latest.provider_customer_id,
++    next,
++    now(),
++  );
++}
+diff --git a/src/lib/stripe-webhook.server.ts b/src/lib/stripe-webhook.server.ts
+new file mode 100644
+index 0000000..63edf29
+--- /dev/null
++++ b/src/lib/stripe-webhook.server.ts
+@@ -0,0 +1,58 @@
++import { createHmac, timingSafeEqual } from "node:crypto";
++
++// Verify exact bytes before parsing. A verified event is a reconciliation
++// trigger, not by itself proof of a paid service period.
++export function verifyStripeEvent(
++  raw: string,
++  signature: string,
++  secret: string,
++  now = Date.now(),
++) {
++  if (
++    !secret.startsWith("whsec_") ||
++    !Number.isFinite(now) ||
++    raw.length > 1000000 ||
++    signature.length > 4096
++  )
++    throw new Error("Invalid webhook");
++  const parts = signature.split(",").map((p) => p.split("="));
++  const times = parts.filter((p) => p[0] === "t").map((p) => p[1]);
++  const signatures = parts.filter((p) => p[0] === "v1").map((p) => p[1]);
++  if (
++    times.length !== 1 ||
++    !/^\d{1,12}$/.test(times[0]) ||
++    Math.abs(now / 1000 - Number(times[0])) > 300
++  )
++    throw new Error("Invalid webhook timestamp");
++  const expected = createHmac("sha256", secret)
++    .update(times[0] + "." + raw, "utf8")
++    .digest();
++  if (
++    !signatures.some(
++      (s) =>
++        typeof s === "string" &&
++        /^[a-f0-9]{64}$/i.test(s) &&
++        timingSafeEqual(expected, Buffer.from(s, "hex")),
++    )
++  )
++    throw new Error("Invalid webhook signature");
++  const event = JSON.parse(raw);
++  if (
++    !event ||
++    typeof event !== "object" ||
++    !/^evt_[a-zA-Z0-9]+$/.test(event.id ?? "") ||
++    typeof event.type !== "string" ||
++    typeof event.livemode !== "boolean" ||
++    !Number.isSafeInteger(event.created) ||
++    event.created < 0 ||
++    !event.data?.object
++  )
++    throw new Error("Invalid webhook event");
++  return event as {
++    id: string;
++    type: string;
++    livemode: boolean;
++    created: number;
++    data: { object: Record<string, unknown> };
++  };
++}
+diff --git a/src/lib/subscription-ledger.server.ts b/src/lib/subscription-ledger.server.ts
+new file mode 100644
+index 0000000..2cc2b7c
+--- /dev/null
++++ b/src/lib/subscription-ledger.server.ts
+@@ -0,0 +1,67 @@
++import type { Sql } from "./db";
++import {
++  acceptSubscriptionUpdate,
++  subscriptionEntitlement,
++  type SubscriptionState,
++} from "./subscription-policy";
++
++type LedgerRow = {
++  provider_subscription_id: string;
++  provider_customer_id: string;
++  status: string;
++  paid_through_ms: number | string | bigint;
++  verified_at_ms: number | string | bigint;
++  cancel_at_period_end: boolean;
++};
++function state(row: LedgerRow): SubscriptionState {
++  return {
++    status: row.status,
++    paidThrough: Number(row.paid_through_ms),
++    verifiedAt: Number(row.verified_at_ms),
++    cancelAtPeriodEnd: row.cancel_at_period_end,
++  };
++}
++// Call inside a transaction that locks the profile. Input must come from
++// authenticated provider reconciliation, never a client or unverified webhook.
++export async function recordVerifiedSubscription(
++  sql: Sql,
++  userId: string,
++  subscriptionId: string,
++  customerId: string,
++  next: SubscriptionState,
++  now = Date.now(),
++) {
++  if (
++    !userId ||
++    !/^sub_[a-zA-Z0-9]+$/.test(subscriptionId) ||
++    !/^cus_[a-zA-Z0-9]+$/.test(customerId) ||
++    !Number.isSafeInteger(next.paidThrough) ||
++    !Number.isSafeInteger(next.verifiedAt) ||
++    next.verifiedAt > now ||
++    !acceptSubscriptionUpdate(null, next)
++  )
++    throw new Error("Invalid subscription evidence");
++  const profile = await sql`select user_id from profiles where user_id=${userId} for update`;
++  if (!profile.length) throw new Error("Unknown billing account");
++  const rows =
++    await sql<LedgerRow>`select * from billing_subscriptions where user_id=${userId} for update`;
++  const prior = rows[0];
++  if (
++    prior &&
++    (prior.provider_subscription_id !== subscriptionId || prior.provider_customer_id !== customerId)
++  )
++    throw new Error("Billing identity changed; explicit reconciliation required");
++  if (prior && !acceptSubscriptionUpdate(state(prior), next)) return false;
++  await sql`insert into billing_subscriptions (user_id,provider_subscription_id,provider_customer_id,status,paid_through_ms,verified_at_ms,cancel_at_period_end)
++    values (${userId},${subscriptionId},${customerId},${next.status},${next.paidThrough},${next.verifiedAt},${next.cancelAtPeriodEnd})
++    on conflict (user_id) do update set status=excluded.status,paid_through_ms=excluded.paid_through_ms,verified_at_ms=excluded.verified_at_ms,cancel_at_period_end=excluded.cancel_at_period_end`;
++  return true;
++}
++export async function readManagedEntitlement(
++  sql: Sql,
++  userId: string,
++  now = Date.now(),
++): Promise<boolean | null> {
++  const rows = await sql<LedgerRow>`select * from billing_subscriptions where user_id=${userId}`;
++  return rows[0] ? subscriptionEntitlement(state(rows[0]), now) : null;
++}
+diff --git a/src/lib/subscription-policy.ts b/src/lib/subscription-policy.ts
+new file mode 100644
+index 0000000..614982d
+--- /dev/null
++++ b/src/lib/subscription-policy.ts
+@@ -0,0 +1,46 @@
++// Provider-neutral entitlement decision. A verified paid-through timestamp is
++// mandatory; cancellation at period end does not revoke an already paid term.
++export type SubscriptionState = {
++  status: string;
++  paidThrough: number;
++  verifiedAt: number;
++  cancelAtPeriodEnd: boolean;
++};
++export function subscriptionEntitlement(state: SubscriptionState | null, now: number): boolean {
++  if (
++    !state ||
++    !Number.isFinite(now) ||
++    !Number.isFinite(state.paidThrough) ||
++    !Number.isSafeInteger(state.verifiedAt) ||
++    !Number.isSafeInteger(state.paidThrough) ||
++    state.verifiedAt < 0 ||
++    state.verifiedAt > now ||
++    state.paidThrough <= now
++  )
++    return false;
++  return state.status === "active" || state.status === "past_due";
++}
++export function acceptSubscriptionUpdate(
++  previous: SubscriptionState | null,
++  next: SubscriptionState,
++): boolean {
++  if (
++    !Number.isFinite(next.verifiedAt) ||
++    !Number.isFinite(next.paidThrough) ||
++    next.verifiedAt < 0 ||
++    next.paidThrough < 0 ||
++    typeof next.cancelAtPeriodEnd !== "boolean" ||
++    ![
++      "active",
++      "past_due",
++      "canceled",
++      "unpaid",
++      "incomplete",
++      "incomplete_expired",
++      "paused",
++      "trialing",
++    ].includes(next.status)
++  )
++    return false;
++  return !previous || next.verifiedAt > previous.verifiedAt;
++}
+diff --git a/src/lib/use-premium-access.ts b/src/lib/use-premium-access.ts
+index 36daa52..e5caa6b 100644
+--- a/src/lib/use-premium-access.ts
++++ b/src/lib/use-premium-access.ts
+@@ -36,8 +36,18 @@ export function usePremiumAccess() {
+     };
+   }, [isPending, retryCount, userId]);
+ 
+-  const access =
+-    state.userId === (userId ?? null) && !isPending ? state.access : "loading";
++  useEffect(() => {
++    if (!userId || isPending) return;
++    const refresh = () => setRetryCount((n) => n + 1);
++    window.addEventListener("focus", refresh);
++    const timer = window.setInterval(refresh, 60000);
++    return () => {
++      window.removeEventListener("focus", refresh);
++      window.clearInterval(timer);
++    };
++  }, [userId, isPending]);
++
++  const access = state.userId === (userId ?? null) && !isPending ? state.access : "loading";
+   const retry = useCallback(() => setRetryCount((value) => value + 1), []);
+   return { access, retry };
+ }
+diff --git a/src/lib/vault-sync.server.ts b/src/lib/vault-sync.server.ts
+index db4e8c5..d0e91ab 100644
+--- a/src/lib/vault-sync.server.ts
++++ b/src/lib/vault-sync.server.ts
+@@ -1,24 +1,31 @@
+ import type { Sql } from "./db";
+ import { normalizeVault, assertVaultCapacity, type VaultSnapshot } from "./vault-policy";
+-import { hasPremiumPlan } from "./premium-entitlement.server";
++import { mergeVaultDelta } from "./account-vault";
++import { hasPremiumPlan, resolveAccountPremium } from "./premium-entitlement.server";
+ 
+ /** Caller must provide an atomic transaction and lock the account row first. */
+-export async function replaceVaultSnapshot(sql: Sql, userId: string, input: VaultSnapshot) {
+-  const data = normalizeVault(input);
++export async function replaceVaultSnapshot(
++  sql: Sql,
++  userId: string,
++  input: VaultSnapshot & { baseline?: VaultSnapshot },
++) {
++  let data = normalizeVault(input);
+   const profile = await sql<{
+     plan: string;
+   }>`select plan from profiles where user_id = ${userId} for update`;
+   if (!profile.length) throw new Error("Vault account unavailable");
+   const current = await sql<{
+     bgg_id: string;
+-  }>`select bgg_id from vault_games where user_id = ${userId} and list = 'owned'`;
++    list: string;
++  }>`select bgg_id, list from vault_games where user_id = ${userId}`;
++  const remote = {
++    owned: current.filter((row) => row.list === "owned").map((row) => row.bgg_id),
++    wishlist: current.filter((row) => row.list === "wishlist").map((row) => row.bgg_id),
++  };
++  if (input.baseline) data = mergeVaultDelta(normalizeVault(input.baseline), data, remote);
+   const premium =
+-    userId === "dev-user" ? await hasPremiumPlan(userId) : profile[0].plan === "premium";
+-  assertVaultCapacity(
+-    current.map((row) => row.bgg_id),
+-    data.owned,
+-    premium,
+-  );
++    userId === "dev-user" ? await hasPremiumPlan(userId) : await resolveAccountPremium(sql, userId);
++  assertVaultCapacity(remote.owned, data.owned, premium);
+   await sql`delete from vault_games where user_id = ${userId}`;
+   for (const [list, ids] of [
+     ["owned", data.owned],
+@@ -27,5 +34,5 @@ export async function replaceVaultSnapshot(sql: Sql, userId: string, input: Vaul
+     if (ids.length)
+       await sql`insert into vault_games (user_id, bgg_id, list) select ${userId}, value, ${list} from jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb) as value`;
+   }
+-  return { ok: true as const };
++  return { ok: true as const, ...data };
+ }
+diff --git a/src/routeTree.gen.ts b/src/routeTree.gen.ts
+index 99297e5..693fb4c 100644
+--- a/src/routeTree.gen.ts
++++ b/src/routeTree.gen.ts
+@@ -29,6 +29,7 @@ import { Route as GameIdRouteImport } from './routes/game.$id'
+ import { Route as InternalFlagsRouteImport } from './routes/internal.flags'
+ import { Route as InviteTokenRouteImport } from './routes/invite.$token'
+ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
++import { Route as ApiBillingWebhookRouteImport } from './routes/api/billing/webhook'
+ import { Route as GameIdIndexRouteImport } from './routes/game.$id.index'
+ import { Route as GameIdScoreRouteImport } from './routes/game.$id.score'
+ import { Route as GameIdTableRouteImport } from './routes/game.$id.table'
+@@ -134,6 +135,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+   path: '/api/auth/$',
+   getParentRoute: () => rootRouteImport,
+ } as any)
++const ApiBillingWebhookRoute = ApiBillingWebhookRouteImport.update({
++  id: '/api/billing/webhook',
++  path: '/api/billing/webhook',
++  getParentRoute: () => rootRouteImport,
++} as any)
+ const GameIdIndexRoute = GameIdIndexRouteImport.update({
+   id: '/',
+   path: '/',
+@@ -176,6 +182,7 @@ export interface FileRoutesByFullPath {
+   '/invite/$token': typeof InviteTokenRoute
+   '/circle/': typeof CircleIndexRoute
+   '/api/auth/$': typeof ApiAuthSplatRoute
++  '/api/billing/webhook': typeof ApiBillingWebhookRoute
+   '/game/$id/score': typeof GameIdScoreRoute
+   '/game/$id/table': typeof GameIdTableRoute
+   '/game/$id/teach': typeof GameIdTeachRoute
+@@ -200,6 +207,7 @@ export interface FileRoutesByTo {
+   '/invite/$token': typeof InviteTokenRoute
+   '/circle': typeof CircleIndexRoute
+   '/api/auth/$': typeof ApiAuthSplatRoute
++  '/api/billing/webhook': typeof ApiBillingWebhookRoute
+   '/game/$id/score': typeof GameIdScoreRoute
+   '/game/$id/table': typeof GameIdTableRoute
+   '/game/$id/teach': typeof GameIdTeachRoute
+@@ -227,6 +235,7 @@ export interface FileRoutesById {
+   '/invite/$token': typeof InviteTokenRoute
+   '/circle/': typeof CircleIndexRoute
+   '/api/auth/$': typeof ApiAuthSplatRoute
++  '/api/billing/webhook': typeof ApiBillingWebhookRoute
+   '/game/$id/score': typeof GameIdScoreRoute
+   '/game/$id/table': typeof GameIdTableRoute
+   '/game/$id/teach': typeof GameIdTeachRoute
+@@ -255,6 +264,7 @@ export interface FileRouteTypes {
+     | '/invite/$token'
+     | '/circle/'
+     | '/api/auth/$'
++    | '/api/billing/webhook'
+     | '/game/$id/score'
+     | '/game/$id/table'
+     | '/game/$id/teach'
+@@ -279,6 +289,7 @@ export interface FileRouteTypes {
+     | '/invite/$token'
+     | '/circle'
+     | '/api/auth/$'
++    | '/api/billing/webhook'
+     | '/game/$id/score'
+     | '/game/$id/table'
+     | '/game/$id/teach'
+@@ -305,6 +316,7 @@ export interface FileRouteTypes {
+     | '/invite/$token'
+     | '/circle/'
+     | '/api/auth/$'
++    | '/api/billing/webhook'
+     | '/game/$id/score'
+     | '/game/$id/table'
+     | '/game/$id/teach'
+@@ -330,6 +342,7 @@ export interface RootRouteChildren {
+   InternalFlagsRoute: typeof InternalFlagsRoute
+   InviteTokenRoute: typeof InviteTokenRoute
+   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
++  ApiBillingWebhookRoute: typeof ApiBillingWebhookRoute
+ }
+ 
+ declare module '@tanstack/react-router' {
+@@ -474,6 +487,13 @@ declare module '@tanstack/react-router' {
+       preLoaderRoute: typeof ApiAuthSplatRouteImport
+       parentRoute: typeof rootRouteImport
+     }
++    '/api/billing/webhook': {
++      id: '/api/billing/webhook'
++      path: '/api/billing/webhook'
++      fullPath: '/api/billing/webhook'
++      preLoaderRoute: typeof ApiBillingWebhookRouteImport
++      parentRoute: typeof rootRouteImport
++    }
+     '/game/$id/': {
+       id: '/game/$id/'
+       path: '/'
+@@ -554,6 +574,7 @@ const rootRouteChildren: RootRouteChildren = {
+   InternalFlagsRoute: InternalFlagsRoute,
+   InviteTokenRoute: InviteTokenRoute,
+   ApiAuthSplatRoute: ApiAuthSplatRoute,
++  ApiBillingWebhookRoute: ApiBillingWebhookRoute,
+ }
+ export const routeTree = rootRouteImport
+   ._addFileChildren(rootRouteChildren)
+diff --git a/src/routes/api/billing/webhook.ts b/src/routes/api/billing/webhook.ts
+new file mode 100644
+index 0000000..f0b12e8
+--- /dev/null
++++ b/src/routes/api/billing/webhook.ts
+@@ -0,0 +1,77 @@
++import { createFileRoute } from "@tanstack/react-router";
++import { verifyStripeEvent } from "@/lib/stripe-webhook.server";
++import { processStripeEvent } from "@/lib/stripe-event-handler.server";
++import { withSqlTransaction } from "@/lib/db";
++
++export const Route = createFileRoute("/api/billing/webhook")({
++  server: {
++    handlers: {
++      POST: async ({ request }) => {
++        // Explicitly disabled until a separately reviewed test-mode activation.
++        const key = process.env.STRIPE_SECRET_KEY?.trim() ?? "";
++        const secret = process.env.STRIPE_WEBHOOK_SECRET?.trim() ?? "";
++        const prices = [
++          process.env.STRIPE_PRICE_MONTHLY?.trim(),
++          process.env.STRIPE_PRICE_YEARLY?.trim(),
++        ];
++        if (
++          process.env.GAMEFINDER_STRIPE_TEST_WEBHOOK !== "1" ||
++          !key.startsWith("sk_test_") ||
++          !secret.startsWith("whsec_") ||
++          !process.env.DATABASE_URL?.trim() ||
++          prices.some((p) => !p || !/^price_[a-zA-Z0-9]+$/.test(p)) ||
++          prices[0] === prices[1]
++        )
++          return new Response("Billing webhook unavailable", { status: 503 });
++        const declared = Number(request.headers.get("content-length") ?? 0);
++        if (!Number.isFinite(declared) || declared > 1000000)
++          return new Response("Payload too large", { status: 413 });
++        let event;
++        try {
++          const reader = request.body?.getReader();
++          if (!reader) throw new Error("Missing body");
++          const chunks: Uint8Array[] = [];
++          let count = 0;
++          while (true) {
++            const { value, done } = await reader.read();
++            if (done) break;
++            count += value.byteLength;
++            if (count > 1000000) {
++              await reader.cancel();
++              return new Response("Payload too large", { status: 413 });
++            }
++            chunks.push(value);
++          }
++          const raw = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
++            Buffer.concat(chunks),
++          );
++          event = verifyStripeEvent(raw, request.headers.get("stripe-signature") ?? "", secret);
++          if (event.livemode) throw new Error("Live events disabled");
++        } catch {
++          return new Response("Invalid webhook", { status: 400 });
++        }
++        try {
++          await withSqlTransaction((sql) =>
++            processStripeEvent(
++              sql,
++              event,
++              async (path) => {
++                const response = await fetch("https://api.stripe.com/v1/" + path, {
++                  headers: { Authorization: "Bearer " + key },
++                  signal: AbortSignal.timeout(10000),
++                });
++                if (!response.ok) throw new Error("Provider request failed");
++                return await response.json();
++              },
++              prices as string[],
++              false,
++            ),
++          );
++          return new Response("OK");
++        } catch {
++          return new Response("Reconciliation unavailable", { status: 503 });
++        }
++      },
++    },
++  },
++});
+diff --git a/src/routes/premium.tsx b/src/routes/premium.tsx
+index 9f6cc16..c2c837d 100644
+--- a/src/routes/premium.tsx
++++ b/src/routes/premium.tsx
+@@ -7,6 +7,7 @@ import {
+   billingStatus,
+   confirmCheckout,
+   startCheckout,
++  openBillingPortal,
+   type BillingTier,
+ } from "@/lib/billing";
+ import { useCurrentUserState } from "@/lib/auth/use-current-user";
+@@ -35,7 +36,7 @@ function PremiumPage() {
+     yearly: false,
+   });
+   const [billingError, setBillingError] = useState<string | null>(null);
+-  const [busy, setBusy] = useState<BillingTier | "confirm" | null>(null);
++  const [busy, setBusy] = useState<BillingTier | "confirm" | "portal" | null>(null);
+ 
+   useEffect(() => {
+     void billingStatus()
+@@ -57,10 +58,12 @@ function PremiumPage() {
+   }, []);
+ 
+   useEffect(() => {
+-    if (!sessionId || !userId) return;
++    if (!sessionId || !userId || !subscriptionManagement) return;
++    let active = true;
+     setBusy("confirm");
+     void confirmCheckout({ data: { sessionId } })
+       .then((r) => {
++        if (!active) return;
+         if (r.ok) {
+           useAppStore.setState({ isPremium: true, upgradePrompt: null });
+           retryEntitlement();
+@@ -68,9 +71,16 @@ function PremiumPage() {
+           navigate({ to: "/premium", search: { session_id: "" } });
+         } else toast("Checkout didn't finish. Try again.");
+       })
+-      .catch((e) => toast(e instanceof Error ? e.message : "Couldn't confirm"))
+-      .finally(() => setBusy(null));
+-  }, [sessionId, userId, navigate, retryEntitlement]);
++      .catch((e) => {
++        if (active) toast(e instanceof Error ? e.message : "Couldn't confirm");
++      })
++      .finally(() => {
++        if (active) setBusy(null);
++      });
++    return () => {
++      active = false;
++    };
++  }, [sessionId, userId, navigate, retryEntitlement, subscriptionManagement]);
+ 
+   async function pay(tier: BillingTier) {
+     if (!user) {
+@@ -177,6 +187,33 @@ function PremiumPage() {
+         ) : null}
+       </section>
+ 
++      {isPremium && (
++        <section className="mt-6 rounded-card bg-card p-4">
++          <h2 className="font-display text-xl">Manage subscription</h2>
++          <p className="mt-2 text-sm text-muted-foreground">
++            Manage billing, payment details and cancellation through Stripe when subscription
++            management is available.
++          </p>
++          <button
++            type="button"
++            disabled={!subscriptionManagement || busy !== null}
++            className="mt-3 rounded-button bg-muted px-4 py-3 font-semibold disabled:opacity-60"
++            onClick={async () => {
++              setBusy("portal");
++              try {
++                const result = await openBillingPortal();
++                window.location.href = result.url;
++              } catch {
++                toast.error("Subscription management is unavailable.");
++              } finally {
++                setBusy(null);
++              }
++            }}
++          >
++            Manage subscription
++          </button>
++        </section>
++      )}
+       <section className="mt-8">
+         <h2 className="font-display text-xl">Current Premium benefits</h2>
+         <ul className="mt-2 space-y-2 text-sm">

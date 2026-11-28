@@ -156,11 +156,11 @@ export function BankTable({
         </span>
       </div>
       <Link
-        to="/game/$id/table"
+        to="/game/$id/teach"
         params={{ id: BANK_BGG_ID }}
         className="text-center text-sm font-semibold text-sky"
       >
-        Teach me with Finn
+        Teach me
       </Link>
 
       {over ? (
@@ -245,7 +245,7 @@ export function BankTable({
               <Button
                 className="w-full"
                 size="xl"
-                variant={canCashOut ? "secondary" : "default"}
+                variant={canCashOut ? "secondary" : "primary"}
                 disabled={busy}
                 onClick={() => act({ type: "roll" })}
               >

@@ -5,10 +5,19 @@ import { getGame } from "@/lib/scoring";
 import { getScoreCard, lifetimeStats, resolveWinners } from "@/lib/scorecards";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { PremiumGate } from "@/components/premium-gate";
 
 export const Route = createFileRoute("/scoreboard")({ component: ScoreboardPage });
 
 function ScoreboardPage() {
+  return (
+    <PremiumGate>
+      <ScoreboardContent />
+    </PremiumGate>
+  );
+}
+
+function ScoreboardContent() {
   const players = useAppStore((s) => s.tablePlayers);
   const sessions = useAppStore((s) => s.scoreSessions);
 
@@ -24,11 +33,13 @@ function ScoreboardPage() {
 
   return (
     <div className="pb-10">
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-fox">Forever ledger</p>
-      <h1 className="font-display text-3xl">Scoreboard</h1>
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-fox">
+        Scores &amp; Win History
+      </p>
+      <h1 className="font-display text-3xl">Lifetime standings</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Named players. Official-style pads. Wins never reset on this device. Family mini-game
-        points live on each table — open{" "}
+        Named players. Official-style pads. Wins never reset on this device. Shared family tables
+        are in{" "}
         <Link to="/circle" className="font-semibold text-sky">
           Tables
         </Link>

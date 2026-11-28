@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
@@ -158,6 +158,23 @@ export default defineConfig(({ command, isPreview }) => ({
   },
   resolve: { tsconfigPaths: true },
   plugins: [
+    {
+      name: "scan-ocr-assets",
+      // Tesseract imports a classic worker and requests the language file by its exact name.
+      configResolved(config) {
+        const dir = join(config.publicDir, "scan-ocr");
+        mkdirSync(dir, { recursive: true });
+        for (const [source, name] of [
+          ["tesseract.js/dist/worker.min.js", "worker.min.js"],
+          ["tesseract.js/dist/worker.min.js.LICENSE.txt", "worker.min.js.LICENSE.txt"],
+          ["tesseract.js-core/LICENSE", "tesseract-core.LICENSE"],
+          ["tesseract.js-core/tesseract-core-lstm.wasm.js", "tesseract-core-lstm.wasm.js"],
+          ["@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz", "eng.traineddata.gz"],
+        ]) {
+          copyFileSync(join(config.root, "node_modules", source), join(dir, name));
+        }
+      },
+    },
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),
@@ -178,6 +195,20 @@ export default defineConfig(({ command, isPreview }) => ({
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.
             serverDir: "./server",
+            // Keep SSR module namespace bindings intact across Nitro bundling.
+            inlineDynamicImports: true,
+            hooks: {
+              compiled(nitro) {
+                // Embedded database is for isolated local builds, not Netlify.
+                if (process.env.NETLIFY) return;
+                for (const asset of ["pglite.data", "pglite.wasm", "initdb.wasm"]) {
+                  copyFileSync(
+                    join(nitro.options.rootDir, "node_modules/@electric-sql/pglite/dist", asset),
+                    join(nitro.options.output.serverDir, asset),
+                  );
+                }
+              },
+            },
           }),
         ]
       : []),

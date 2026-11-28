@@ -1,13 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { StartGame } from "@/components/minigames/start-game";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import {
   createGroupInvite,
   deleteGroup,
+  getPremiumEntitlement,
   getGroup,
   leaveGroup,
   listGroupPlays,
@@ -18,8 +18,6 @@ import {
   type GroupMember,
   type GroupPlayRow,
 } from "@/lib/social";
-import { listFamilyScores, listMiniSessions, type FamilyScoreRow, type SessionListItem } from "@/lib/minigames/server";
-import { MINI_GAMES } from "@/lib/minigames/types";
 import { getGame } from "@/lib/scoring";
 import { useAppStore } from "@/lib/store";
 
@@ -28,6 +26,7 @@ export const Route = createFileRoute("/circle/$groupId")({ component: GroupPage 
 function GroupPage() {
   const { groupId } = Route.useParams();
   const { user, isPending } = useCurrentUserState();
+  const userId = user?.id;
   const navigate = useNavigate();
   const setRecPool = useAppStore((s) => s.setRecPool);
   const [name, setName] = useState("");
@@ -38,9 +37,9 @@ function GroupPage() {
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [plays, setPlays] = useState<GroupPlayRow[]>([]);
+  const [scoresLocked, setScoresLocked] = useState(false);
+  const [scoresError, setScoresError] = useState<string | null>(null);
   const [shelf, setShelf] = useState<string[]>([]);
-  const [family, setFamily] = useState<FamilyScoreRow[]>([]);
-  const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -49,13 +48,10 @@ function GroupPage() {
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function reload() {
-    const [g, p, v, f, s] = await Promise.all([
+  const reload = useCallback(async () => {
+    const [g, v] = await Promise.all([
       getGroup({ data: { groupId } }),
-      listGroupPlays({ data: { groupId } }),
       listGroupVault({ data: { groupId } }),
-      listFamilyScores({ data: { groupId } }),
-      listMiniSessions({ data: { groupId } }),
     ]);
     setName(g.name);
     setKind(g.kind);
@@ -65,17 +61,32 @@ function GroupPage() {
     setShare(g.shareVault);
     setMembers(g.members);
     setActivity(g.activity);
-    setPlays(p);
     setShelf(v);
-    setFamily(f);
-    setSessions(s);
+    try {
+      const { premium } = await getPremiumEntitlement();
+      if (premium) {
+        setPlays(await listGroupPlays({ data: { groupId } }));
+        setScoresLocked(false);
+        setScoresError(null);
+      } else {
+        setPlays([]);
+        setScoresLocked(true);
+        setScoresError(null);
+      }
+    } catch (error) {
+      setPlays([]);
+      setScoresLocked(true);
+      setScoresError(
+        error instanceof Error ? error.message : "Couldn't verify Premium access.",
+      );
+    }
     setLoaded(true);
-  }
+  }, [groupId]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     void reload().catch((e) => setErr(e instanceof Error ? e.message : "Couldn't open the table"));
-  }, [user?.id, groupId]);
+  }, [userId, groupId, reload]);
 
   if (isPending) return <div className="h-40 animate-pulse rounded-card bg-muted" />;
   if (!user) return <RedirectToSignIn />;
@@ -90,8 +101,6 @@ function GroupPage() {
       </div>
     );
   }
-
-  const openGames = sessions.filter((s) => s.status === "active");
 
   async function copyInvite() {
     try {
@@ -211,56 +220,6 @@ function GroupPage() {
       </div>
 
       <section className="mt-8">
-        <h2 className="font-display text-xl">Family scoreboard</h2>
-        <p className="text-sm text-muted-foreground">
-          Win a mini-game, get +N — N is the number of people who played. Draws get nothing.
-        </p>
-        {family.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">No family points yet. Start a game below.</p>
-        ) : (
-          <ol className="mt-3 divide-y divide-border overflow-hidden rounded-card bg-card shadow-card">
-            {family.map((row, i) => (
-              <li key={row.userId} className="flex items-center justify-between px-4 py-3">
-                <span className="font-semibold">
-                  {i + 1}. {row.name}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {row.points} pts · {row.wins} {row.wins === 1 ? "win" : "wins"}
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-
-      {openGames.length ? (
-        <section className="mt-8">
-          <h2 className="font-display text-xl">Games in motion</h2>
-          <ul className="mt-3 divide-y divide-border overflow-hidden rounded-card bg-card shadow-card">
-            {openGames.map((s) => (
-              <li key={s.id}>
-                <Link
-                  to="/play/$sessionId"
-                  params={{ sessionId: s.id }}
-                  className="flex items-center justify-between px-4 py-3"
-                >
-                  <span>
-                    <span className="font-semibold">{MINI_GAMES[s.gameType].label}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {s.yourTurn ? "Your turn" : s.youAreIn ? "You're in" : "At this table"}
-                    </span>
-                  </span>
-                  <span className="text-sm font-semibold text-sky">Open</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {user ? <StartGame groupId={groupId} members={members} you={user.id} /> : null}
-
-      <section className="mt-8">
         <h2 className="font-display text-xl">People</h2>
         <ul className="mt-3 divide-y divide-border overflow-hidden rounded-card bg-card shadow-card">
           {members.map((m) => (
@@ -274,24 +233,41 @@ function GroupPage() {
 
       <section className="mt-8">
         <h2 className="font-display text-xl">Nights together</h2>
-        <ul className="mt-3 space-y-2">
-          {plays.length === 0 ? (
-            <li className="text-sm text-muted-foreground">Nothing logged yet.</li>
-          ) : (
-            plays.map((p) => {
-              const game = getGame(p.bggId);
-              const winner = p.seats.find((s) => s.won)?.playerName;
-              return (
-                <li key={p.id} className="rounded-card bg-card px-4 py-3 shadow-card">
-                  <p className="font-semibold">{game?.name ?? p.bggId}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {winner ? `${winner} won` : "Logged"} · {p.loggerName}
-                  </p>
-                </li>
-              );
-            })
-          )}
-        </ul>
+        {scoresError || scoresLocked ? (
+          <div className="mt-3 rounded-card bg-card p-4 text-sm shadow-card">
+            <p className="text-muted-foreground">
+              {scoresError
+                ? `Score history is hidden because access could not be verified: ${scoresError}`
+                : "Shared scores and win history are part of GameFinder Premium."}
+            </p>
+            <Link
+              to="/premium"
+              search={{ session_id: "" }}
+              className="mt-2 inline-block font-semibold text-sky"
+            >
+              View subscription plans
+            </Link>
+          </div>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {plays.length === 0 ? (
+              <li className="text-sm text-muted-foreground">Nothing logged yet.</li>
+            ) : (
+              plays.map((p) => {
+                const game = getGame(p.bggId);
+                const winner = p.seats.find((s) => s.won)?.playerName;
+                return (
+                  <li key={p.id} className="rounded-card bg-card px-4 py-3 shadow-card">
+                    <p className="font-semibold">{game?.name ?? p.bggId}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {winner ? `${winner} won` : "Logged"} · {p.loggerName}
+                    </p>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        )}
       </section>
 
       {inviteUrl ? (

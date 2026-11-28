@@ -1,0 +1,526 @@
+diff --git a/docs/catalog-ingestion/PROVIDER_NEUTRAL_ARCHITECTURE.md b/docs/catalog-ingestion/PROVIDER_NEUTRAL_ARCHITECTURE.md
+index bdb5d35..18ff7ac 100644
+--- a/docs/catalog-ingestion/PROVIDER_NEUTRAL_ARCHITECTURE.md
++++ b/docs/catalog-ingestion/PROVIDER_NEUTRAL_ARCHITECTURE.md
+@@ -74,3 +74,11 @@ Synthetic test-only review states exercise gates; imports themselves do not crea
+ Before a licensed BGG adapter: secure and review the commercial agreement; define server-side authorization and permitted fields, rate limits, retention, and audit controls; document metadata rights separately from image display, caching, transformation, and attribution rights; then build an adapter and test it only with authorized access. If denied, publisher-authorized, suitably licensed open, and GameFinder-curated providers remain viable through the same candidate contract.
+ 
+ Before production ingestion, promote a separately reviewed staging schema through versioned migrations, validate durability on the deployed PostgreSQL configuration, and add trusted server-side authorization, permission-expiry/revocation enforcement, human review tooling, observability, and rollback. Before permanent-ID migration, separately reconcile legacy identities and aliases, resolve known collisions, map every Vault/history/score reference, and test a reviewed reversible migration. Production publication additionally requires approved identity, verified hard-filter facts with evidence, cleared metadata rights, separately approved eligible artwork, human review, owner approval, and an explicit publication/rollback process.
++
++## Phase 03 collection import planning and validation hardening
++
++The internal collection preview accepts bounded provider-namespaced claims and independently reviewed permanent identities. It reports invalid, unresolved, ambiguous, review-required, already-owned, duplicate and eligible records without writing user data. An exact normalized title is a consistency check, not identity evidence. Verified external IDs with unresolved conflicts are not eligible. The confirmation planner recomputes eligibility and capacity from current trusted inputs, rejects stale or fabricated selections, preserves existing ownership, and supports idempotent replay. It does not truncate an oversized collection or perform persistence. Existing legacy IDs are not automatically reconciled to permanent IDs; the planner is a future permanent-identity interface, not an adapter for the current Vault.
++
++Neither function is exposed as a route or server endpoint. Before activation, require licensed provider access, authenticated account ownership, trusted server-side identity and entitlement checks, approved permanent-ID compatibility, transactional additive writes with concurrency checks, and an explicit user confirmation flow. No BGG access, user-facing import, global publication or identity migration is enabled by this checkpoint.
++
++Identity resolution now rejects unresolved conflicts even when an alias is verified. Metadata and artwork validation reject invalid evaluation dates and future-dated reviews, require identified reviewers and chronological approvals, and published snapshots reject reused provider source records. These are validation controls, not proof that supplied approval data came from a trusted actor.
+diff --git a/scripts/catalog-collection-preview.test.mjs b/scripts/catalog-collection-preview.test.mjs
+new file mode 100644
+index 0000000..1d2db73
+--- /dev/null
++++ b/scripts/catalog-collection-preview.test.mjs
+@@ -0,0 +1,134 @@
++import assert from "node:assert/strict";
++import { after, before, test } from "node:test";
++import { createServer } from "vite";
++let server, preview, confirm;
++before(async () => {
++  server = await createServer({
++    configFile: false,
++    logLevel: "silent",
++    server: { middlewareMode: true },
++  });
++  ({ previewCollectionImport: preview, planConfirmedCollectionImport: confirm } =
++    await server.ssrLoadModule("/src/lib/catalog-collection-preview.ts"));
++});
++after(async () => server?.close());
++const fixture = (n, external = String(n), overrides = {}) => ({
++  id: "gf:00000000-0000-4000-8000-" + String(n).padStart(12, "0"),
++  title: "Fixture " + n,
++  status: "verified",
++  conflictStatus: "none",
++  edition: {
++    name: null,
++    printing: null,
++    language: null,
++    regionalMarket: null,
++    status: "missing",
++    evidenceRef: null,
++  },
++  sourceRecords: [
++    {
++      sourceNamespace: "fixture",
++      sourceRecordId: String(n),
++      recordKey: String(n),
++      fingerprint: "a".repeat(64),
++    },
++  ],
++  legacyAliases: [],
++  relationships: [],
++  externalIds: [{ provider: "synthetic", value: external, status: "verified", evidenceRef: "e" }],
++  evidence: [
++    {
++      id: "e",
++      kind: "curator-review",
++      reference: "fixture",
++      observedAt: "2026-01-01",
++      reviewerId: "fixture",
++    },
++  ],
++  createdAt: "2026-01-01",
++  revisionHistory: [{ revision: 1, recordedAt: "2026-01-01", changeRef: "fixture" }],
++  ...overrides,
++});
++const claim = (n, title = "Fixture " + n) => ({
++  provider: "synthetic",
++  externalId: String(n),
++  title,
++});
++test("preview preserves ambiguity and requires verified identity without title-only matching", () => {
++  const identities = [
++    fixture(1),
++    fixture(2),
++    fixture(3, "3", { conflictStatus: "review-required" }),
++    fixture(4, "4"),
++    fixture(5, "4"),
++  ];
++  const input = [
++    claim(1),
++    claim(1),
++    claim(2),
++    claim(3),
++    claim(4),
++    claim(9, "Fixture 1"),
++    claim(1, "Other edition"),
++    null,
++  ];
++  const before = JSON.stringify({ input, identities });
++  const result = preview(input, identities, [identities[1].id], false);
++  assert.deepEqual(
++    result.rows.map((r) => r.status),
++    [
++      "ready",
++      "duplicate",
++      "already-owned",
++      "review",
++      "ambiguous",
++      "unresolved",
++      "review",
++      "invalid",
++    ],
++  );
++  assert.deepEqual(result.eligibleIds, [identities[0].id]);
++  assert.equal(JSON.stringify({ input, identities }), before);
++});
++test("preview respects capacity without silently truncating or modifying ownership", () => {
++  const identities = [fixture(1), fixture(2)];
++  const owned = Array.from({ length: 49 }, (_, i) => "legacy-" + i);
++  const free = preview([claim(1), claim(2)], identities, owned, false);
++  assert.equal(free.available, 1);
++  assert.equal(free.requiresSelection, true);
++  assert.equal(free.eligibleIds.length, 2);
++  assert.equal(preview([claim(1), claim(2)], identities, owned, true).requiresSelection, false);
++  assert.equal(preview([claim(1)], identities, [...owned, "old", "old2"], false).available, 0);
++  assert.equal(owned.length, 49);
++});
++
++test("confirmation revalidates identity and current capacity and supports safe replay", () => {
++  const identities = [fixture(1), fixture(2)];
++  const input = [claim(1), claim(2)];
++  const owned = Array.from({ length: 49 }, (_, i) => "legacy-" + i);
++  const first = identities[0].id,
++    second = identities[1].id;
++  assert.throws(() => confirm(input, identities, owned, false, [first, second]), /capacity/);
++  const planned = confirm(input, identities, owned, false, [first, first]);
++  assert.deepEqual(planned.additions, [first]);
++  assert.deepEqual(planned.nextOwnedIds, [...owned, first]);
++  assert.deepEqual(confirm(input, identities, planned.nextOwnedIds, false, [first]).additions, []);
++  assert.throws(
++    () => confirm(input, identities, planned.nextOwnedIds, false, [second]),
++    /capacity/,
++  );
++  assert.throws(
++    () =>
++      confirm(
++        input,
++        [fixture(1, "1", { conflictStatus: "ambiguous" }), identities[1]],
++        owned,
++        true,
++        [first],
++      ),
++    /no longer eligible/,
++  );
++  assert.throws(() => confirm(input, identities, owned, true, ["legacy-0"]), /no longer eligible/);
++  assert.throws(() => confirm(input, identities, owned, true, ["forged"]), /no longer eligible/);
++  assert.equal(owned.length, 49);
++});
+diff --git a/scripts/catalog-identity-registry.test.mjs b/scripts/catalog-identity-registry.test.mjs
+index f9ffe2b..6ecd61e 100644
+--- a/scripts/catalog-identity-registry.test.mjs
++++ b/scripts/catalog-identity-registry.test.mjs
+@@ -202,3 +202,24 @@ test("custom game IDs remain owner-scoped legacy keys, not provider identities",
+   assert.equal(custom.externalIds.length, 0);
+   assert.equal(custom.legacyAliases[0].namespace, "legacy-user");
+ });
++
++test("a verified alias with an unresolved identity conflict cannot resolve", () => {
++  const record = identity("gf:00000000-0000-4000-8000-000000000099", {
++    status: "verified",
++    conflictStatus: "review-required",
++    evidence: [
++      {
++        id: "e",
++        kind: "curator-review",
++        reference: "fixture",
++        observedAt: "2026-01-01",
++        reviewerId: "fixture",
++      },
++    ],
++    legacyAliases: [{ namespace: "legacy-bgg", value: "99", status: "verified", evidenceRef: "e" }],
++  });
++  assert.equal(
++    foundation.resolvePermanentCatalogIdentityAlias([record], "legacy-bgg", "99").status,
++    "requires-identity-review",
++  );
++});
+diff --git a/scripts/catalog-ingestion.test.mjs b/scripts/catalog-ingestion.test.mjs
+index 95a00ed..9dfb4bf 100644
+--- a/scripts/catalog-ingestion.test.mjs
++++ b/scripts/catalog-ingestion.test.mjs
+@@ -426,3 +426,54 @@ test("catalog, recommendations, and persisted user references are untouched by s
+   assert.equal(foundation.BGG_PROVIDER_POLICY.enabled, false);
+   assert.equal(foundation.BGG_PROVIDER_POLICY.commercialUseAuthorized, false);
+ });
++
++test("future or missing approval evidence cannot validate metadata", async () => {
++  const candidate = completeMetadataCandidate(await staged("Cedar"), { ownerApproval: "approved" });
++  assert.equal(
++    ingestion.validateStagedCandidate(candidate, [], fixtureTime).status,
++    "metadata-validated",
++  );
++  const invalid = structuredClone(candidate);
++  invalid.review.ownerApproval.decidedAt = "2099-01-01";
++  assert.ok(
++    ingestion
++      .validateStagedCandidate(invalid, [], fixtureTime)
++      .reasons.includes("owner-approval-pending"),
++  );
++  invalid.review.ownerApproval.decidedAt = fixtureTime;
++  invalid.review.humanReview.reviewerId = " ";
++  assert.ok(
++    ingestion
++      .validateStagedCandidate(invalid, [], fixtureTime)
++      .reasons.includes("human-review-pending"),
++  );
++  assert.ok(
++    ingestion
++      .validateStagedCandidate(candidate, [], "invalid")
++      .reasons.includes("metadata-rights-expired"),
++  );
++});
++
++test("artwork review cannot be future dated and evaluation time must be valid", async () => {
++  const candidate = await staged("Cedar");
++  const scope = {
++    edition: known("First"),
++    printing: known("First"),
++    language: known("English"),
++    market: known("US"),
++  };
++  const art = artworkCandidate(candidate, scope);
++  assert.equal(
++    artwork.selectApprovedArtwork(artworkIdentity(candidate), scope, [art], fixtureTime).status,
++    "selected",
++  );
++  assert.notEqual(
++    artwork.selectApprovedArtwork(artworkIdentity(candidate), scope, [art], "invalid").status,
++    "selected",
++  );
++  art.review.reviewedAt = "2099-01-01";
++  assert.notEqual(
++    artwork.selectApprovedArtwork(artworkIdentity(candidate), scope, [art], fixtureTime).status,
++    "selected",
++  );
++});
+diff --git a/scripts/catalog-published-view.test.mjs b/scripts/catalog-published-view.test.mjs
+index 6134b2c..f869beb 100644
+--- a/scripts/catalog-published-view.test.mjs
++++ b/scripts/catalog-published-view.test.mjs
+@@ -285,3 +285,12 @@ test("the neutral adapter remains outside production imports and fixture generat
+     /valid fixed timestamp/,
+   );
+ });
++
++test("publication rejects reuse of a provider source record across permanent identities", () => {
++  const snapshot = structuredClone(prototype.createSyntheticPublishedCatalogSnapshot());
++  snapshot.records[1].sourceIdentity = { ...snapshot.records[0].sourceIdentity };
++  assert.throws(
++    () => contract.assertPublishedCatalogSnapshot(snapshot),
++    /multiply-assigned source record/,
++  );
++});
+diff --git a/src/lib/catalog-artwork.ts b/src/lib/catalog-artwork.ts
+index 926a558..81ef01f 100644
+--- a/src/lib/catalog-artwork.ts
++++ b/src/lib/catalog-artwork.ts
+@@ -90,6 +90,7 @@ function targetsSameGame(left: ArtworkGameIdentity, right: ArtworkGameIdentity):
+ 
+ function rightsAllowCommercialDisplay(artwork: ArtworkCandidate, now: string): boolean {
+   return (
++    Number.isFinite(Date.parse(now)) &&
+     artwork.rights.commercialDisplay === "allowed" &&
+     Boolean(artwork.rights.permissionReference?.trim()) &&
+     artwork.rights.attribution.required !== null &&
+@@ -134,7 +135,8 @@ export function selectApprovedArtwork(
+       candidate.review.verification === "verified" &&
+       candidate.review.approval === "approved" &&
+       Boolean(candidate.review.reviewerId?.trim()) &&
+-      Number.isFinite(Date.parse(candidate.review.reviewedAt ?? "")),
++      Number.isFinite(Date.parse(candidate.review.reviewedAt ?? "")) &&
++      Date.parse(candidate.review.reviewedAt ?? "") <= Date.parse(now),
+   );
+   const displayAuthorized = verifiedAndApproved.filter((candidate) =>
+     rightsAllowCommercialDisplay(candidate, now),
+diff --git a/src/lib/catalog-collection-preview.ts b/src/lib/catalog-collection-preview.ts
+new file mode 100644
+index 0000000..4b9306e
+--- /dev/null
++++ b/src/lib/catalog-collection-preview.ts
+@@ -0,0 +1,128 @@
++import {
++  CATALOG_PROVIDER_IDS,
++  validatePermanentCatalogIdentityRegistry,
++  type CatalogProviderId,
++  type PermanentCatalogIdentity,
++} from "./catalog-foundation";
++import { FREE_VAULT_LIMIT } from "./types";
++
++export type CollectionClaim = { provider: CatalogProviderId; externalId: string; title: string };
++export type CollectionPreviewRow = {
++  index: number;
++  claim: CollectionClaim | null;
++  gamefinderId: string | null;
++  status:
++    "invalid" | "unresolved" | "ambiguous" | "review" | "already-owned" | "duplicate" | "ready";
++};
++
++/** Read-only planning against independently reviewed identities. Never authorizes provider access or writes a Vault. */
++export function previewCollectionImport(
++  input: readonly unknown[],
++  identities: readonly PermanentCatalogIdentity[],
++  ownedIds: readonly string[],
++  premium: boolean,
++) {
++  if (!Array.isArray(input) || input.length > 10000) throw new Error("Invalid collection size");
++  validatePermanentCatalogIdentityRegistry(identities);
++  const owned = new Set(ownedIds);
++  const selected = new Set<string>();
++  const index = new Map<string, PermanentCatalogIdentity[]>();
++  for (const identity of identities) {
++    for (const external of identity.externalIds) {
++      const key = JSON.stringify([external.provider, external.value]);
++      const matches = index.get(key) ?? [];
++      if (!matches.includes(identity)) matches.push(identity);
++      index.set(key, matches);
++    }
++  }
++  const rows: CollectionPreviewRow[] = Array.from(input, (raw, i) => {
++    const row: CollectionPreviewRow = {
++      index: i,
++      claim: null,
++      gamefinderId: null,
++      status: "invalid",
++    };
++    if (!raw || typeof raw !== "object") return row;
++    const value = raw as Partial<CollectionClaim>;
++    if (
++      !CATALOG_PROVIDER_IDS.includes(value.provider as CatalogProviderId) ||
++      typeof value.externalId !== "string" ||
++      !value.externalId.trim() ||
++      value.externalId.length > 256 ||
++      typeof value.title !== "string" ||
++      !value.title.trim() ||
++      value.title.length > 240
++    )
++      return row;
++    const claim = { provider: value.provider!, externalId: value.externalId, title: value.title };
++    row.claim = claim;
++    const candidates = index.get(JSON.stringify([claim.provider, claim.externalId])) ?? [];
++    if (!candidates.length) return { ...row, status: "unresolved" };
++    if (candidates.length !== 1) return { ...row, status: "ambiguous" };
++    const identity = candidates[0];
++    const matching = identity.externalIds.filter(
++      (id) => id.provider === claim.provider && id.value === claim.externalId,
++    );
++    if (
++      identity.status !== "verified" ||
++      identity.conflictStatus !== "none" ||
++      !matching.every(
++        (id) => id.status === "verified" && identity.evidence.some((e) => e.id === id.evidenceRef),
++      )
++    )
++      return { ...row, status: "review" };
++    // Title discrepancies are reviewable, never silently mapped by approximate text.
++    const normalize = (s: string) => s.normalize("NFKC").trim().toLowerCase();
++    if (normalize(claim.title) !== normalize(identity.title)) return { ...row, status: "review" };
++    row.gamefinderId = identity.id;
++    if (owned.has(identity.id)) return { ...row, status: "already-owned" };
++    if (selected.has(identity.id)) return { ...row, status: "duplicate" };
++    selected.add(identity.id);
++    return { ...row, status: "ready" };
++  });
++  const available = premium ? null : Math.max(0, FREE_VAULT_LIMIT - owned.size);
++  return {
++    rows,
++    eligibleIds: [...selected],
++    available,
++    requiresSelection: available !== null && selected.size > available,
++  };
++}
++
++/** Recompute from current trusted inputs at confirmation; never trust a previously rendered preview.
++ * This produces a proposed additive snapshot only, not a persistence operation.
++ */
++export function planConfirmedCollectionImport(
++  input: readonly unknown[],
++  identities: readonly PermanentCatalogIdentity[],
++  ownedIds: readonly string[],
++  premium: boolean,
++  selectedIds: readonly string[],
++) {
++  if (!Array.isArray(selectedIds) || selectedIds.some((id) => typeof id !== "string")) {
++    throw new Error("Invalid collection selection");
++  }
++  const preview = previewCollectionImport(input, identities, ownedIds, premium);
++  const eligible = new Set(preview.eligibleIds);
++  const owned = new Set(ownedIds);
++  const selection = [...new Set(selectedIds)];
++  if (selection.some((id) => !eligible.has(id) && !owned.has(id))) {
++    throw new Error("Collection selection is no longer eligible");
++  }
++  // Owned selections are only idempotent when they still resolve from this collection.
++  const resolved = new Set(
++    preview.rows
++      .filter(
++        (row) =>
++          row.status === "already-owned" || row.status === "ready" || row.status === "duplicate",
++      )
++      .map((row) => row.gamefinderId),
++  );
++  if (selection.some((id) => !resolved.has(id)))
++    throw new Error("Collection selection is no longer eligible");
++  const additions = selection.filter((id) => !owned.has(id));
++  if (preview.available !== null && additions.length > preview.available) {
++    throw new Error("Collection selection exceeds current Vault capacity");
++  }
++  return { additions, nextOwnedIds: [...owned, ...additions] };
++}
+diff --git a/src/lib/catalog-foundation.ts b/src/lib/catalog-foundation.ts
+index ed501f7..ae6cd49 100644
+--- a/src/lib/catalog-foundation.ts
++++ b/src/lib/catalog-foundation.ts
+@@ -355,6 +355,10 @@ export function resolvePermanentCatalogIdentityAlias(
+   );
+   if (
+     identity.status !== "verified" ||
++    identity.conflictStatus !== "none" ||
++    identity.legacyAliases
++      .filter((a) => a.namespace === namespace && a.value === value)
++      .some((a) => a.status !== "verified") ||
+     alias?.status !== "verified" ||
+     !alias.evidenceRef ||
+     !identity.evidence.some((evidence) => evidence.id === alias.evidenceRef)
+diff --git a/src/lib/catalog-ingestion.ts b/src/lib/catalog-ingestion.ts
+index a1c22ec..b8f7b55 100644
+--- a/src/lib/catalog-ingestion.ts
++++ b/src/lib/catalog-ingestion.ts
+@@ -436,6 +436,8 @@ export function validateStagedCandidate(
+ ): CandidateValidation {
+   const reasons = new Set<CandidateValidationReason>();
+   const identity = candidate.identityReview;
++  const validPast = (value: string | null) =>
++    validTimestamp(value) && Date.parse(value!) <= Date.parse(now);
+ 
+   if (identity.status === "unreviewed") reasons.add("identity-unverified");
+   if (identity.status === "disputed") reasons.add("identity-disputed");
+@@ -561,10 +563,14 @@ export function validateStagedCandidate(
+     ) {
+       reasons.add("required-fact-evidence-missing");
+     }
+-    if (!fact.reviewed.reviewerId || !validTimestamp(fact.reviewed.reviewedAt)) {
++    if (!fact.reviewed.reviewerId?.trim() || !validPast(fact.reviewed.reviewedAt)) {
+       reasons.add("human-review-pending");
+     }
+-    if (!fact.reviewed.approverId || !validTimestamp(fact.reviewed.approvedAt)) {
++    if (
++      !fact.reviewed.approverId?.trim() ||
++      !validPast(fact.reviewed.approvedAt) ||
++      Date.parse(fact.reviewed.approvedAt!) < Date.parse(fact.reviewed.reviewedAt!)
++    ) {
+       reasons.add("owner-approval-pending");
+     }
+     if (
+@@ -613,21 +619,32 @@ export function validateStagedCandidate(
+     reasons.add("metadata-storage-not-cleared");
+   }
+   if (
+-    candidate.metadataRights.expiresAt !== null &&
+-    (!validTimestamp(candidate.metadataRights.expiresAt) ||
+-      Date.parse(candidate.metadataRights.expiresAt) <= Date.parse(now))
++    !Number.isFinite(Date.parse(now)) ||
++    (candidate.metadataRights.expiresAt !== null &&
++      (!validTimestamp(candidate.metadataRights.expiresAt) ||
++        Date.parse(candidate.metadataRights.expiresAt) <= Date.parse(now)))
+   ) {
+     reasons.add("metadata-rights-expired");
+   }
+ 
+   if (candidate.review.humanReview.status === "rejected") {
+     reasons.add("human-review-rejected");
+-  } else if (candidate.review.humanReview.status !== "approved") {
++  } else if (
++    candidate.review.humanReview.status !== "approved" ||
++    !candidate.review.humanReview.reviewerId?.trim() ||
++    !validPast(candidate.review.humanReview.decidedAt)
++  ) {
+     reasons.add("human-review-pending");
+   }
+   if (candidate.review.ownerApproval.status === "rejected") {
+     reasons.add("owner-approval-rejected");
+-  } else if (candidate.review.ownerApproval.status !== "approved") {
++  } else if (
++    candidate.review.ownerApproval.status !== "approved" ||
++    !candidate.review.ownerApproval.reviewerId?.trim() ||
++    !validPast(candidate.review.ownerApproval.decidedAt) ||
++    Date.parse(candidate.review.ownerApproval.decidedAt!) <
++      Date.parse(candidate.review.humanReview.decidedAt!)
++  ) {
+     reasons.add("owner-approval-pending");
+   }
+ 
+diff --git a/src/lib/catalog-published-view.ts b/src/lib/catalog-published-view.ts
+index e3e7105..b827ea4 100644
+--- a/src/lib/catalog-published-view.ts
++++ b/src/lib/catalog-published-view.ts
+@@ -266,6 +266,7 @@ export function assertPublishedCatalogSnapshot(
+     }
+   }
+   const publishedIds = new Set<string>();
++  const sourceKeys = new Set<string>();
+   for (const value of records) {
+     if (!isObject(value) || !isObject(value.displayMetadata) || !isObject(value.facts)) {
+       throw new Error("Published catalog snapshot contains a malformed record.");
+@@ -364,6 +365,13 @@ export function assertPublishedCatalogSnapshot(
+     if (!knownIds.includes(record.gamefinderId)) {
+       throw new Error("Published record identity is absent from the source identity set.");
+     }
++    const sourceKey = JSON.stringify([
++      record.sourceIdentity.namespace,
++      record.sourceIdentity.recordId,
++    ]);
++    if (sourceKeys.has(sourceKey))
++      throw new Error("Published catalog contains a multiply-assigned source record.");
++    sourceKeys.add(sourceKey);
+     publishedIds.add(record.gamefinderId);
+   }
+ 

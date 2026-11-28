@@ -248,29 +248,55 @@
   padding-bottom: calc(6.75rem + env(safe-area-inset-bottom));
 }
 
+/* Original placeholders shared by every catalog surface. */
 .game-cover {
   position: relative;
   overflow: hidden;
   border-radius: 14px;
-  box-shadow: var(--shadow-card);
-  background: var(--color-fox);
+  border: 1px solid color-mix(in srgb, var(--color-night) 12%, var(--color-cream));
+  background: var(--color-cream);
+  container-type: inline-size;
 }
-.game-cover-art {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform-origin: center;
-  animation: cover-drift 14s ease-in-out infinite alternate;
+.game-cover-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5cqw;
+  padding: 9cqw;
+  color: var(--cover-accent);
+  text-align: center;
+  background: var(--color-cream);
+  border-top: 5px solid var(--cover-accent);
 }
-@keyframes cover-drift {
-  from { transform: scale(1.04) translate3d(-1.5%, 0.5%, 0); }
-  to { transform: scale(1.14) translate3d(2%, -2%, 0); }
+.game-cover-brand {
+  color: var(--color-night);
+  font-size: 7cqw;
+  font-weight: 700;
+  letter-spacing: .12em;
 }
-@media (prefers-reduced-motion: reduce) {
-  .game-cover-art { animation: none; transform: scale(1.06); }
+.game-cover-symbol { width: 68%; flex-shrink: 1; min-height: 0; }
+.game-cover-title {
+  color: var(--color-night);
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 13cqw;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+@container (max-width: 70px) {
+  .game-cover-brand, .game-cover-title { display: none; }
+  .game-cover-symbol { width: 95%; }
 }
 
+.vault-cover .game-cover-title { display: block; }
+.vault-cover .game-cover-title[data-long] { font-size: 9.5cqw; }
 
 /* --- Bank table + dice --- */
 .dice-run {
@@ -746,4 +772,43 @@
   flex: 0 0 3.15rem !important;
   height: 4.25rem;
   font-size: 1.2rem;
+}
+
+
+/* Shared footer: navigation above the only ad slot; safe area below both. */
+.app-footer-nav, .app-footer-ad { padding-bottom: env(safe-area-inset-bottom); }
+.app-ad-space { padding-bottom: calc(50px + env(safe-area-inset-bottom) + 1rem); }
+.safe-bottom.app-ad-space { padding-bottom: calc(6.75rem + 50px + env(safe-area-inset-bottom)); }
+.app-has-ad .wizard-next { bottom: calc(50px + env(safe-area-inset-bottom) + 1rem); }
+@media (min-width: 640px) {
+  .app-footer-nav:not(.app-footer-ad) { padding-bottom: 0; }
+  .safe-bottom.app-ad-space { padding-bottom: calc(50px + env(safe-area-inset-bottom) + 1rem); }
+}
+
+/* Portaled dialogs must respect the same reserved screen area. */
+html:has(.app-has-ad) { --app-ad-offset: calc(50px + env(safe-area-inset-bottom)); }
+html:has(.app-has-ad) .app-modal-overlay { bottom: var(--app-ad-offset); }
+html:has(.app-has-ad) .app-bottom-sheet { bottom: var(--app-ad-offset); max-height: min(88dvh, calc(100dvh - var(--app-ad-offset) - 1rem)); }
+.app-has-ad :is(.bank-screen, .stock-screen) { bottom: var(--app-ad-offset); height: calc(100dvh - var(--app-ad-offset)); padding-bottom: 0.5rem; }
+@media (min-width: 640px) {
+  html:has(.app-has-ad) .app-bottom-sheet { bottom: auto; top: calc((100dvh - var(--app-ad-offset)) / 2); }
+  .safe-bottom:not(.app-ad-space) { padding-bottom: 1rem; }
+}
+
+/* Short mobile viewports keep both main actions above the shared footer. */
+@media (max-width: 639px) and (max-height: 660px) {
+  .home-finn-intro { padding-top: 0; }
+  .home-finn-layout [data-finn-size="hero"] > div { width: clamp(7.5rem, 23dvh, 10rem); height: clamp(7.5rem, 23dvh, 10rem); }
+  .home-finn-title { margin-top: 0.5rem; font-size: 1.5rem; line-height: 1.15; }
+  .home-finn-actions { margin-top: 1rem; gap: 0.5rem; }
+}
+
+/* Mobile controls: stop focus and double-tap zoom without disabling user accessibility pinch zoom. */
+@media (pointer: coarse), (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),
+  textarea, select, [contenteditable="true"] { font-size: max(16px, 1rem); min-width: 0; }
+  button, a, input, textarea, select, [role="button"] { touch-action: manipulation; }
+  .app-bottom-sheet { max-width: 100vw; min-width: 0; overflow-x: clip; }
+  .mobile-keyboard-sheet { max-height: min(88dvh, calc(var(--app-visible-height,100dvh) - var(--app-ad-offset,0px) - 1rem)); }
+  html[data-keyboard-open="true"] .mobile-keyboard-sheet, html[data-keyboard-open="true"]:has(.app-has-ad) .mobile-keyboard-sheet { bottom: calc(var(--app-keyboard-offset,0px) + 8px); top: auto; transform: none; max-height: calc(var(--app-visible-height,100dvh) - 1rem); }
 }

@@ -35,7 +35,7 @@ function CirclePage() {
         <div className="mt-6 rounded-card bg-card p-5 text-center shadow-card">
           <FoxAvatar mood="hopeful" size="md" />
           <p className="mt-3 text-sm text-muted-foreground">
-            Sign in to make a family table, invite friends, and keep a scoreboard that lasts years.
+            Sign in to make a family table, invite friends, and share a game shelf.
             Guest mode still finds tonight's game.
           </p>
           <Button asChild className="mt-4">
@@ -120,7 +120,8 @@ function CircleHome() {
       <section>
         <h2 className="font-display text-xl">Tables</h2>
         <p className="text-sm text-muted-foreground">
-          Family or friends. Shared shelf, shared scoreboard, years of nights.
+          Family or friends. Shared shelves and invitations. Scores &amp; Win History is available
+          with Premium.
         </p>
         <form onSubmit={(e) => void makeTable(e)} className="mt-3 flex flex-col gap-2">
           <div className="flex gap-2">

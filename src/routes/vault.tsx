@@ -6,43 +6,61 @@ import { ScanGames } from "@/components/scan-games";
 import { EmptyState } from "@/components/empty-state";
 import { GameCover } from "@/components/game-cover";
 import { Button } from "@/components/ui/button";
-import { AdBanner } from "@/components/ad-banner";
 import { getGame } from "@/lib/scoring";
 import { useAppStore } from "@/lib/store";
 import { FREE_VAULT_LIMIT } from "@/lib/types";
 import { useFlag } from "@/lib/flags";
+import type { CatalogGameRecord } from "@/lib/catalog-foundation";
+import type { Game } from "@/lib/types";
 
 export const Route = createFileRoute("/vault")({ component: VaultPage });
 
 function VaultPage() {
   const owned = useAppStore((s) => s.owned);
   const wishlist = useAppStore((s) => s.wishlist);
+  const customGames = useAppStore((s) => s.customGames);
+  const ready = useAppStore((s) => s.entitlementReady);
   const isPremium = useAppStore((s) => s.isPremium);
   const stockStarterShelf = useAppStore((s) => s.stockStarterShelf);
   const [scan, setScan] = useState(false);
   const [manual, setManual] = useState(false);
-  const [tab, setTab] = useState<"owned" | "wish">("owned");
-  const [q, setQ] = useState("");
+  const tab = useAppStore((s) => s.vaultTab);
+  const q = useAppStore((s) => s.vaultQueries[s.vaultTab]);
+  const setTab = (value: "owned" | "wish") => useAppStore.setState({ vaultTab: value });
+  const setQ = (value: string) =>
+    useAppStore.setState((s) => ({ vaultQueries: { ...s.vaultQueries, [s.vaultTab]: value } }));
   const scanOn = useFlag("scan_games");
-  const paywall = useFlag("premium_paywall");
 
   const games = useMemo(() => {
     const ids = tab === "owned" ? owned : wishlist;
     return ids
-      .map(getGame)
-      .filter((g): g is NonNullable<typeof g> => Boolean(g))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [owned, wishlist, tab]);
+      .map((id) => getGame(id) ?? customGames.find((game) => game.id === id))
+      .filter((game): game is Game | CatalogGameRecord => Boolean(game))
+      .sort((a, b) =>
+        ("name" in a ? a.name : a.title).localeCompare("name" in b ? b.name : b.title),
+      );
+  }, [owned, wishlist, customGames, tab]);
 
   const filtered = q.trim()
-    ? games.filter((g) => g.name.toLowerCase().includes(q.trim().toLowerCase()))
+    ? games.filter((game) =>
+        ("name" in game ? game.name : game.title).toLowerCase().includes(q.trim().toLowerCase()),
+      )
     : games;
 
-  if (owned.length === 0 && wishlist.length === 0) {
+  if (owned.length === 0 && wishlist.length === 0 && tab === "owned") {
     return (
       <>
+        <div className="mb-4 flex gap-2">
+          <Tab on={true} onClick={() => setTab("owned")}>
+            Owned
+          </Tab>
+          <Tab on={false} onClick={() => setTab("wish")}>
+            Wishlist
+          </Tab>
+        </div>
         <EmptyState
-          mood="hopeful"
+          pageHeading
+          mood="shelf"
           title="What's on your shelf?"
           body={
             scanOn
@@ -61,13 +79,15 @@ function VaultPage() {
           <button
             type="button"
             className="text-sm font-semibold text-sky"
+            disabled={!ready}
             onClick={() => stockStarterShelf()}
           >
             Or stock a starter shelf
           </button>
         </div>
+        {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
         <ScanGames open={scan} onClose={() => setScan(false)} />
-        <AddGameDialog open={manual} onClose={() => setManual(false)} />
+        <AddGameDialog open={manual} collection={tab} onClose={() => setManual(false)} />
       </>
     );
   }
@@ -79,10 +99,16 @@ function VaultPage() {
           <h1 className="font-display text-3xl">Vault</h1>
           <p className="text-sm text-muted-foreground">
             {owned.length}
-            {paywall && !isPremium ? ` / ${FREE_VAULT_LIMIT}` : ""} owned · {wishlist.length} wishlisted
+            {!ready ? " · checking plan" : !isPremium ? ` / ${FREE_VAULT_LIMIT}` : ""} owned ·{" "}
+            {wishlist.length} wishlisted
           </p>
         </div>
-        {scanOn ? (
+        {tab === "wish" ? (
+          <Button onClick={() => setManual(true)}>
+            <Plus className="size-4" />
+            Add to Wishlist
+          </Button>
+        ) : scanOn ? (
           <Button onClick={() => setScan(true)}>
             <Camera className="size-4" />
             Scan Games
@@ -95,11 +121,23 @@ function VaultPage() {
         )}
       </div>
 
+      {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
+
       <div className="mt-4 flex gap-2">
-        <Tab on={tab === "owned"} onClick={() => setTab("owned")}>
+        <Tab
+          on={tab === "owned"}
+          onClick={() => {
+            setTab("owned");
+          }}
+        >
           Owned
         </Tab>
-        <Tab on={tab === "wish"} onClick={() => setTab("wish")}>
+        <Tab
+          on={tab === "wish"}
+          onClick={() => {
+            setTab("wish");
+          }}
+        >
           Wishlist
         </Tab>
       </div>
@@ -109,18 +147,35 @@ function VaultPage() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search your vault"
+          aria-label={tab === "owned" ? "Search your vault" : "Search your wishlist"}
+          placeholder={tab === "owned" ? "Search your vault" : "Search your wishlist"}
           className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
       </label>
 
+      {!filtered.length && (
+        <p className="mt-5 text-sm text-muted-foreground">
+          {q.trim()
+            ? "No saved games match your search."
+            : tab === "wish"
+              ? "Your Wishlist is empty. Search the catalog to add games."
+              : "Your Vault is empty."}
+        </p>
+      )}
       <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4">
-        {filtered.map((g) => (
-          <Link key={g.bggId} to="/game/$id" params={{ id: g.bggId }}>
-            <GameCover game={g} className="aspect-[5/7] w-full" />
-            <p className="mt-1 truncate text-xs font-semibold">{g.name}</p>
-          </Link>
-        ))}
+        {filtered.map((game) => {
+          const isLegacyGame = "bggId" in game;
+          const id = isLegacyGame ? game.bggId : game.id;
+          const title = isLegacyGame ? game.name : game.title;
+          return (
+            <Link key={id} to="/game/$id" params={{ id }} aria-label={title} title={title}>
+              <GameCover
+                game={{ name: title, bggId: id }}
+                className="vault-cover aspect-[5/7] w-full"
+              />
+            </Link>
+          );
+        })}
       </div>
 
       <button
@@ -129,11 +184,33 @@ function VaultPage() {
         onClick={() => setManual(true)}
       >
         <Plus className="size-4" />
-        Can't scan it? Search by title.
+        {tab === "wish" ? "Search catalog to add to Wishlist" : "Can’t scan it? Search by title."}
       </button>
-      <AdBanner />
       <ScanGames open={scan} onClose={() => setScan(false)} />
-      <AddGameDialog open={manual} onClose={() => setManual(false)} />
+      <AddGameDialog open={manual} collection={tab} onClose={() => setManual(false)} />
+    </div>
+  );
+}
+
+function VaultLimitNotice({ isPremium, ownedCount }: { isPremium: boolean; ownedCount: number }) {
+  if (isPremium) return null;
+  const atLimit = ownedCount >= FREE_VAULT_LIMIT;
+  return (
+    <div className="mt-4 rounded-card bg-muted px-4 py-3 text-sm">
+      <p>
+        {atLimit
+          ? "Your free Vault is full. Premium unlocks unlimited games."
+          : `Free Vaults include up to ${FREE_VAULT_LIMIT} games. Premium removes the limit.`}
+      </p>
+      {atLimit ? (
+        <Link
+          to="/premium"
+          search={{ session_id: "" }}
+          className="mt-2 inline-block font-semibold text-sky"
+        >
+          Explore Premium
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -151,6 +228,7 @@ function Tab({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={on}
       className={
         on
           ? "rounded-full bg-fox px-4 py-1.5 text-sm font-semibold text-cream"

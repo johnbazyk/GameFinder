@@ -1,0 +1,582 @@
+diff --git a/docs/ratings/IMPLEMENTATION.md b/docs/ratings/IMPLEMENTATION.md
+index 87a3f7b..9765282 100644
+--- a/docs/ratings/IMPLEMENTATION.md
++++ b/docs/ratings/IMPLEMENTATION.md
+@@ -48,3 +48,17 @@ npm run build:ratings:beta
+ ## Recorded validation for this branch
+ 
+ TypeScript and beta production build passed. The final focused run passed 47 tests (including 14 policy tests and one profile-render test). A broader suite run identified two stale label expectations, now corrected and rerun, plus 14 unrelated failures. Those same 14 failures were reproduced on the unchanged parent checkpoint in auth-environment, Grok PWA metadata and migration-layout tests (71 baseline tests: 57 pass, 14 fail). Eleven PostgreSQL integration cases were skipped without a configured test database. The full suite is not green. Browser interaction remains unverified because Chromium socket creation was denied in this environment.
++
++## Phase 04 stabilization verification
++
++The current application retains the existing 0.4 design assessment architecture, with provisional beta ratings distinct from reviewed ratings. No anchors, assessment values, commercial provider permissions, pricing, or ranking policy changed in this phase.
++
++- Hard-filter guards reject invalid player counts, invalid age bands, malformed required facts, and contradictory or invalid time selections in both the application and provider-neutral catalog paths.
++- Recommendation pools exclude ambiguous duplicate identities and non-standalone records. Surprise Me deduplicates owned IDs and excludes non-standalone titles; it remains an unfiltered random choice.
++- Sniff Again retains the applied session filters while enforcing current entitlement, and an explicitly empty shared shelf does not fall back to personal ownership.
++- Closest-match cards disclose below-threshold and unassessed soft Vibes separately from the evidence-based explanation.
++- Account synchronization warnings are inline and dismissible, not floating overlays. Dismissal does not imply that synchronization succeeded.
++- Verification: 56 focused recommendation/rating tests passed; final TypeScript and full regression passed (408 total, 397 passed, zero failed, 11 PostgreSQL integration cases skipped).
++- Browser acceptance: run scripts/recommendation-lab-browser.mjs against a fresh isolated auth-off development server on 127.0.0.1:8092, with no DATABASE_URL, GAMEFINDER_LOCAL_TEST_PLAN=1 and beta ratings enabled. Allow dependency optimization to settle first. Chrome at 390 x 844 verified wizard, closest-match disclosure, one owned plus three unowned results, reload persistence, non-repeating rerolls, and Discover layout. The browser fixture is disposable and external browser requests are blocked. Do not run against a shared or production database.
++
++Remaining release limits: provisional ratings still need independent review; physical-device testing, production account synchronization and real PostgreSQL integration are not certified by this phase. No live catalog provider or permanent-ID migration has been enabled.
+diff --git a/scripts/rating-policy-03.test.mjs b/scripts/rating-policy-03.test.mjs
+index f76ebba..6801fc2 100644
+--- a/scripts/rating-policy-03.test.mjs
++++ b/scripts/rating-policy-03.test.mjs
+@@ -213,7 +213,7 @@ test("beta ranking is seeded and unaffected by popularity or ownership bonus", (
+ test("results fill both groups to three without duplicates and explain reroll scarcity", () => {
+   const games = Array.from({ length: 8 }, (_, i) => ({
+     ...game(),
+-    bggId: `test-${i}`,
++    bggId: String(9000000 + i),
+     name: `Test ${i}`,
+   }));
+   const signals = { ...user, owned: games.slice(0, 4).map((g) => g.bggId) };
+@@ -244,8 +244,8 @@ test("results fill both groups to three without duplicates and explain reroll sc
+ });
+ 
+ test("scarcity separates hard exclusions, missing ratings and known vibe mismatches", () => {
+-  const unknown = { ...game(), bggId: "unknown-test", name: "Unknown test" };
+-  const tooMany = { ...game(), bggId: "hard-test", players: { min: 4, max: 6, best: [4] } };
++  const unknown = { ...game(), bggId: "9000100", name: "Unknown test" };
++  const tooMany = { ...game(), bggId: "9000101", players: { min: 4, max: 6, best: [4] } };
+   const games = [game(), unknown, tooMany];
+   const result = scoring.runWizard(
+     context({ vibes: ["strategy"] }),
+@@ -254,7 +254,10 @@ test("scarcity separates hard exclusions, missing ratings and known vibe mismatc
+     identity,
+     games,
+   );
+-  assert.deepEqual(result.ownedTop.map((g) => g.matchLabel), ["good", "closest"]);
++  assert.deepEqual(
++    result.ownedTop.map((g) => g.matchLabel),
++    ["good", "closest"],
++  );
+   assert.deepEqual(result.coverage.owned, {
+     hardExcluded: 1,
+     missingRatings: 0,
+diff --git a/scripts/recommendation-constraints.test.mjs b/scripts/recommendation-constraints.test.mjs
+index 96c0d7a..792a927 100644
+--- a/scripts/recommendation-constraints.test.mjs
++++ b/scripts/recommendation-constraints.test.mjs
+@@ -422,6 +422,7 @@ test("rerolls clearly report exhaustion after every matching owned game was show
+ test("Sniff Again rerolls through the shared constraints and avoids games already shown", () => {
+   appStore.setState({
+     wizard: context({ players: null }),
++    lastResults: null,
+     owned: ["9209", "266192"],
+     wishlist: [],
+     plays: [],
+@@ -483,3 +484,102 @@ test("Free Vault additions stay available below the limit and capped at 50", ()
+   assert.equal(appStore.getState().addOwned("9209"), "limit");
+   assert.ok(appStore.getState().upgradePrompt);
+ });
++
++test("malformed hard constraints and missing catalog facts fail closed", () => {
++  const g = game("9209");
++  for (const filters of [
++    { players: 0 },
++    { players: 1.5 },
++    { players: 14 },
++    { players: NaN },
++    { ageBand: "invalid" },
++    { maxTimeMin: NaN },
++    { maxTimeMin: 0 },
++    { timeOver60: true, maxTimeMin: 60 },
++  ]) {
++    assert.equal(constraints.passesHardConstraints(g, context(filters)), false);
++  }
++  for (const bad of [
++    { ...g, players: { min: 5, max: 2, best: [] } },
++    { ...g, players: { min: NaN, max: 5, best: [] } },
++  ]) {
++    assert.equal(constraints.passesHardConstraints(bad, context()), false);
++  }
++  assert.equal(
++    constraints.passesHardConstraints(
++      { ...g, age: { publisher: NaN, community: 6 } },
++      context({ ageBand: "8-10" }),
++    ),
++    false,
++  );
++  assert.equal(
++    constraints.passesHardConstraints(
++      { ...g, playtime: { ...g.playtime, max: NaN } },
++      context({ maxTimeMin: 60 }),
++    ),
++    false,
++  );
++});
++test("duplicate candidate identities and expansion records cannot enter either recommendation pool", async () => {
++  const { isStandaloneGame } = await server.ssrLoadModule("/src/lib/catalog.ts");
++  const g = game("9209"),
++    expansion = games.find((g) => !isStandaloneGame(g));
++  assert.ok(expansion);
++  const pool = [g, { ...g, name: "Conflicting title" }, expansion, game("266192")];
++  const filters = context({ players: null });
++  const user = {
++    owned: pool.map((g) => g.bggId),
++    wishlist: [],
++    plays: [],
++    vibeWeights: defaultUserWeights,
++  };
++  const result = runWizard(filters, user, [], (g) => [...g], pool);
++  assert.deepEqual(
++    result.ownedList.map((g) => g.bggId),
++    ["266192"],
++  );
++  assert.deepEqual(
++    eligibleGames(filters, pool, (g) => [...g]).map((g) => g.bggId),
++    ["266192"],
++  );
++  assert.equal(pickSurprise([expansion.bggId]), undefined);
++  assert.equal(pickSurprise([expansion.bggId, "9209", "9209"]).bggId, "9209");
++});
++test("reroll retains original filters and empty shared shelves never borrow personal ownership", () => {
++  const original = context({ players: 2, ratingSeed: "session" });
++  appStore.setState({
++    wizard: original,
++    lastResults: null,
++    owned: ["9209", "266192"],
++    wishlist: [],
++    plays: [],
++    shownIds: [],
++    recPool: null,
++    isPremium: false,
++  });
++  const first = appStore.getState().sniffAgain();
++  appStore.getState().setWizard({ players: 13, ratingSeed: "different" });
++  const second = appStore.getState().sniffAgain();
++  assert.deepEqual(second.appliedFilters, original);
++  assert.ok(second.ownedTop.every((g) => !first.ownedTop.some((old) => old.bggId === g.bggId)));
++  appStore.getState().setRecPool({ groupId: "fixture", groupName: "Empty", ids: [] });
++  assert.equal(appStore.getState().lastResults, null);
++  assert.equal(appStore.getState().sniffAgain().ownedCount, 0);
++  appStore.getState().setRecPool(null);
++});
++test("closest matches disclose below-threshold and unknown preferences without changing exact targets", async () => {
++  const { unmetVibeLabels } = await server.ssrLoadModule("/src/lib/application-ratings.ts");
++  const chess = games.find((g) => g.name === "Chess");
++  assert.deepEqual(
++    unmetVibeLabels(chess, context({ players: 2, vibes: ["luck", "strategy", "luck"] })),
++    { below: ["luck"], unknown: [] },
++  );
++  assert.deepEqual(
++    unmetVibeLabels(chess, context({ players: 2, vibes: ["luck"], exactTraits: { luck: 1 } })),
++    { below: [], unknown: [] },
++  );
++  assert.deepEqual(
++    unmetVibeLabels({ ...chess, name: "Unknown" }, context({ players: 2, vibes: ["luck"] })),
++    { below: [], unknown: ["luck"] },
++  );
++});
+diff --git a/scripts/recommendation-lab-browser.mjs b/scripts/recommendation-lab-browser.mjs
+new file mode 100644
+index 0000000..dcfcb1e
+--- /dev/null
++++ b/scripts/recommendation-lab-browser.mjs
+@@ -0,0 +1,96 @@
++/** Local auth-off lab only; disposable browser, no external traffic or provider calls. */
++import assert from "node:assert/strict";
++import { chromium } from "playwright";
++const base = "http://127.0.0.1:8092";
++const browser = await chromium.launch({ channel: "chrome", headless: true });
++try {
++  const page = await browser.newPage({
++    viewport: { width: 390, height: 844 },
++    serviceWorkers: "block",
++  });
++  page.setDefaultTimeout(20000);
++  const errors = [];
++  page.on("pageerror", (e) => errors.push(e.message));
++  await page.route("**/*", (route) => {
++    const url = new URL(route.request().url());
++    return url.origin === base ? route.continue() : route.abort();
++  });
++  await page.addInitScript(() => {
++    if (!sessionStorage.getItem("recommendation-fixture")) {
++      localStorage.setItem(
++        "gamefinder-v2",
++        JSON.stringify({ version: 2, state: { owned: ["3931"] } }),
++      );
++      sessionStorage.setItem("recommendation-fixture", "1");
++    }
++  });
++  await page.goto(base + "/wizard");
++  for (const next of [
++    "How old is the youngest player?",
++    "How much time do you want to play?",
++    "What kind of game are you in the mood for?",
++  ]) {
++    for (let i = 0; i < 5; i++) {
++      await page.getByRole("button", { name: "Skip", exact: true }).click();
++      if (
++        await page
++          .getByRole("heading", { name: next, exact: true })
++          .waitFor({ timeout: 2000 })
++          .then(
++            () => true,
++            () => false,
++          )
++      )
++        break;
++      if (i === 4) throw Error("Wizard did not advance: " + next);
++    }
++  }
++  await page.getByRole("button", { name: /Party/ }).first().click();
++  const warning = page.getByRole("button", { name: "Dismiss sync warning" });
++  if (await warning.isVisible()) await warning.click();
++  await page.getByRole("button", { name: "Sniff it out" }).click();
++  const vault = page
++    .locator("section")
++    .filter({ has: page.getByRole("heading", { name: "From Your Vault" }) });
++  await vault
++    .getByRole("heading", { name: "Connect Four" })
++    .waitFor()
++    .catch(async (e) => {
++      console.log(
++        "DEBUG",
++        page.url(),
++        await page.locator("body").innerText(),
++        await page.evaluate(() => {
++          const s = JSON.parse(localStorage.getItem("gamefinder-v2") || "{}").state;
++          return {
++            owned: s?.owned,
++            wizard: s?.wizard,
++            result: s?.lastResults?.ownedTop?.map((g) => g.name),
++          };
++        }),
++      );
++      throw e;
++    });
++  await vault.getByText(/Closest available/).waitFor();
++  await vault.getByText(/Below selected Vibe threshold: Party/).waitFor();
++  const titles = async () => page.locator("article h3").allTextContents();
++  const first = await titles();
++  assert.equal(first.length, 4);
++  assert.equal(new Set(first).size, 4);
++  await page.reload();
++  await vault.getByRole("heading", { name: "Connect Four" }).waitFor();
++  assert.deepEqual(await titles(), first);
++  if (await warning.isVisible()) await warning.click();
++  await page.getByRole("button", { name: "Sniff again" }).click();
++  await vault.getByText(/seen all matching games/).waitFor();
++  assert.ok((await titles()).every((t) => !first.includes(t)));
++  await page.goto(base + "/discover");
++  await page.getByRole("heading", { name: "What are you looking for?" }).first().waitFor();
++  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
++  assert.deepEqual(errors, []);
++  console.log(
++    "PASS wizard, closest-match disclosure, 1+3 results, refresh, no-repeat reroll, Discover mobile layout",
++  );
++} finally {
++  await browser.close();
++}
+diff --git a/src/components/account-sync.tsx b/src/components/account-sync.tsx
+index fbb6e6b..785c855 100644
+--- a/src/components/account-sync.tsx
++++ b/src/components/account-sync.tsx
+@@ -166,7 +166,7 @@ export function AccountSync() {
+   return catalogSyncError ? (
+     <div
+       role="alert"
+-      className="fixed inset-x-3 bottom-3 z-[100] flex items-center justify-between gap-3 rounded-card bg-destructive p-3 text-sm text-destructive-foreground shadow-lift"
++      className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 bg-destructive p-3 text-sm text-destructive-foreground"
+     >
+       <span>Saved account data could not be synced. Your local collection is still here.</span>
+       <button
+@@ -180,6 +180,14 @@ export function AccountSync() {
+       >
+         Retry
+       </button>
++      <button
++        type="button"
++        className="shrink-0 font-semibold underline"
++        onClick={() => setCatalogSyncError(false)}
++        aria-label="Dismiss sync warning"
++      >
++        Dismiss
++      </button>
+     </div>
+   ) : null;
+ }
+diff --git a/src/components/match-card.tsx b/src/components/match-card.tsx
+index 30ef16f..46162b6 100644
+--- a/src/components/match-card.tsx
++++ b/src/components/match-card.tsx
+@@ -1,8 +1,9 @@
+ import { Link } from "@tanstack/react-router";
+ import { Check, ExternalLink } from "lucide-react";
+ import type { Game, MatchLabel, ScoredGame } from "@/lib/types";
+-import { displayedMatchReason } from "@/lib/application-ratings";
++import { displayedMatchReason, unmetVibeLabels } from "@/lib/application-ratings";
+ import { formatAge, formatPlaytime, formatPlayers } from "@/lib/scoring";
++import { VIBE_META } from "@/lib/vibes";
+ import { useAppStore } from "@/lib/store";
+ import { cn } from "@/lib/utils";
+ import { amazonSearchUrl } from "@/lib/affiliate";
+@@ -43,6 +44,10 @@ export function MatchCard({
+   discover?: boolean;
+ }) {
+   const reason = displayedMatchReason(game);
++  const gaps =
++    game.ratingContext && game.matchLabel === "closest"
++      ? unmetVibeLabels(game, game.ratingContext)
++      : null;
+   const ready = useAppStore((s) => s.entitlementReady);
+   const addOwned = useAppStore((s) => s.addOwned);
+   const amazonOn = useFlag("amazon_cta");
+@@ -72,6 +77,14 @@ export function MatchCard({
+             ) : null}
+           </p>
+           {reason && <p className="mt-3 text-sm leading-relaxed text-foreground/90">{reason}</p>}
++          {gaps && (gaps.below.length > 0 || gaps.unknown.length > 0) && (
++            <p className="mt-1 text-xs text-muted-foreground">
++              {gaps.below.length > 0 &&
++                `Below selected Vibe threshold: ${gaps.below.map((v) => VIBE_META[v].label).join(", ")}.`}
++              {gaps.unknown.length > 0 &&
++                ` Not assessed: ${gaps.unknown.map((v) => VIBE_META[v].label).join(", ")}.`}
++            </p>
++          )}
+         </div>
+       </Link>
+       <div className="mt-4 flex flex-wrap items-center gap-2">
+diff --git a/src/lib/application-ratings.ts b/src/lib/application-ratings.ts
+index c0b91ab..ed31156 100644
+--- a/src/lib/application-ratings.ts
++++ b/src/lib/application-ratings.ts
+@@ -67,3 +67,19 @@ export function ratingExplanation(game: Game, ctx: WizardContext): string {
+ export function displayedMatchReason(game: ScoredGame): string {
+   return game.ratingContext ? ratingExplanation(game, game.ratingContext) : game.why;
+ }
++
++/** Describe the soft preferences that did not qualify, separately from the mechanic explanation. */
++export function unmetVibeLabels(
++  game: Game,
++  ctx: WizardContext,
++): { below: VibeId[]; unknown: VibeId[] } {
++  const below: VibeId[] = [],
++    unknown: VibeId[] = [];
++  for (const vibe of new Set(ctx.vibes)) {
++    if (ctx.exactTraits?.[vibe] !== undefined || ctx.ratingTargets?.[vibe] !== undefined) continue;
++    const value = gameRating(game, vibe, ctx).value;
++    if (value === null) unknown.push(vibe);
++    else if (value < 3) below.push(vibe);
++  }
++  return { below, unknown };
++}
+diff --git a/src/lib/catalog-foundation.ts b/src/lib/catalog-foundation.ts
+index ae6cd49..0b7caed 100644
+--- a/src/lib/catalog-foundation.ts
++++ b/src/lib/catalog-foundation.ts
+@@ -624,7 +624,17 @@ export function catalogHardEligible(
+   context: WizardContext,
+ ): boolean {
+   if (context.players != null) {
+-    if (game.players.minimum == null || game.players.maximum == null) {
++    if (
++      !Number.isInteger(context.players) ||
++      context.players < 1 ||
++      context.players > MAX_PLAYER_COUNT ||
++      game.players.minimum == null ||
++      game.players.maximum == null ||
++      !Number.isInteger(game.players.minimum) ||
++      !Number.isInteger(game.players.maximum) ||
++      game.players.minimum < 1 ||
++      game.players.maximum < game.players.minimum
++    ) {
+       return false;
+     }
+     if (context.players >= MAX_PLAYER_COUNT) {
+@@ -638,9 +648,12 @@ export function catalogHardEligible(
+ 
+   if (context.ageBand) {
+     const band = AGE_BANDS.find((item) => item.id === context.ageBand);
++    if (!band) return false;
+     if (context.ageBand !== "adults") {
+       if (
+         game.publisherMinimumAge == null ||
++        !Number.isInteger(game.publisherMinimumAge) ||
++        game.publisherMinimumAge < 0 ||
+         game.publisherMinimumAge > (band?.youngestAge ?? -1) ||
+         game.adultContent !== false
+       ) {
+@@ -649,6 +662,20 @@ export function catalogHardEligible(
+     }
+   }
+ 
++  if (typeof context.timeOver60 !== "boolean" || (context.timeOver60 && context.maxTimeMin != null))
++    return false;
++  if (
++    (context.timeOver60 || context.maxTimeMin != null) &&
++    (game.maximumListedPlaytimeMinutes == null ||
++      !Number.isFinite(game.maximumListedPlaytimeMinutes) ||
++      game.maximumListedPlaytimeMinutes <= 0)
++  )
++    return false;
++  if (
++    context.maxTimeMin != null &&
++    (!Number.isFinite(context.maxTimeMin) || context.maxTimeMin <= 0)
++  )
++    return false;
+   if (context.timeOver60) {
+     if (game.maximumListedPlaytimeMinutes == null || game.maximumListedPlaytimeMinutes <= 60) {
+       return false;
+diff --git a/src/lib/scoring.ts b/src/lib/scoring.ts
+index 0bff0ac..1e3745c 100644
+--- a/src/lib/scoring.ts
++++ b/src/lib/scoring.ts
+@@ -17,7 +17,7 @@ import type {
+   WizardResult,
+ } from "./types";
+ import { DIMENSIONS } from "./types";
+-import { GAMES, searchGames, standaloneGames } from "./catalog";
++import { GAMES, searchGames, standaloneGames, isStandaloneGame } from "./catalog";
+ import { explainMatch } from "./explain";
+ import { scoreLegacyGameWithCatalogFoundation } from "./catalog-legacy-bridge";
+ import { passesHardConstraints, traitScore } from "./vibes";
+@@ -100,12 +100,18 @@ function toScored(game: Game, ctx: WizardContext, owned: boolean): ScoredGame {
+   };
+ }
+ 
++function uniqueStandaloneCandidates(games: readonly Game[]): Game[] {
++  const counts = new Map<string, number>();
++  for (const game of games) counts.set(game.bggId, (counts.get(game.bggId) ?? 0) + 1);
++  return games.filter((game) => isStandaloneGame(game) && counts.get(game.bggId) === 1);
++}
++
+ export function eligibleGames(
+   ctx: WizardContext,
+   games: readonly Game[] = standaloneGames(),
+   catalogAdapter: RecommendationCatalogAdapter = applicationReviewedFactsAdapter,
+ ): Game[] {
+-  return catalogAdapter(games, ctx).filter(
++  return uniqueStandaloneCandidates(catalogAdapter(games, ctx)).filter(
+     (game) => passesHardConstraints(game, ctx) && gameMatchesRatings(game, ctx),
+   );
+ }
+@@ -132,7 +138,7 @@ export function runWizard(
+ ): WizardResult {
+   const ownedSet = new Set(user.owned);
+   const excluded = new Set(excludeIds);
+-  const adapted = catalogAdapter(games, ctx);
++  const adapted = uniqueStandaloneCandidates(catalogAdapter(games, ctx));
+   const hardEligible = adapted.filter((game) => passesHardConstraints(game, ctx));
+   const targets = selectedTargets(ctx);
+   const advanced = { ...ctx, vibes: [] };
+@@ -242,7 +248,9 @@ export function formatAge(game: Game): string {
+ }
+ 
+ export function pickSurprise(ownedIds: string[], avoidId?: string): Game | undefined {
+-  const pool = ownedIds.map(getGame).filter((g): g is Game => g != null);
++  const pool = [...new Set(ownedIds)]
++    .map(getGame)
++    .filter((g): g is Game => g != null && isStandaloneGame(g));
+   if (!pool.length) return undefined;
+   const alternatives = pool.filter((g) => g.bggId !== avoidId);
+   const selectable = alternatives.length ? alternatives : pool;
+diff --git a/src/lib/store.ts b/src/lib/store.ts
+index d3e85f5..0c91e7c 100644
+--- a/src/lib/store.ts
++++ b/src/lib/store.ts
+@@ -114,7 +114,7 @@ export const useAppStore = create<AppState>()(
+         haptic(get().haptics);
+         set({ wizard: { ...get().wizard, ...patch } });
+       },
+-      resetWizard: () => set({ wizard: { ...DEFAULT_WIZARD }, shownIds: [] }),
++      resetWizard: () => set({ wizard: { ...DEFAULT_WIZARD }, shownIds: [], lastResults: null }),
+ 
+       lastResults: null,
+       shownIds: [],
+@@ -128,11 +128,21 @@ export const useAppStore = create<AppState>()(
+         });
+       },
+       sniffAgain: () => {
+-        const { wizard, owned, wishlist, plays, vibeWeights, shownIds, recPool, isPremium } = get();
++        const {
++          wizard,
++          lastResults,
++          owned,
++          wishlist,
++          plays,
++          vibeWeights,
++          shownIds,
++          recPool,
++          isPremium,
++        } = get();
+         const result = runWizard(
+-          entitledWizard(wizard, isPremium),
++          entitledWizard(lastResults?.appliedFilters ?? wizard, isPremium),
+           {
+-            owned: recPool?.ids.length ? recPool.ids : owned,
++            owned: recPool ? recPool.ids : owned,
+             wishlist,
+             plays,
+             vibeWeights,
+@@ -333,7 +343,7 @@ export const useAppStore = create<AppState>()(
+       setUpgradePrompt: (v) => set({ upgradePrompt: v }),
+ 
+       recPool: null,
+-      setRecPool: (v) => set({ recPool: v }),
++      setRecPool: (v) => set({ recPool: v, lastResults: null, shownIds: [] }),
+ 
+       pieceColor: DEFAULT_PIECE_COLOR,
+       setPieceColor: (hex) => set({ pieceColor: normalizePieceColor(hex) }),
+diff --git a/src/lib/vibes.ts b/src/lib/vibes.ts
+index d838960..5092233 100644
+--- a/src/lib/vibes.ts
++++ b/src/lib/vibes.ts
+@@ -110,6 +110,16 @@ export function listedPlaytime(game: Game): number {
+ 
+ export function passesHardConstraints(game: Game, ctx: WizardContext): boolean {
+   if (ctx.players != null) {
++    if (
++      !Number.isInteger(ctx.players) ||
++      ctx.players < 1 ||
++      ctx.players > MAX_PLAYER_COUNT ||
++      !Number.isInteger(game.players.min) ||
++      !Number.isInteger(game.players.max) ||
++      game.players.min < 1 ||
++      game.players.max < game.players.min
++    )
++      return false;
+     if (ctx.players >= MAX_PLAYER_COUNT) {
+       if (game.players.max < MAX_PLAYER_COUNT || game.players.min > MAX_PLAYER_COUNT) return false;
+     } else if (game.players.min > ctx.players || game.players.max < ctx.players) {
+@@ -118,10 +128,21 @@ export function passesHardConstraints(game: Game, ctx: WizardContext): boolean {
+   }
+   if (ctx.ageBand) {
+     const band = AGE_BANDS.find((b) => b.id === ctx.ageBand);
+-    const listedAge = game.age.publisher || game.age.community;
++    if (!band) return false;
++    const listedAge = game.age.publisher;
++    if (band.youngestAge != null && (!Number.isInteger(listedAge) || listedAge < 0)) return false;
+     if (band?.youngestAge != null && listedAge > band.youngestAge) return false;
+     if (ctx.ageBand !== "adults" && hasAdultContent(game)) return false;
+   }
++  if (typeof ctx.timeOver60 !== "boolean" || (ctx.timeOver60 && ctx.maxTimeMin != null))
++    return false;
++  if (
++    (ctx.timeOver60 || ctx.maxTimeMin != null) &&
++    (!Number.isFinite(listedPlaytime(game)) || listedPlaytime(game) <= 0)
++  )
++    return false;
++  if (ctx.maxTimeMin != null && (!Number.isFinite(ctx.maxTimeMin) || ctx.maxTimeMin <= 0))
++    return false;
+   if (ctx.timeOver60) {
+     if (listedPlaytime(game) <= 60) return false;
+   } else if (ctx.maxTimeMin != null) {
+diff --git a/src/routes/wizard.tsx b/src/routes/wizard.tsx
+index ea18f76..3a06d6f 100644
+--- a/src/routes/wizard.tsx
++++ b/src/routes/wizard.tsx
+@@ -51,7 +51,7 @@ function WizardPage() {
+     setWizard({ ratingSeed: crypto.randomUUID() });
+     const { owned, wishlist, plays, vibeWeights, wizard: ctx, recPool } = useAppStore.getState();
+     const result = runWizard(entitledWizard(ctx, useAppStore.getState().isPremium), {
+-      owned: recPool?.ids.length ? recPool.ids : owned,
++      owned: recPool ? recPool.ids : owned,
+       wishlist,
+       plays,
+       vibeWeights,

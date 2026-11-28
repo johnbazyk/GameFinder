@@ -1,3 +1,4 @@
+import type { VaultArchives, VaultOwner } from "./account-vault";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type {
@@ -13,8 +14,15 @@ import { FREE_VAULT_LIMIT, PLAYER_COLORS } from "./types";
 import { DEFAULT_USER_WEIGHTS } from "./vibes";
 import { applyFeedbackDelta, getGame, runWizard } from "./scoring";
 import { STARTER_SHELF_IDS } from "./catalog";
-import { flagOn } from "./flags";
+import { createCustomCatalogGame, type CatalogGameRecord } from "./catalog-foundation";
 import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "./piece-color";
+
+/** Advanced targets are effective only while the current plan permits them. */
+export function entitledWizard(context: WizardContext, premium: boolean): WizardContext {
+  if (premium) return context;
+  const { ratingTargets: _ratingTargets, ...standard } = context;
+  return { ...standard, exactTraits: null };
+}
 
 export const DEFAULT_WIZARD: WizardContext = {
   players: 4,
@@ -25,7 +33,27 @@ export const DEFAULT_WIZARD: WizardContext = {
   exactTraits: null,
 };
 
-type AppState = {
+export const DEFAULT_DISCOVER: WizardContext = {
+  ...DEFAULT_WIZARD,
+  players: null,
+  maxTimeMin: null,
+};
+type BrowseState = {
+  discoverQuery: string;
+  discoverFilters: WizardContext;
+  discoverAll: boolean;
+  vaultTab: "owned" | "wish";
+  vaultQueries: { owned: string; wish: string };
+};
+export const EMPTY_BROWSE: BrowseState = {
+  discoverQuery: "",
+  discoverFilters: DEFAULT_DISCOVER,
+  discoverAll: false,
+  vaultTab: "owned",
+  vaultQueries: { owned: "", wish: "" },
+};
+
+type AppState = BrowseState & {
   wizard: WizardContext;
   setWizard: (patch: Partial<WizardContext>) => void;
   resetWizard: () => void;
@@ -38,6 +66,20 @@ type AppState = {
 
   owned: string[];
   wishlist: string[];
+  vaultOwnerId: VaultOwner;
+  vaultArchives: VaultArchives;
+  vaultBaselines: VaultArchives;
+  accountHistory: Record<
+    string,
+    Pick<
+      AppState,
+      "plays" | "scoreSessions" | "tablePlayers" | "lastPlayerIds" | "vibeWeights" | "customGames"
+    >
+  >;
+  customGames: CatalogGameRecord[];
+  customGamesOwnerId: string | null | "unattributed";
+  unattributedCustomGames: CatalogGameRecord[];
+  addCustomGame: (title: string) => CatalogGameRecord;
   addOwned: (id: string) => "ok" | "exists" | "limit";
   removeOwned: (id: string) => void;
   toggleWishlist: (id: string) => void;
@@ -70,7 +112,8 @@ type AppState = {
   dismissPlayPrompt: () => void;
 
   isPremium: boolean;
-  upgrade: () => void;
+  entitlementReady: boolean;
+  adEntitlement: "unknown" | "free" | "premium";
   lastSurpriseId: string | null;
   setLastSurprise: (id: string | null) => void;
 
@@ -98,12 +141,13 @@ function nid() {
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
+      ...EMPTY_BROWSE,
       wizard: { ...DEFAULT_WIZARD },
       setWizard: (patch) => {
         haptic(get().haptics);
         set({ wizard: { ...get().wizard, ...patch } });
       },
-      resetWizard: () => set({ wizard: { ...DEFAULT_WIZARD }, shownIds: [] }),
+      resetWizard: () => set({ wizard: { ...DEFAULT_WIZARD }, shownIds: [], lastResults: null }),
 
       lastResults: null,
       shownIds: [],
@@ -113,17 +157,25 @@ export const useAppStore = create<AppState>()(
         set({
           lastResults: r,
           shownIds: r ? Array.from(new Set([...get().shownIds, ...shown])) : [],
-          pendingPlayPrompt: top
-            ? { bggId: top.bggId, name: top.name }
-            : get().pendingPlayPrompt,
+          pendingPlayPrompt: top ? { bggId: top.bggId, name: top.name } : get().pendingPlayPrompt,
         });
       },
       sniffAgain: () => {
-        const { wizard, owned, wishlist, plays, vibeWeights, shownIds, recPool } = get();
-        const result = runWizard(
+        const {
           wizard,
+          lastResults,
+          owned,
+          wishlist,
+          plays,
+          vibeWeights,
+          shownIds,
+          recPool,
+          isPremium,
+        } = get();
+        const result = runWizard(
+          entitledWizard(lastResults?.appliedFilters ?? wizard, isPremium),
           {
-            owned: recPool?.ids.length ? recPool.ids : owned,
+            owned: recPool ? recPool.ids : owned,
             wishlist,
             plays,
             vibeWeights,
@@ -144,10 +196,22 @@ export const useAppStore = create<AppState>()(
 
       owned: [],
       wishlist: [],
+      vaultOwnerId: null,
+      vaultArchives: {},
+      vaultBaselines: {},
+      accountHistory: {},
+      customGames: [],
+      customGamesOwnerId: null,
+      unattributedCustomGames: [],
+      addCustomGame: (title) => {
+        const game = createCustomCatalogGame(title);
+        set({ customGames: [...get().customGames, game] });
+        return game;
+      },
       addOwned: (id) => {
         const { owned, isPremium, wishlist } = get();
         if (owned.includes(id)) return "exists";
-        if (flagOn("premium_paywall") && !isPremium && owned.length >= FREE_VAULT_LIMIT) {
+        if (!isPremium && owned.length >= FREE_VAULT_LIMIT) {
           set({
             upgradePrompt:
               "Free vaults hold up to 50 games. Upgrade to GameFinder Premium for unlimited vault storage.",
@@ -161,18 +225,15 @@ export const useAppStore = create<AppState>()(
         });
         return "ok";
       },
-      removeOwned: (id) =>
-        set({ owned: get().owned.filter((x) => x !== id) }),
+      removeOwned: (id) => set({ owned: get().owned.filter((x) => x !== id) }),
       toggleWishlist: (id) => {
         const list = get().wishlist;
         set({
-          wishlist: list.includes(id)
-            ? list.filter((x) => x !== id)
-            : [...list, id],
+          wishlist: list.includes(id) ? list.filter((x) => x !== id) : [...list, id],
         });
       },
       stockStarterShelf: () => {
-        const { owned, isPremium, addOwned } = get();
+        const { owned, addOwned } = get();
         let last: "ok" | "limit" = "ok";
         for (const id of STARTER_SHELF_IDS) {
           if (owned.includes(id)) continue;
@@ -214,10 +275,7 @@ export const useAppStore = create<AppState>()(
         if (list.length >= 16) return "limit";
         const color = PLAYER_COLORS[list.length % PLAYER_COLORS.length];
         set({
-          tablePlayers: [
-            ...list,
-            { id: nid(), name: trimmed, color, createdAt: Date.now() },
-          ],
+          tablePlayers: [...list, { id: nid(), name: trimmed, color, createdAt: Date.now() }],
         });
         return "ok";
       },
@@ -288,8 +346,7 @@ export const useAppStore = create<AppState>()(
         }
         return full;
       },
-      deleteSession: (id) =>
-        set({ scoreSessions: get().scoreSessions.filter((s) => s.id !== id) }),
+      deleteSession: (id) => set({ scoreSessions: get().scoreSessions.filter((s) => s.id !== id) }),
       lastPlayerIds: [],
       setLastPlayerIds: (ids) => set({ lastPlayerIds: ids }),
 
@@ -316,24 +373,33 @@ export const useAppStore = create<AppState>()(
       dismissPlayPrompt: () => set({ pendingPlayPrompt: null }),
 
       isPremium: false,
-      upgrade: () => set({ isPremium: true, upgradePrompt: null }),
+      entitlementReady: false,
+      adEntitlement: "unknown",
       lastSurpriseId: null,
       setLastSurprise: (id) => set({ lastSurpriseId: id }),
       upgradePrompt: null,
       setUpgradePrompt: (v) => set({ upgradePrompt: v }),
 
       recPool: null,
-      setRecPool: (v) => set({ recPool: v }),
+      setRecPool: (v) => set({ recPool: v, lastResults: null, shownIds: [] }),
 
       pieceColor: DEFAULT_PIECE_COLOR,
       setPieceColor: (hex) => set({ pieceColor: normalizePieceColor(hex) }),
     }),
     {
       name: "gamefinder-v2",
+      version: 2,
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         owned: s.owned,
         wishlist: s.wishlist,
+        vaultOwnerId: s.vaultOwnerId,
+        vaultArchives: s.vaultArchives,
+        vaultBaselines: s.vaultBaselines,
+        accountHistory: s.accountHistory,
+        customGames: s.customGames,
+        customGamesOwnerId: s.customGamesOwnerId,
+        unattributedCustomGames: s.unattributedCustomGames,
         plays: s.plays,
         vibeWeights: s.vibeWeights,
         theme: s.theme,
@@ -341,13 +407,31 @@ export const useAppStore = create<AppState>()(
         wizard: s.wizard,
         lastResults: s.lastResults,
         pendingPlayPrompt: s.pendingPlayPrompt,
-        isPremium: s.isPremium,
         lastSurpriseId: s.lastSurpriseId,
         shownIds: s.shownIds,
         tablePlayers: s.tablePlayers,
         scoreSessions: s.scoreSessions,
         lastPlayerIds: s.lastPlayerIds,
         pieceColor: s.pieceColor,
+      }),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...(persistedState as Partial<AppState>),
+        ...EMPTY_BROWSE,
+        isPremium: false,
+        entitlementReady: false,
+        adEntitlement: "unknown",
+      }),
+      migrate: (persistedState, version) => ({
+        ...(persistedState as Partial<AppState>),
+        lastResults: null,
+        shownIds: [],
+        customGamesOwnerId:
+          version < 1
+            ? "unattributed"
+            : ((persistedState as Partial<AppState>).customGamesOwnerId ?? "unattributed"),
+        unattributedCustomGames:
+          (persistedState as Partial<AppState>).unattributedCustomGames ?? [],
       }),
       onRehydrateStorage: () => (state) => {
         if (state?.theme === "dark" && typeof document !== "undefined") {

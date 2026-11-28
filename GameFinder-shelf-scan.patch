@@ -1,0 +1,251 @@
+From a7b6d093254a7178e3e4be99c846d303d1757d0a Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Mon, 23 Nov 2026 14:05:29 -0700
+Subject: [PATCH] Recover lettering on box fronts and shelf spines in local
+ scans
+
+---
+ scripts/scan-and-teach.test.mjs |  4 ++
+ src/lib/box-ocr.ts              | 27 +++++++++---
+ src/lib/box-titles.ts           | 47 +++++++++++++++++++++
+ src/lib/scan-contrast.ts        | 73 +++++++++++++++++++++++++++++++++
+ src/lib/scan-photo.ts           | 17 ++++++++
+ 5 files changed, 163 insertions(+), 5 deletions(-)
+ create mode 100644 src/lib/scan-contrast.ts
+
+diff --git a/scripts/scan-and-teach.test.mjs b/scripts/scan-and-teach.test.mjs
+index d65e66d..83e7b45 100644
+--- a/scripts/scan-and-teach.test.mjs
++++ b/scripts/scan-and-teach.test.mjs
+@@ -41,6 +41,10 @@ test("read catalog titles among box text and keep distinct editions", () => {
+   assert.deepEqual(find("Ticket to\nRide"), ["Ticket to Ride"]);
+   assert.deepEqual(find("Catan Junior"), []);
+   assert.deepEqual(find("CATAN 5–6 PLAYER EXTENSION"), []);
++  assert.deepEqual(find("WYRMSRANJ\nMYSTERIUML"), ["Mysterium", "Wyrmspan"]);
++  assert.deepEqual(find("CLE\nWYRM\nMYSTERIOUS"), []);
++  assert.deepEqual(find("FICRET 10 RIDE"), ["Ticket to Ride"]);
++  assert.deepEqual(find("FICRET 10 RIDE RAILS & SAILS"), []);
+   assert.deepEqual(find("CATANIA"), []);
+   assert.deepEqual(find("AZUL SUMMER PAVILION"), ["Azul: Summer Pavilion"]);
+   assert.deepEqual(find("Outfoxed! | CATAN THE GAME"), ["Catan", "Outfoxed!"]);
+diff --git a/src/lib/box-ocr.ts b/src/lib/box-ocr.ts
+index efdd053..e65b851 100644
+--- a/src/lib/box-ocr.ts
++++ b/src/lib/box-ocr.ts
+@@ -1,5 +1,5 @@
+ import { createWorker, OEM, PSM } from "tesseract.js";
+-import { rotateScanPhoto, scanTitleBand } from "./scan-photo";
++import { enhancedScanPhoto, rotateScanPhoto, scanTitleBand } from "./scan-photo";
+ import { GAMES } from "./catalog";
+ import { findBoxTitles } from "./box-titles";
+ import type { ScanHit } from "./scan";
+@@ -33,12 +33,29 @@ export async function createBoxReader(signal: AbortSignal) {
+     close,
+     async read(photo: HTMLCanvasElement): Promise<ScanHit[]> {
+       const hits = new Map<string, ScanHit>();
++      function* temporary(canvas: HTMLCanvasElement) {
++        try {
++          yield canvas;
++        } finally {
++          canvas.width = canvas.height = 0;
++        }
++      }
+       function* views() {
+         yield photo;
+-        yield scanTitleBand(photo, false);
+-        yield scanTitleBand(photo, true);
+-        yield rotateScanPhoto(photo, 1);
+-        yield rotateScanPhoto(photo, -1);
++        yield* temporary(scanTitleBand(photo, false));
++        yield* temporary(scanTitleBand(photo, true));
++        yield* temporary(rotateScanPhoto(photo, 1));
++        yield* temporary(rotateScanPhoto(photo, -1));
++        for (const mode of ["red", "detail", "warm", "green"] as const) {
++          const enhanced = enhancedScanPhoto(photo, mode);
++          try {
++            yield enhanced;
++            yield* temporary(rotateScanPhoto(enhanced, -1));
++            yield* temporary(rotateScanPhoto(enhanced, 1));
++          } finally {
++            enhanced.width = enhanced.height = 0;
++          }
++        }
+       }
+       for (const view of views()) {
+         signal.throwIfAborted();
+diff --git a/src/lib/box-titles.ts b/src/lib/box-titles.ts
+index 810fe0a..5dcd48f 100644
+--- a/src/lib/box-titles.ts
++++ b/src/lib/box-titles.ts
+@@ -9,6 +9,23 @@ export function boxTitleKey(title: string) {
+   return /^(the )?settlers of catan$/.test(key) ? "catan" : key;
+ }
+ 
++// Text on a patterned spine can gain a stray letter or lose part of a glyph.
++function titleDistance(a: string, b: string) {
++  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
++  for (let i = 1; i <= a.length; i++) {
++    const row = [i];
++    for (let j = 1; j <= b.length; j++) {
++      row[j] = Math.min(
++        row[j - 1] + 1,
++        previous[j] + 1,
++        previous[j - 1] + Number(a[i - 1] !== b[j - 1]),
++      );
++    }
++    previous = row;
++  }
++  return previous[b.length];
++}
++
+ // OCR often reads the designer, title and subtitle as a single line.
+ export function findBoxTitles<T extends { name: string }>(
+   text: string,
+@@ -24,6 +41,36 @@ export function findBoxTitles<T extends { name: string }>(
+   const found = new Set<T>();
+   function match(line: string) {
+     let rest = " " + line.replace(/\b(?:cat an|c atan|c4tan|cat4n)\b/g, "catan") + " ";
++    // Restrict approximate matches to a whole, distinctive word and a unique
++    // catalog candidate. Short labels and edition subtitles still require exact evidence.
++    if (line.length >= 7 && !candidates.some(({ key }) => key === line)) {
++      const words = line.split(" ");
++      const possible = candidates.filter(({ key }) => {
++        if (Math.abs(key.length - line.length) > 2) return false;
++        if (/^[a-z]{7,}$/.test(key) && words.length === 1 && key.slice(0, 3) === line.slice(0, 3)) {
++          // A box border sometimes adds a final stroke to an otherwise legible word.
++          const token =
++            line.length === key.length + 1 && /[ijl]$/.test(line) ? line.slice(0, -1) : line;
++          return titleDistance(key, token) <= 1;
++        }
++        if (key.length < 12 || words.length < 2) return false;
++        const tokens = key.split(" ");
++        if (
++          tokens.length !== words.length ||
++          !tokens.some((t, i) => t.length >= 4 && t === words[i])
++        )
++          return false;
++        const normalized = words
++          .map((word, i) =>
++            /^\d+$/.test(word) && /^[a-z]+$/.test(tokens[i])
++              ? word.replace(/1/g, "t").replace(/0/g, "o")
++              : word,
++          )
++          .join(" ");
++        return titleDistance(normalized, key) <= 2;
++      });
++      if (possible.length === 1) found.add(possible[0].game);
++    }
+     for (const { key, game } of candidates) {
+       const phrase = " " + key + " ";
+       if (!rest.includes(phrase)) continue;
+diff --git a/src/lib/scan-contrast.ts b/src/lib/scan-contrast.ts
+new file mode 100644
+index 0000000..7f36317
+--- /dev/null
++++ b/src/lib/scan-contrast.ts
+@@ -0,0 +1,73 @@
++export type ScanContrastMode = "red" | "detail" | "warm" | "green";
++
++// Use a single colour channel to separate coloured lettering from similarly bright artwork.
++// For embossed or outlined lettering, subtract a local average to highlight the strokes.
++export function scanContrast(
++  pixels: Uint8ClampedArray,
++  width: number,
++  height: number,
++  mode: ScanContrastMode,
++) {
++  if (mode === "green") {
++    for (let j = 0; j < pixels.length; j += 4) pixels[j] = pixels[j + 2] = pixels[j + 1];
++    return;
++  }
++  if (mode === "warm") {
++    // Solid mask for warm-coloured lettering over scenery on a box.
++    for (let j = 0; j < pixels.length; j += 4) {
++      const value = pixels[j] - pixels[j + 1] > 12 ? 0 : 255;
++      pixels[j] = pixels[j + 1] = pixels[j + 2] = value;
++    }
++    return;
++  }
++  const gray = new Uint8Array(width * height);
++  const stride = width + 1;
++  const sums = mode === "detail" ? new Uint32Array(stride * (height + 1)) : null;
++  for (let y = 0; y < height; y++) {
++    let rowSum = 0;
++    for (let x = 0; x < width; x++) {
++      const i = y * width + x;
++      const j = i * 4;
++      gray[i] =
++        mode === "red"
++          ? pixels[j]
++          : Math.round(0.299 * pixels[j] + 0.587 * pixels[j + 1] + 0.114 * pixels[j + 2]);
++      if (sums) {
++        rowSum += gray[i];
++        sums[(y + 1) * stride + x + 1] = rowSum + sums[y * stride + x + 1];
++      }
++    }
++  }
++  const histogram = new Uint32Array(256);
++  for (let i = 0; i < gray.length; i++) {
++    if (sums) {
++      const x = i % width,
++        y = Math.floor(i / width);
++      const left = Math.max(0, x - 5),
++        right = Math.min(width, x + 6);
++      const top = Math.max(0, y - 5),
++        bottom = Math.min(height, y + 6);
++      const sum =
++        sums[bottom * stride + right] -
++        sums[top * stride + right] -
++        sums[bottom * stride + left] +
++        sums[top * stride + left];
++      gray[i] = Math.max(
++        0,
++        Math.min(255, gray[i] + 128 - Math.round(sum / ((right - left) * (bottom - top)))),
++      );
++    }
++    histogram[gray[i]]++;
++  }
++  const trim = gray.length * 0.01;
++  let low = 0,
++    high = 255,
++    below = 0,
++    above = 0;
++  while (low < high && below + histogram[low] <= trim) below += histogram[low++];
++  while (high > low && above + histogram[high] <= trim) above += histogram[high--];
++  for (let i = 0; i < gray.length; i++) {
++    const value = ((gray[i] - low) * 255) / Math.max(1, high - low);
++    pixels[4 * i] = pixels[4 * i + 1] = pixels[4 * i + 2] = value;
++  }
++}
+diff --git a/src/lib/scan-photo.ts b/src/lib/scan-photo.ts
+index c9c271e..13c28c9 100644
+--- a/src/lib/scan-photo.ts
++++ b/src/lib/scan-photo.ts
+@@ -1,3 +1,5 @@
++import { scanContrast, type ScanContrastMode } from "./scan-contrast";
++
+ // Bound decoded working memory even when several high-resolution phone photos are selected.
+ export async function openScanPhoto(file: File): Promise<HTMLCanvasElement> {
+   const url = URL.createObjectURL(file);
+@@ -57,3 +59,18 @@ export function scanTitleBand(photo: HTMLCanvasElement, bottom: boolean) {
+   ctx.drawImage(photo, 0, y, photo.width, bandHeight, 0, 0, copy.width, copy.height);
+   return copy;
+ }
++
++export function enhancedScanPhoto(photo: HTMLCanvasElement, mode: ScanContrastMode) {
++  const scale = Math.min(1, (mode === "green" ? 1200 : 1600) / Math.max(photo.width, photo.height));
++  const canvas = document.createElement("canvas");
++  canvas.width = Math.max(1, Math.round(photo.width * scale));
++  canvas.height = Math.max(1, Math.round(photo.height * scale));
++  const ctx = canvas.getContext("2d");
++  if (!ctx) throw new Error("Photo unavailable");
++  ctx.imageSmoothingQuality = "high";
++  ctx.drawImage(photo, 0, 0, canvas.width, canvas.height);
++  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
++  scanContrast(image.data, image.width, image.height, mode);
++  ctx.putImageData(image, 0, 0);
++  return canvas;
++}
+-- 
+2.56.1
+

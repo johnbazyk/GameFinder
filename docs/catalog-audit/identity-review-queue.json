@@ -1,0 +1,973 @@
+{
+  "schemaVersion": 1,
+  "reportKind": "proposal-only-identity-review-queue",
+  "sourceLedger": {
+    "schemaVersion": 1,
+    "inventoryCommit": "76e5efb94dd18a577f9f6a83e929670d43018e9d",
+    "activation": "proposal-only",
+    "contentSha256": "4a0ca21d01a4ebd2ee9e2cf23b1e0b741a112b506b9f514e85949d09b8b48343"
+  },
+  "summary": {
+    "authoredRecordsReviewed": 143,
+    "unresolvedAuthoredRecords": 17,
+    "historicalOrphanReferences": 1,
+    "unresolvedRelationships": 2,
+    "reviewCases": 20,
+    "evidenceReferencesAvailable": 0,
+    "writesPerformed": 0,
+    "networkRequests": 0,
+    "realApprovalsRecorded": 0
+  },
+  "cases": [
+    {
+      "caseId": "historical:c575552fa2a7ad2d3bee",
+      "caseType": "historical-orphan-reference",
+      "sourceRecordId": null,
+      "titleSnapshot": "Wonderland's War (pre-transformation source key)",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "318184"
+      },
+      "reservedPermanentId": null,
+      "permanentIdStatus": "no-identity-assigned",
+      "currentIdentityReviewStatus": "orphaned",
+      "reason": [
+        "The current authored row is transformed to The Guild of Merchant Explorers / 367041; 318184 also appears in historical scorecard references. No mapping is supported."
+      ],
+      "relatedSourceRecords": [],
+      "evidenceRequired": [
+        "A historical source identifying the record represented by this exact key, not merely a title or a current catalog row with a similar name.",
+        "A separate reference-specific review for each affected user-data surface; identity evidence alone must not migrate historical references."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "No evidence was supplied; the orphan remains preserved and unmapped."
+      },
+      "recommendedHumanReviewAction": [
+        "Keep 318184 orphaned unless independently sourced historical documentation establishes what it represented.",
+        "If a user reference is later considered, decide it per reference under a separately authorized process."
+      ],
+      "permittedProposedDecisions": [
+        "orphaned-historical-reference",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:0a3c330c-f6be-4e67-b92a-4d58c33977b9",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "0a3c330c-f6be-4e67-b92a-4d58c33977b9",
+      "titleSnapshot": "Catan",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "13"
+      },
+      "reservedPermanentId": "gf:132a8702-d186-4723-a0df-6a638ebba30e",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "5fb2e4d9-6a9e-4a69-a399-86d9c03d71ab",
+          "titleSnapshot": "Outfoxed!",
+          "legacyKey": "13-junior",
+          "reservedPermanentId": "gf:e2b9d40b-7369-4481-84a9-97d03abc2bd7",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:17552ed0-4474-473b-8bdb-8f138e2b3db2",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "17552ed0-4474-473b-8bdb-8f138e2b3db2",
+      "titleSnapshot": "The Resistance",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "41114"
+      },
+      "reservedPermanentId": "gf:e09e48bb-656d-48cd-9823-f88e8f84a8a2",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["duplicate-legacy-key"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "f953e197-ff7b-484a-a770-a1d254b0d3ea",
+          "titleSnapshot": "Sleeping Queens",
+          "legacyKey": "41114",
+          "reservedPermanentId": "gf:b6dc2d86-edfa-44de-9b1b-e3596165a9c3",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Independent evidence for both records sharing the key; adjudicate the external-ID claim separately from any legacy user reference."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Review The Resistance and Sleeping Queens independently against separate authorized identity sources.",
+        "Record an external-ID decision for each source record; do not map any Vault, score, or play reference from this decision.",
+        "Leave each reference using 41114 unresolved until a reference-specific decision is authorized."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:255c1efb-4c8e-4209-a8e2-6df2c550573f",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "255c1efb-4c8e-4209-a8e2-6df2c550573f",
+      "titleSnapshot": "Paladins of the West Kingdom",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "266810"
+      },
+      "reservedPermanentId": "gf:7b2d7134-9c0c-4f1a-9dfe-ae37b2c5eec3",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "29ac7550-6da0-4e84-ae5e-beee5b54e653",
+          "titleSnapshot": "Architects of the West Kingdom",
+          "legacyKey": "266810-architects",
+          "reservedPermanentId": "gf:73d25a4b-0a1a-4dce-a89e-21141fcc8360",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:29ac7550-6da0-4e84-ae5e-beee5b54e653",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "29ac7550-6da0-4e84-ae5e-beee5b54e653",
+      "titleSnapshot": "Architects of the West Kingdom",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "266810-architects"
+      },
+      "reservedPermanentId": "gf:73d25a4b-0a1a-4dce-a89e-21141fcc8360",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "255c1efb-4c8e-4209-a8e2-6df2c550573f",
+          "titleSnapshot": "Paladins of the West Kingdom",
+          "legacyKey": "266810",
+          "reservedPermanentId": "gf:7b2d7134-9c0c-4f1a-9dfe-ae37b2c5eec3",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:32da2620-85ae-4d92-a502-12113441e113",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "32da2620-85ae-4d92-a502-12113441e113",
+      "titleSnapshot": "Everdell",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "199792"
+      },
+      "reservedPermanentId": "gf:5deab790-9ed1-4c23-93c6-977330b47ef9",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "5313ffc1-f32e-4cca-a4e7-5951384bfcde",
+          "titleSnapshot": "The Search for Planet X",
+          "legacyKey": "199792-bellfaire",
+          "reservedPermanentId": "gf:8bd9f279-1c2b-47cf-9811-ffd6951bc991",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:4f028dbd-d632-48ea-a469-a91daeafba7e",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "4f028dbd-d632-48ea-a469-a91daeafba7e",
+      "titleSnapshot": "Rhino Hero",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "209418"
+      },
+      "reservedPermanentId": "gf:2ef275da-501d-4df7-871e-4ef123668ef2",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["legacy-provider-identity-unverified"],
+      "relatedSourceRecords": [],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "A source independent of the legacy numeric claim that identifies this game's exact edition and any matching provider record."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Obtain independent evidence for the source record's exact game and edition.",
+        "Verify the claimed numeric provider identifier separately; do not infer identity from its syntax."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:5313ffc1-f32e-4cca-a4e7-5951384bfcde",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "5313ffc1-f32e-4cca-a4e7-5951384bfcde",
+      "titleSnapshot": "The Search for Planet X",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "199792-bellfaire"
+      },
+      "reservedPermanentId": "gf:8bd9f279-1c2b-47cf-9811-ffd6951bc991",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "32da2620-85ae-4d92-a502-12113441e113",
+          "titleSnapshot": "Everdell",
+          "legacyKey": "199792",
+          "reservedPermanentId": "gf:5deab790-9ed1-4c23-93c6-977330b47ef9",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:5fb2e4d9-6a9e-4a69-a399-86d9c03d71ab",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "5fb2e4d9-6a9e-4a69-a399-86d9c03d71ab",
+      "titleSnapshot": "Outfoxed!",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "13-junior"
+      },
+      "reservedPermanentId": "gf:e2b9d40b-7369-4481-84a9-97d03abc2bd7",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "0a3c330c-f6be-4e67-b92a-4d58c33977b9",
+          "titleSnapshot": "Catan",
+          "legacyKey": "13",
+          "reservedPermanentId": "gf:132a8702-d186-4723-a0df-6a638ebba30e",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:60efcf26-8bb0-4de0-a84c-61a6f8a1b3ac",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "60efcf26-8bb0-4de0-a84c-61a6f8a1b3ac",
+      "titleSnapshot": "Crokinole",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "21790"
+      },
+      "reservedPermanentId": "gf:70d92d63-bff0-451e-a6e1-ec903d1b072b",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "94bf3399-cd37-4836-84d8-4fc9c000faca",
+          "titleSnapshot": "PitchCar",
+          "legacyKey": "21790-pitch",
+          "reservedPermanentId": "gf:b50071dd-0565-4063-a5cc-2b457111e2ba",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:72b5b0dc-214b-4128-a123-9d34ef61949f",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "72b5b0dc-214b-4128-a123-9d34ef61949f",
+      "titleSnapshot": "Agricola: All Creatures Big and Small",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "31260-revised"
+      },
+      "reservedPermanentId": "gf:c442f5ae-625b-4296-b046-7ca6a90b8212",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "a2b3e159-1550-45e2-be76-0cc9f166e4cb",
+          "titleSnapshot": "Agricola",
+          "legacyKey": "31260",
+          "reservedPermanentId": "gf:921ed456-8694-4fe5-ae22-fb86718b71d7",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:89d37727-71a2-4206-9e09-c514fbf3a0ac",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "89d37727-71a2-4206-9e09-c514fbf3a0ac",
+      "titleSnapshot": "Apiary",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "266192-asia"
+      },
+      "reservedPermanentId": "gf:264b6714-d2bc-4f5e-baa5-cfd0fbc88242",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "b1bf7d20-2566-4f0f-9ddd-2db55a8c6533",
+          "titleSnapshot": "Wingspan",
+          "legacyKey": "266192",
+          "reservedPermanentId": "gf:35418b7b-6c8a-4cd7-9d9e-33b19abc17a2",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:93737ab9-ce4e-46e2-8897-f3b3b3dbfeeb",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "93737ab9-ce4e-46e2-8897-f3b3b3dbfeeb",
+      "titleSnapshot": "Twilight Imperium (4th)",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "233078"
+      },
+      "reservedPermanentId": "gf:e8a77984-3964-445d-8dce-22b09f58600c",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "aa195842-9e1e-43c3-9cfd-37c732012224",
+          "titleSnapshot": "Dune (2019)",
+          "legacyKey": "233078-short",
+          "reservedPermanentId": "gf:3a279bc1-6f10-40a7-b142-05e672056435",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:94bf3399-cd37-4836-84d8-4fc9c000faca",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "94bf3399-cd37-4836-84d8-4fc9c000faca",
+      "titleSnapshot": "PitchCar",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "21790-pitch"
+      },
+      "reservedPermanentId": "gf:b50071dd-0565-4063-a5cc-2b457111e2ba",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "60efcf26-8bb0-4de0-a84c-61a6f8a1b3ac",
+          "titleSnapshot": "Crokinole",
+          "legacyKey": "21790",
+          "reservedPermanentId": "gf:70d92d63-bff0-451e-a6e1-ec903d1b072b",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:a2b3e159-1550-45e2-be76-0cc9f166e4cb",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "a2b3e159-1550-45e2-be76-0cc9f166e4cb",
+      "titleSnapshot": "Agricola",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "31260"
+      },
+      "reservedPermanentId": "gf:921ed456-8694-4fe5-ae22-fb86718b71d7",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "72b5b0dc-214b-4128-a123-9d34ef61949f",
+          "titleSnapshot": "Agricola: All Creatures Big and Small",
+          "legacyKey": "31260-revised",
+          "reservedPermanentId": "gf:c442f5ae-625b-4296-b046-7ca6a90b8212",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:aa195842-9e1e-43c3-9cfd-37c732012224",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "aa195842-9e1e-43c3-9cfd-37c732012224",
+      "titleSnapshot": "Dune (2019)",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "233078-short"
+      },
+      "reservedPermanentId": "gf:3a279bc1-6f10-40a7-b142-05e672056435",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "93737ab9-ce4e-46e2-8897-f3b3b3dbfeeb",
+          "titleSnapshot": "Twilight Imperium (4th)",
+          "legacyKey": "233078",
+          "reservedPermanentId": "gf:e8a77984-3964-445d-8dce-22b09f58600c",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:b1bf7d20-2566-4f0f-9ddd-2db55a8c6533",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "b1bf7d20-2566-4f0f-9ddd-2db55a8c6533",
+      "titleSnapshot": "Wingspan",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "266192"
+      },
+      "reservedPermanentId": "gf:35418b7b-6c8a-4cd7-9d9e-33b19abc17a2",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["possible-suffixed-key-collision"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "89d37727-71a2-4206-9e09-c514fbf3a0ac",
+          "titleSnapshot": "Apiary",
+          "legacyKey": "266192-asia",
+          "reservedPermanentId": "gf:264b6714-d2bc-4f5e-baa5-cfd0fbc88242",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Evidence explaining the exact suffixed key's namespace and confirming both the numeric and suffixed records independently."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Inspect the exact source provenance for the numeric and suffixed keys without inferring identity from their string relationship.",
+        "Confirm title, publisher, year, edition, and external-ID association using independent evidence.",
+        "For editions or expansions, record a distinct relationship decision only after each endpoint is independently identified."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "identity:f953e197-ff7b-484a-a770-a1d254b0d3ea",
+      "caseType": "authored-source-identity",
+      "sourceRecordId": "f953e197-ff7b-484a-a770-a1d254b0d3ea",
+      "titleSnapshot": "Sleeping Queens",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "41114"
+      },
+      "reservedPermanentId": "gf:b6dc2d86-edfa-44de-9b1b-e3596165a9c3",
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "disputed",
+      "reason": ["duplicate-legacy-key"],
+      "relatedSourceRecords": [
+        {
+          "sourceRecordId": "17552ed0-4474-473b-8bdb-8f138e2b3db2",
+          "titleSnapshot": "The Resistance",
+          "legacyKey": "41114",
+          "reservedPermanentId": "gf:e09e48bb-656d-48cd-9823-f88e8f84a8a2",
+          "proposalStatus": "unresolved",
+          "relationship": "shared-legacy-key-or-review-reason"
+        }
+      ],
+      "evidenceRequired": [
+        "An independently checkable source tying this exact authored source record to the game; a title match alone is insufficient.",
+        "Separate corroboration tying each claimed external identifier to the identified game; numeric format or shared legacy key is not evidence.",
+        "Publisher, publication year, edition, printing, language, and market details when they distinguish this record from related games or editions.",
+        "Independent evidence for both records sharing the key; adjudicate the external-ID claim separately from any legacy user reference."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "The 05E1 local proposal snapshot contains no identity evidence. No external sources were fetched."
+      },
+      "recommendedHumanReviewAction": [
+        "Review The Resistance and Sleeping Queens independently against separate authorized identity sources.",
+        "Record an external-ID decision for each source record; do not map any Vault, score, or play reference from this decision.",
+        "Leave each reference using 41114 unresolved until a reference-specific decision is authorized."
+      ],
+      "permittedProposedDecisions": [
+        "confirmed-identity-candidate",
+        "external-id-disputed-or-incorrect",
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence",
+        "requires-reference-specific-human-decision"
+      ]
+    },
+    {
+      "caseId": "relationship:2d43f1a9f5a6af6b774d",
+      "caseType": "catalog-relationship",
+      "sourceRecordId": "f1e0a7c1-9cba-46ee-8ecf-214939eb94e9",
+      "titleSnapshot": "Terraforming Mars",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "167791"
+      },
+      "reservedPermanentId": null,
+      "sourcePermanentIdProposal": "gf:dcf47087-6096-48ff-8483-00e09fcdc830",
+      "permanentIdStatus": "proposal-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "relationship-unresolved",
+      "reason": ["expansion target Prelude is stored only as an unverified external reference."],
+      "relatedSourceRecords": [],
+      "relationship": {
+        "relation": "expansion",
+        "targetIdentityId": null,
+        "targetTitleSnapshot": "Prelude",
+        "externalReference": {
+          "provider": "bgg",
+          "value": "219265"
+        },
+        "status": "unresolved"
+      },
+      "evidenceRequired": [
+        "Independent evidence identifying the source game and the target game/edition as separate records.",
+        "Evidence supporting this specific base-game/expansion/edition relationship; a numeric external ID alone cannot establish either endpoint or the relationship."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "Only the legacy title and external-ID claim are present; no relation has been verified."
+      },
+      "recommendedHumanReviewAction": [
+        "Verify the source and target identities independently before evaluating their relationship.",
+        "Leave targetIdentityId null until a separately reviewed relationship decision exists."
+      ],
+      "permittedProposedDecisions": [
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence"
+      ]
+    },
+    {
+      "caseId": "relationship:73421313840c82325b69",
+      "caseType": "catalog-relationship",
+      "sourceRecordId": "b1bf7d20-2566-4f0f-9ddd-2db55a8c6533",
+      "titleSnapshot": "Wingspan",
+      "exactLegacyKey": {
+        "namespace": "legacy-bgg",
+        "value": "266192"
+      },
+      "reservedPermanentId": "gf:35418b7b-6c8a-4cd7-9d9e-33b19abc17a2",
+      "sourcePermanentIdProposal": null,
+      "permanentIdStatus": "reserved-only-not-a-canonical-mapping",
+      "currentIdentityReviewStatus": "relationship-unresolved",
+      "reason": [
+        "expansion target European Expansion is stored only as an unverified external reference."
+      ],
+      "relatedSourceRecords": [],
+      "relationship": {
+        "relation": "expansion",
+        "targetIdentityId": null,
+        "targetTitleSnapshot": "European Expansion",
+        "externalReference": {
+          "provider": "bgg",
+          "value": "290448"
+        },
+        "status": "unresolved"
+      },
+      "evidenceRequired": [
+        "Independent evidence identifying the source game and the target game/edition as separate records.",
+        "Evidence supporting this specific base-game/expansion/edition relationship; a numeric external ID alone cannot establish either endpoint or the relationship."
+      ],
+      "evidenceAvailability": {
+        "status": "none",
+        "availableEvidenceReferences": [],
+        "note": "Only the legacy title and external-ID claim are present; no relation has been verified."
+      },
+      "recommendedHumanReviewAction": [
+        "Verify the source and target identities independently before evaluating their relationship.",
+        "Leave targetIdentityId null until a separately reviewed relationship decision exists."
+      ],
+      "permittedProposedDecisions": [
+        "distinct-edition",
+        "distinct-game",
+        "potential-duplicate-needs-evidence",
+        "insufficient-evidence"
+      ]
+    }
+  ]
+}

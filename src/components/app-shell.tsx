@@ -1,23 +1,32 @@
-import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Compass, Home, Library, Trophy, UserRound } from "lucide-react";
+import { Compass, Home, Library, LockKeyhole, Menu, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
 import { markFlagsHydrated } from "@/lib/flags";
-import { AuthChip } from "@/components/auth-chip";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { UpgradeSheet } from "@/components/upgrade-sheet";
+import { FinnProcessing } from "./finn-processing";
+import { AdBanner, useShowAdBanner } from "./ad-banner";
 import { AccountSync } from "@/components/account-sync";
 
 const NAV = [
-  { to: "/", label: "Home", icon: Home },
-  { to: "/discover", label: "Discover", icon: Compass },
+  { to: "/", label: "Find", icon: Home },
   { to: "/vault", label: "Vault", icon: Library },
-  { to: "/scoreboard", label: "Scores", icon: Trophy },
-  { to: "/profile", label: "You", icon: UserRound },
+  { to: "/discover", label: "Discover", icon: Compass },
+  { to: "/profile", label: "Profile", icon: UserRound },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const { user, isPending } = useCurrentUserState();
+  const owner = useAppStore((s) => s.vaultOwnerId);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const accountReady = mounted && !isPending && owner === (user?.id ?? null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const hideNav =
     pathname.startsWith("/wizard") ||
     pathname.startsWith("/internal") ||
@@ -26,17 +35,70 @@ export function AppShell({ children }: { children: ReactNode }) {
     pathname.startsWith("/play") ||
     /\/game\/[^/]+\/table\/?$/.test(pathname);
   const theme = useAppStore((s) => s.theme);
+  const isPremium = useAppStore((s) => s.isPremium);
+  const showAd = useShowAdBanner();
+  const adPlan = useAppStore((s) => s.adEntitlement);
   const taps = useRef({ n: 0, t: 0 });
+
+  // iOS keyboard changes the visual viewport rather than the layout viewport.
+  // Ignore deliberate magnification; only adjust focused editable controls.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    const update = () => {
+      const editable = document.activeElement?.matches(
+        "input:not([type=checkbox]):not([type=radio]), textarea, [contenteditable=true]",
+      );
+      const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      const open = Boolean(editable && Math.abs(vv.scale - 1) < 0.02 && offset > 100);
+      root.dataset.keyboardOpen = String(open);
+      root.style.setProperty("--app-visible-height", `${vv.height}px`);
+      root.style.setProperty("--app-keyboard-offset", `${open ? offset : 0}px`);
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    document.addEventListener("focusin", update);
+    const afterFocus = () => requestAnimationFrame(update);
+    document.addEventListener("focusout", afterFocus);
+    update();
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("focusout", afterFocus);
+      delete root.dataset.keyboardOpen;
+      root.style.removeProperty("--app-visible-height");
+      root.style.removeProperty("--app-keyboard-offset");
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
   useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [menuOpen]);
+
+  useEffect(() => {
     void markFlagsHydrated();
   }, []);
 
   function onLogo(e: MouseEvent) {
+    if (!import.meta.env.DEV) return;
     const now = Date.now();
     if (now - taps.current.t > 900) taps.current.n = 0;
     taps.current.t = now;
@@ -48,79 +110,172 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }
 
+  if (!accountReady)
+    return (
+      <div className="paper-grain min-h-dvh text-foreground">
+        <AccountSync />
+        <main className="mx-auto max-w-3xl p-6">
+          <FinnProcessing title="Loading your table…" mood="shelf" />
+        </main>
+      </div>
+    );
+
   return (
-    <div className="paper-grain min-h-dvh text-foreground">
+    <div className={cn("paper-grain min-h-dvh text-foreground", showAd && "app-has-ad")}>
       <AccountSync />
       {hideNav ? null : (
-      <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
-          <Link to="/" className="flex items-center gap-2" onClick={onLogo}>
-            <img src="/favicon.svg" alt="" className="size-8" />
-            <span className="font-display text-xl tracking-tight">
-              GameFinder
-            </span>
-            {pathname.startsWith("/internal") ? (
-              <span className="rounded-full bg-fox px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cream">
-                Lab
-              </span>
-            ) : null}
-          </Link>
-          <nav className="hidden items-center gap-1 sm:flex">
-            {NAV.map((item) => {
-              const active =
-                item.to === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(item.to);
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  className={cn(
-                    "rounded-md px-3 py-2 text-sm font-semibold transition-colors",
-                    active
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-          <AuthChip />
-        </div>
-      </header>
-      )}
-      <main className={cn("mx-auto w-full max-w-3xl px-4 pt-5", !hideNav && "safe-bottom")}>
-        {children}
-      </main>
-      {!hideNav ? (
-        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-background/95 backdrop-blur-md sm:hidden">
-          <ul className="mx-auto grid max-w-3xl grid-cols-5 px-1 pt-1.5 pb-[max(0.55rem,env(safe-area-inset-bottom))]">
-            {NAV.map((item) => {
-              const active =
-                item.to === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(item.to);
-              const Icon = item.icon;
-              return (
-                <li key={item.to}>
+        <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md">
+          <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
+            <Link to="/" className="flex items-center gap-2" onClick={onLogo}>
+              <img
+                src="/fox/finn-headshot.webp"
+                alt=""
+                width={36}
+                height={36}
+                className="size-9 shrink-0 object-contain"
+              />
+              <span className="font-display text-xl tracking-tight">GameFinder</span>
+              {pathname.startsWith("/internal") ? (
+                <span className="rounded-full bg-fox px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cream">
+                  Lab
+                </span>
+              ) : null}
+            </Link>
+            <nav aria-label="Primary navigation" className="hidden items-center gap-1 sm:flex">
+              {NAV.map((item) => {
+                const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+                return (
                   <Link
+                    key={item.to}
+                    aria-current={active ? "page" : undefined}
                     to={item.to}
                     className={cn(
-                      "flex min-h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-bold",
-                      active ? "text-fox" : "text-muted-foreground",
+                      "rounded-md px-3 py-2 text-sm font-semibold transition-colors",
+                      active
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    <Icon className="size-6" strokeWidth={active ? 2.5 : 2} />
                     {item.label}
                   </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-      ) : null}
+                );
+              })}
+            </nav>
+            <div className="relative">
+              <button
+                ref={menuButtonRef}
+                type="button"
+                className="grid size-11 place-items-center rounded-button text-foreground hover:bg-muted"
+                aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+                aria-expanded={menuOpen}
+                aria-controls="secondary-navigation"
+                onClick={() => setMenuOpen((open) => !open)}
+              >
+                {menuOpen ? <X className="size-5" /> : <Menu className="size-5" />}
+              </button>
+              <nav
+                id="secondary-navigation"
+                aria-label="Secondary navigation"
+                hidden={!menuOpen}
+                className="absolute right-0 top-full z-40 mt-2 w-64 overflow-hidden rounded-card border border-border bg-background p-1 shadow-lift"
+              >
+                <Link
+                  to="/table-setup"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex min-h-11 items-center rounded-button px-3 text-sm font-semibold hover:bg-muted"
+                >
+                  Players Tonight
+                </Link>
+                <Link
+                  to="/recently-played"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex min-h-11 items-center rounded-button px-3 text-sm font-semibold hover:bg-muted"
+                >
+                  Recently Played
+                </Link>
+                <Link
+                  to="/scoreboard"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex min-h-11 items-center justify-between rounded-button px-3 text-sm font-semibold hover:bg-muted"
+                >
+                  <span>Scores &amp; Win History</span>
+                  {!isPremium ? (
+                    <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                      <LockKeyhole className="size-3" />
+                      Premium
+                    </span>
+                  ) : null}
+                </Link>
+                <Link
+                  to="/profile"
+                  hash="settings"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex min-h-11 items-center rounded-button px-3 text-sm font-semibold hover:bg-muted"
+                >
+                  Settings
+                </Link>
+                <Link
+                  to="/premium"
+                  search={{ session_id: "" }}
+                  onClick={() => setMenuOpen(false)}
+                  className="flex min-h-11 items-center rounded-button px-3 text-sm font-semibold text-fox hover:bg-muted"
+                >
+                  Explore GameFinder Premium
+                </Link>
+              </nav>
+            </div>
+          </div>
+        </header>
+      )}
+      <main
+        className={cn(
+          "mx-auto w-full max-w-3xl px-4 pt-5",
+          !hideNav && "safe-bottom",
+          showAd && "app-ad-space",
+        )}
+      >
+        <div key={user?.id ?? "guest:"}>{children}</div>
+        <UpgradeSheet />
+      </main>
+      <footer
+        data-app-footer
+        data-ad-plan={adPlan}
+        className={cn(
+          "fixed inset-x-0 bottom-0 z-30 bg-background",
+          !hideNav && "app-footer-nav",
+          showAd && "app-footer-ad",
+        )}
+      >
+        {!hideNav ? (
+          <nav
+            aria-label="Primary navigation"
+            className="border-t border-border/70 bg-background sm:hidden"
+          >
+            <ul className="mx-auto grid max-w-3xl grid-cols-4 px-1 pt-1.5 pb-2">
+              {NAV.map((item) => {
+                const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+                const Icon = item.icon;
+                return (
+                  <li key={item.to}>
+                    <Link
+                      to={item.to}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "flex min-h-[4.25rem] flex-col items-center justify-center gap-1 text-xs font-bold",
+                        active ? "text-fox" : "text-muted-foreground",
+                      )}
+                    >
+                      <Icon className="size-6" strokeWidth={active ? 2.5 : 2} />
+                      {item.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        ) : null}
+        <AdBanner />
+      </footer>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import type { RatingMode, RatingTarget } from "./rating-policy";
 export const DIMENSIONS = [
   "luck",
   "strategy",
@@ -10,14 +11,7 @@ export const DIMENSIONS = [
 
 export type Dimension = (typeof DIMENSIONS)[number];
 
-export const VIBE_IDS = [
-  "luck",
-  "strategy",
-  "dexterity",
-  "family",
-  "party",
-  "board",
-] as const;
+export const VIBE_IDS = ["luck", "strategy", "dexterity", "family", "party", "board"] as const;
 
 export type VibeId = (typeof VIBE_IDS)[number];
 
@@ -48,6 +42,11 @@ export type Game = {
 };
 
 export type WizardContext = {
+  ratingMode?: RatingMode;
+  ratingTargets?: Partial<Record<VibeId, RatingTarget>>;
+  ratingEdition?: string;
+  ratingPlayMode?: string;
+  ratingSeed?: string;
   players: number | null;
   ageBand: AgeBand | null;
   maxTimeMin: number | null;
@@ -57,6 +56,7 @@ export type WizardContext = {
 };
 
 export type ScoredGame = Game & {
+  ratingContext?: WizardContext;
   score: number;
   matchLabel: MatchLabel;
   owned: boolean;
@@ -64,7 +64,14 @@ export type ScoredGame = Game & {
   topDims: Dimension[];
 };
 
+export type MatchCoverage = {
+  hardExcluded: number;
+  missingRatings: number;
+  ratingMismatch: number;
+};
+
 export type WizardResult = {
+  coverage?: { owned: MatchCoverage; unowned: MatchCoverage };
   ownedTop: ScoredGame[];
   unownedTop: ScoredGame[];
   ownedList: ScoredGame[];
@@ -116,9 +123,7 @@ export type ScoreSession = {
 export type FeedbackType = "thumbs_up" | "thumbs_down";
 
 export const FREE_VAULT_LIMIT = 50;
-export const PREMIUM_PRICE = "$3.99/month";
-export const PREMIUM_YEARLY = "$29.99/year";
-export const PREMIUM_LIFE = "$49.99 once";
+export const MAX_PLAYER_COUNT = 13;
 
 export const PLAYER_COLORS = [
   "#e8642b",

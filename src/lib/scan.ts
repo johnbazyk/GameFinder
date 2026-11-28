@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { standaloneGames } from "./catalog";
+import { authMiddleware } from "./auth/middleware";
+import { GAMES } from "./catalog";
 
 export type ScanHit = {
   bggId: string | null;
@@ -10,36 +11,48 @@ export type ScanHit = {
 };
 
 function apiKey() {
-  return process.env.XAI_API_KEY;
+  // External photo processing stays disabled until retention, rights and
+  // provider terms have been explicitly reviewed.
+  return process.env.GAMEFINDER_REMOTE_SCAN_APPROVED === "1" ? process.env.XAI_API_KEY : undefined;
 }
 
+export const remoteScanAvailable = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => Boolean(apiKey()));
+
 export const identifyShelf = createServerFn({ method: "POST" })
-  .validator((input: { image: string }) => {
+  .middleware([authMiddleware])
+  .validator((input: { image: string; consent: boolean }) => {
+    if (input?.consent !== true) throw new Error("External photo processing requires consent");
     if (!input?.image || typeof input.image !== "string") throw new Error("Missing image");
     if (input.image.length > 6_500_000) throw new Error("Image too large");
+    if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(input.image))
+      throw new Error("Invalid image");
     return { image: input.image };
   })
   .handler(async ({ data }) => {
     const key = apiKey();
-    const catalog = standaloneGames().map((g) => `${g.bggId}|${g.name}|${g.yearPublished}`);
+    const catalog = GAMES.map((g) => `${g.bggId}|${g.name}|${g.yearPublished}`);
     if (!key) {
       return { ok: false as const, error: "unavailable", hits: [] as ScanHit[] };
     }
 
     const res = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
+      signal: AbortSignal.timeout(20000),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: "grok-4.5",
+        model: process.env.XAI_SCAN_MODEL || "grok-4.7",
+        store: false,
         temperature: 0.1,
-        max_tokens: 900,
+        max_tokens: 3200,
         messages: [
           {
             role: "system",
-            content: `You identify published board games visible in a photo of a shelf, table, or boxes. Match only against this catalog. Return JSON only: {"games":[{"bggId":"id or null","name":"title","confidence":"high"|"review"|"unknown","possibleExpansion":false,"note":"short"}]}. If a box is an expansion, set possibleExpansion true. If you cannot match a catalog id, set bggId null and confidence unknown. Do not invent games that are not in the photo. Catalog:\n${catalog.join("\n")}`,
+            content: `You identify published board games visible in a photo of a shelf, table, or boxes. Match only against this catalog. Read box fronts and spine titles. The Settlers of Catan is the base game Catan. Return JSON only: {"games":[{"bggId":"id or null","name":"title","confidence":"high"|"review"|"unknown","possibleExpansion":false,"note":"short"}]}. If a box is an expansion, set possibleExpansion true. If you cannot match a catalog id, set bggId null and confidence unknown. Do not invent games that are not in the photo. Catalog:\n${catalog.join("\n")}`,
           },
           {
             role: "user",
@@ -72,24 +85,9 @@ export const identifyShelf = createServerFn({ method: "POST" })
     } catch {
       return { ok: false as const, error: "parse", hits: [] as ScanHit[] };
     }
-    const known = new Map(standaloneGames().map((g) => [g.bggId, g]));
-    const byName = new Map(standaloneGames().map((g) => [g.name.toLowerCase(), g]));
-    const hits: ScanHit[] = (parsed.games ?? []).slice(0, 40).map((h) => {
-      const byId = h.bggId ? known.get(String(h.bggId)) : undefined;
-      const named = byName.get((h.name ?? "").toLowerCase());
-      const game = byId ?? named;
-      const confidence = game
-        ? h.confidence === "high"
-          ? "high"
-          : "review"
-        : "unknown";
-      return {
-        bggId: game?.bggId ?? null,
-        name: game?.name ?? h.name ?? "Unknown box",
-        confidence,
-        note: h.note,
-        possibleExpansion: Boolean(h.possibleExpansion),
-      };
-    });
+    if (!Array.isArray(parsed.games))
+      return { ok: false as const, error: "parse", hits: [] as ScanHit[] };
+    const { validateScanHits } = await import("./scan-validation");
+    const hits = validateScanHits(parsed.games, GAMES);
     return { ok: true as const, hits };
   });
