@@ -1,4 +1,4 @@
-import { discoverDisplay, RECOMMENDATION_LIMIT } from "@/lib/recommendation-limits";
+import { discoverDisplay } from "@/lib/recommendation-limits";
 import { RatingNotice } from "@/components/rating-controls";
 import { APPLICATION_RATING_MODE } from "@/lib/rating-policy";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -12,21 +12,22 @@ import {
   TimeChips,
   WIZARD_QUESTIONS,
 } from "@/components/wizard-controls";
-import { STARTER_SHELF_IDS, standaloneGames } from "@/lib/catalog";
 import {
   discoverAlternatives,
   discoverGames,
+  discoverRecommendations,
+  featuredGames,
   formatPlaytime,
   formatPlayers,
-  getGame,
 } from "@/lib/scoring";
 import { useAppStore, DEFAULT_DISCOVER } from "@/lib/store";
-import type { Game, VibeId, WizardContext } from "@/lib/types";
+import type { VibeId, WizardContext } from "@/lib/types";
 
 export const Route = createFileRoute("/discover")({ component: DiscoverPage });
 
 function DiscoverPage() {
   const owned = useAppStore((s) => s.owned);
+  const wishlist = useAppStore((s) => s.wishlist);
   const q = useAppStore((s) => s.discoverQuery);
   const filters = useAppStore((s) => s.discoverFilters);
   const browseAll = useAppStore((s) => s.discoverAll);
@@ -34,6 +35,7 @@ function DiscoverPage() {
   const setFilters = (update: WizardContext | ((prev: WizardContext) => WizardContext)) =>
     useAppStore.setState((s) => ({
       discoverFilters: typeof update === "function" ? update(s.discoverFilters) : update,
+      discoverAll: false,
     }));
   const setBrowseAll = (update: boolean | ((prev: boolean) => boolean)) =>
     useAppStore.setState((s) => ({
@@ -48,23 +50,20 @@ function DiscoverPage() {
     filters.timeOver60 ||
     filters.vibes.length > 0;
 
-  const results = useMemo(() => {
-    return discoverGames(filters, q);
-  }, [filters, q]);
-
-  const featured = useMemo(() => {
-    const fromShelf = STARTER_SHELF_IDS.map(getGame).filter((g): g is Game => Boolean(g));
-    return fromShelf
-      .filter((g) => standaloneGames().some((item) => item.bggId === g.bggId))
-      .slice(0, RECOMMENDATION_LIMIT);
-  }, []);
+  const results = useMemo(
+    () =>
+      searching || browseAll ? discoverGames(filters, q) : discoverRecommendations(filters, owned),
+    [filters, q, searching, browseAll, owned],
+  );
+  const week = Math.floor(Date.now() / 604800000);
+  const featured = useMemo(() => featuredGames(owned, week * 604800000), [owned, week]);
 
   const alternatives = useMemo(
     () =>
-      !q.trim() && results.length === 0 && filters.vibes.length > 0
-        ? discoverAlternatives(filters, q)
+      !searching && !browseAll && results.length === 0 && filters.vibes.length > 0
+        ? discoverAlternatives(filters, "", undefined, owned)
         : [],
-    [filters, q, results.length],
+    [filters, searching, browseAll, results.length, owned],
   );
   const list = discoverDisplay(results, featured, { query: q, filtered, browseAll });
 
@@ -85,7 +84,7 @@ function DiscoverPage() {
 
   return (
     <div className="pb-8">
-      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-fox">Find a game</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-fox">Discover a game</p>
       <h1 className="font-display text-3xl">What are you looking for?</h1>
       <RatingNotice />
 
@@ -247,7 +246,11 @@ function DiscoverPage() {
                   ) : null}
                   <p className="mt-0.5 text-sm text-muted-foreground">
                     {formatPlayers(g)} players · {formatPlaytime(g)}
-                    {owned.includes(g.bggId) ? " · In vault" : ""}
+                    {owned.includes(g.bggId)
+                      ? " · In vault"
+                      : wishlist.includes(g.bggId)
+                        ? " · Wishlisted"
+                        : ""}
                   </p>
                 </div>
               </Link>
@@ -258,8 +261,8 @@ function DiscoverPage() {
         <div className="mt-6 rounded-card bg-card p-5 text-center shadow-card">
           <p className="font-display text-xl">Finn couldn’t find an exact match</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            No games in the current catalog match all selected filters. Family needs an assessed age
-            context. Adjust filters or search by title.
+            No eligible games match all selected filters. Recommendations exclude games already in
+            your Vault. Family needs an assessed age context. Adjust filters or search by title.
           </p>
           <button type="button" className="mt-3 min-h-11 font-semibold text-fox" onClick={clear}>
             Start over

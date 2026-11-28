@@ -13,7 +13,7 @@ import type {
 import { FREE_VAULT_LIMIT, PLAYER_COLORS } from "./types";
 import { DEFAULT_USER_WEIGHTS } from "./vibes";
 import { applyFeedbackDelta, getGame, runWizard } from "./scoring";
-import { STARTER_SHELF_IDS } from "./catalog";
+import { normalizeVault, toggleUnownedWishlist } from "./vault-policy";
 import { createCustomCatalogGame, type CatalogGameRecord } from "./catalog-foundation";
 import { DEFAULT_PIECE_COLOR, normalizePieceColor } from "./piece-color";
 
@@ -83,7 +83,6 @@ type AppState = BrowseState & {
   addOwned: (id: string) => "ok" | "exists" | "limit";
   removeOwned: (id: string) => void;
   toggleWishlist: (id: string) => void;
-  stockStarterShelf: () => "ok" | "limit";
 
   plays: PlayLog[];
   logPlay: (entry: Omit<PlayLog, "id" | "at">) => void;
@@ -210,7 +209,10 @@ export const useAppStore = create<AppState>()(
       },
       addOwned: (id) => {
         const { owned, isPremium, wishlist } = get();
-        if (owned.includes(id)) return "exists";
+        if (owned.includes(id)) {
+          if (wishlist.includes(id)) set({ wishlist: wishlist.filter((x) => x !== id) });
+          return "exists";
+        }
         if (!isPremium && owned.length >= FREE_VAULT_LIMIT) {
           set({
             upgradePrompt:
@@ -225,26 +227,14 @@ export const useAppStore = create<AppState>()(
         });
         return "ok";
       },
-      removeOwned: (id) => set({ owned: get().owned.filter((x) => x !== id) }),
-      toggleWishlist: (id) => {
-        const list = get().wishlist;
+      removeOwned: (id) => {
+        if (!get().owned.includes(id)) return;
         set({
-          wishlist: list.includes(id) ? list.filter((x) => x !== id) : [...list, id],
+          owned: get().owned.filter((x) => x !== id),
+          wishlist: get().wishlist.filter((x) => x !== id),
         });
       },
-      stockStarterShelf: () => {
-        const { owned, addOwned } = get();
-        let last: "ok" | "limit" = "ok";
-        for (const id of STARTER_SHELF_IDS) {
-          if (owned.includes(id)) continue;
-          const r = addOwned(id);
-          if (r === "limit") {
-            last = "limit";
-            break;
-          }
-        }
-        return last;
-      },
+      toggleWishlist: (id) => set(toggleUnownedWishlist(get(), id)),
 
       plays: [],
       logPlay: (entry) => {
@@ -417,6 +407,11 @@ export const useAppStore = create<AppState>()(
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<AppState>),
+        ...normalizeVault({
+          owned: (persistedState as Partial<AppState> | undefined)?.owned ?? currentState.owned,
+          wishlist:
+            (persistedState as Partial<AppState> | undefined)?.wishlist ?? currentState.wishlist,
+        }),
         ...EMPTY_BROWSE,
         isPremium: false,
         entitlementReady: false,

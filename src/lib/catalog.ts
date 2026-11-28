@@ -2188,7 +2188,7 @@ export function standaloneGames(): Game[] {
   return GAMES.filter(isStandaloneGame);
 }
 
-export const STARTER_SHELF_IDS = [
+export const FEATURED_GAME_IDS = [
   "178900",
   "266192",
   "9209",

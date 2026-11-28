@@ -22,7 +22,8 @@ function GamePage() {
   const wizardContext = useAppStore((s) => s.wizard);
   const customGame = useAppStore((s) => s.customGames.find((entry) => entry.id === id));
   const entitlementReady = useAppStore((s) => s.entitlementReady);
-  const owned = useAppStore((s) => s.owned.includes(id));
+  const ownedIds = useAppStore((s) => s.owned);
+  const owned = ownedIds.includes(id);
   const wish = useAppStore((s) => s.wishlist.includes(id));
   const addOwned = useAppStore((s) => s.addOwned);
   const removeOwned = useAppStore((s) => s.removeOwned);
@@ -53,7 +54,8 @@ function GamePage() {
           </div>
           <p className="rounded-card bg-muted px-4 py-3 text-sm text-muted-foreground">
             Player count, age, playtime, and rule sources are unknown. This entry is kept in your
-            Vault but will not be recommended against hard filters until verified details are added.
+            personal catalog but will not be recommended against hard filters until verified details
+            are added.
           </p>
           {owned ? (
             <Button className="w-full" variant="outline" onClick={() => removeOwned(id)}>
@@ -65,14 +67,16 @@ function GamePage() {
               Add to Vault
             </Button>
           )}
-          <Button
-            className="w-full"
-            variant={wish ? "secondary" : "outline"}
-            onClick={() => toggleWishlist(id)}
-          >
-            <Heart className={wish ? "size-4 fill-fox text-fox" : "size-4"} />
-            {wish ? "On Wishlist" : "Add to Wishlist"}
-          </Button>
+          {!owned && (
+            <Button
+              className="w-full"
+              variant={wish ? "secondary" : "outline"}
+              onClick={() => toggleWishlist(id)}
+            >
+              <Heart className={wish ? "size-4 fill-fox text-fox" : "size-4"} />
+              {wish ? "Remove from Wishlist" : "Add to Wishlist"}
+            </Button>
+          )}
           <p className="text-xs text-muted-foreground">
             Finn is unavailable for this entry until a correct edition and authorized source are
             identified.
@@ -91,7 +95,13 @@ function GamePage() {
     );
   }
 
-  const related = similarGames(game, undefined, match?.ratingContext ?? wizardContext);
+  const related = similarGames(
+    game,
+    undefined,
+    match?.ratingContext ?? wizardContext,
+    undefined,
+    ownedIds,
+  );
   const amazon = amazonSearchUrl(game.name);
   const bgg = /^\d+$/.test(game.bggId)
     ? `https://boardgamegeek.com/boardgame/${game.bggId}`
@@ -146,22 +156,11 @@ function GamePage() {
               onClick={() => toggleWishlist(game.bggId)}
             >
               <Heart className={wish ? "size-4 fill-fox text-fox" : "size-4"} />
-              {wish ? "On Wishlist" : "Add to Wishlist"}
+              {wish ? "Remove from Wishlist" : "Add to Wishlist"}
             </Button>
           </>
         )}
       </div>
-      {owned ? (
-        <Button
-          className="mt-2 w-full"
-          variant={wish ? "secondary" : "ghost"}
-          onClick={() => toggleWishlist(game.bggId)}
-        >
-          <Heart className={wish ? "size-4 fill-fox text-fox" : "size-4"} />
-          {wish ? "On Wishlist" : "Add to Wishlist"}
-        </Button>
-      ) : null}
-
       <Button className="mt-3 w-full" variant="secondary" asChild>
         <Link to="/game/$id/teach" params={{ id: game.bggId }}>
           <Mic className="size-4" />

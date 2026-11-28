@@ -21,7 +21,6 @@ function VaultPage() {
   const customGames = useAppStore((s) => s.customGames);
   const ready = useAppStore((s) => s.entitlementReady);
   const isPremium = useAppStore((s) => s.isPremium);
-  const stockStarterShelf = useAppStore((s) => s.stockStarterShelf);
   const [scan, setScan] = useState(false);
   const [manual, setManual] = useState(false);
   const tab = useAppStore((s) => s.vaultTab);
@@ -76,14 +75,6 @@ function VaultPage() {
               Can't scan it? Search by title.
             </Button>
           ) : null}
-          <button
-            type="button"
-            className="text-sm font-semibold text-sky"
-            disabled={!ready}
-            onClick={() => stockStarterShelf()}
-          >
-            Or stock a starter shelf
-          </button>
         </div>
         {ready && <VaultLimitNotice isPremium={isPremium} ownedCount={owned.length} />}
         <ScanGames open={scan} onClose={() => setScan(false)} />

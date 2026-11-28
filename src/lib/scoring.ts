@@ -1,4 +1,9 @@
-import { RECOMMENDATION_LIMIT, recommendationGroup } from "./recommendation-limits";
+import {
+  RECOMMENDATION_LIMIT,
+  recommendationGroup,
+  unownedCandidates,
+  featuredRotation,
+} from "./recommendation-limits";
 import {
   compareGameCharacteristics,
   compareSimilarity,
@@ -29,6 +34,7 @@ import {
   standaloneGames,
   isStandaloneGame,
   CATALOG_EXTERNAL_ID_CONFLICTS,
+  FEATURED_GAME_IDS,
 } from "./catalog";
 import { explainMatch } from "./explain";
 import { scoreLegacyGameWithCatalogFoundation } from "./catalog-legacy-bridge";
@@ -141,14 +147,39 @@ export function discoverGames(
   );
 }
 
+/** Acquisition recommendations exclude ownership before ranking. Explicit retrieval stays separate. */
+export function discoverRecommendations(
+  ctx: WizardContext,
+  ownedIds: readonly string[],
+  query = "",
+): Game[] {
+  return discoverGames(
+    ctx,
+    query,
+    applicationReviewedFactsAdapter,
+    unownedCandidates(searchGames(query), ownedIds),
+  );
+}
+export function featuredGames(ownedIds: readonly string[], now = Date.now()): Game[] {
+  const conflicts = new Set(CATALOG_EXTERNAL_ID_CONFLICTS.map((entry) => entry.externalId));
+  const pool = FEATURED_GAME_IDS.map(getGame).filter(
+    (g): g is Game => !!g && isStandaloneGame(g) && !conflicts.has(g.bggId),
+  );
+  return featuredRotation(pool, ownedIds, now);
+}
+
 /** Alternatives relax only ordinary Vibe preferences, never hard limits or exact targets. */
 export function discoverAlternatives(
   ctx: WizardContext,
   query = "",
   limit = RECOMMENDATION_LIMIT,
+  ownedIds: readonly string[] = [],
 ): Game[] {
-  if (!ctx.vibes.length || discoverGames(ctx, query).length) return [];
-  return recommendationGroup(discoverGames({ ...ctx, vibes: [] }, query), limit);
+  if (!ctx.vibes.length || discoverRecommendations(ctx, ownedIds, query).length) return [];
+  return recommendationGroup(
+    discoverRecommendations({ ...ctx, vibes: [] }, ownedIds, query),
+    limit,
+  );
 }
 
 export function runWizard(
@@ -248,13 +279,14 @@ export function similarGames(
   limit = RECOMMENDATION_LIMIT,
   ctx: WizardContext = SIMILARITY_CONTEXT,
   games: readonly Game[] = standaloneGames(),
+  ownedIds: readonly string[] = [],
 ): Game[] {
   const conflicts = new Set(CATALOG_EXTERNAL_ID_CONFLICTS.map((entry) => entry.externalId));
   if (!isStandaloneGame(game) || conflicts.has(game.bggId)) return [];
   const candidates = uniqueStandaloneCandidates(applicationReviewedFactsAdapter(games, ctx)).filter(
     (g) => !conflicts.has(g.bggId),
   );
-  const ranked = candidates
+  const ranked = unownedCandidates(candidates, ownedIds)
     .flatMap((g) => {
       if (g.bggId === game.bggId) return [];
       const comparison = compareGameCharacteristics(game, g, ctx);

@@ -18,3 +18,15 @@ export function assertVaultCapacity(previous: string[], next: string[], premium:
   if (next.some((id) => !prior.has(id)))
     throw new Error("Free vaults hold up to 50 games. Existing games are preserved.");
 }
+
+/** Ownership wins even when a stale action attempts to wishlist an owned title. */
+export function toggleUnownedWishlist(input: VaultSnapshot, id: string): VaultSnapshot {
+  const current = normalizeVault(input);
+  if (current.owned.includes(id)) return current;
+  return normalizeVault({
+    ...current,
+    wishlist: current.wishlist.includes(id)
+      ? current.wishlist.filter((x) => x !== id)
+      : [...current.wishlist, id],
+  });
+}

@@ -10,7 +10,8 @@ export const accountVaultKey = (owner: VaultOwner) =>
 // Switch the active shelf without merging one account's collection into another.
 // The outgoing snapshot remains available on this device to its original owner.
 export function switchVault(local: LocalVault, archives: VaultArchives, owner: VaultOwner) {
-  if (local.ownerId === owner) return { vault: local, archives };
+  if (local.ownerId === owner)
+    return { vault: { ...normalizeVault(local), ownerId: owner }, archives };
   const saved = { ...archives, [accountVaultKey(local.ownerId)]: normalizeVault(local) };
   const target = saved[accountVaultKey(owner)] ?? { owned: [], wishlist: [] };
   return { vault: { ...normalizeVault(target), ownerId: owner }, archives: saved };
